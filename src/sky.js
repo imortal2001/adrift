@@ -120,7 +120,7 @@ export class Sky {
     this.moon = new THREE.DirectionalLight(0x9fc2e8, 0.16);
     scene.add(this.moon);
 
-    scene.fog = new THREE.FogExp2(0xbfd9e8, 0.0042);
+    scene.fog = new THREE.FogExp2(0xbfd9e8, 0.0016);
 
     this.time = DAY_SECONDS * 0.42;   // wake up mid-morning, in good light
     this.day = 1;
@@ -190,6 +190,6 @@ export class Sky {
 
     this.hemi.intensity = p.amb;
     this.hemi.color.copy(p.hor);
-    this.scene.fog.density = 0.0040 + 0.0016 * p.night;
+    this.scene.fog.density = 0.0016 + 0.0012 * p.night;
   }
 }

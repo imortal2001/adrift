@@ -9,6 +9,8 @@ import { DebrisField } from './debris.js';
 import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
 import { Underwater } from './underwater.js';
+import { Terrain, heightAt as landHeight, coastDistance, CHUNK } from './terrain.js';
+import { Wildlife } from './wildlife.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
@@ -77,6 +79,9 @@ class Game {
     this.hotbar = new Hotbar();
     this.player = new Player(this.camera, this.raft);
     this.debris = new DebrisField(this.scene, this.raft);
+    this.terrain = new Terrain(this.scene);
+    // Seed the wildlife around a point well inland from the nearest coast.
+    this.wildlife = new Wildlife(this.scene, { x: 210, z: -150 });
     this.fish = new FishSchools(this.scene);
     this.underwater = new Underwater(this.scene);
     this.hook = new Hook(this.scene);
@@ -92,6 +97,7 @@ class Game {
     this.playing = false;
     this.wiped = false;
     this.slotHintUntil = 0;
+    this.lastBite = -99;
     this.lastSave = 0;
     this.lastHealth = 100;
 
@@ -356,6 +362,38 @@ class Game {
     }
     if (piece?.id === 'campfire') return { prompt: 'The fire holds the dark back', act: null };
 
+    const plant = this.terrain.pickPlant(eye, dir);
+    if (plant) {
+      return {
+        prompt: `<b>E</b> harvest ${plant.sp.label}`,
+        act: () => {
+          const { label, yield: y } = this.terrain.harvest(plant);
+          const parts = [];
+          for (const id in y) {
+            this.inv.add(id, y[id]);
+            this.hotbar.autoAssign(id);
+            parts.push(`${y[id]} ${ITEMS[id].name}`);
+          }
+          this.hud.log(`${label}: ${parts.join(', ')}`, 'good');
+          this.hud.refreshInventory(this.inv);
+          this.hud.refreshHotbar(this.hotbar, this.inv);
+          this.hud.refreshCraft(this.inv);
+        },
+      };
+    }
+
+    const beast = this.wildlife.pick(eye, dir);
+    if (beast) {
+      const hunting = beast.state === 'hunt';
+      const fleeing = beast.state === 'flee';
+      return {
+        prompt: beast.sp.diet === 'meat'
+          ? `${beast.sp.label} — ${hunting ? 'it has your scent' : 'hunting'}`
+          : `${beast.sp.label} — ${fleeing ? 'it is running from something' : 'grazing'}`,
+        act: null,
+      };
+    }
+
     // Fish are ambient for now; the prompt points at what a spear is for.
     if (this.fish.pick(eye, dir, 3.0)) {
       return { prompt: 'Too quick to catch by hand — you need a spear', act: null };
@@ -458,13 +496,18 @@ class Game {
     if (wantBuild !== this.build.active) this.build.toggle(wantBuild);
 
     // World
-    this.sky.update(dt, this.raft.group.position);
+    this.sky.update(dt, this.player.pos);
     this.raft.update(dt, this.time, this.sky.night);
     this.player.update(dt, this.time, input, panelOpen);
     this.ocean.update(this.time, this.camera.position);
 
     const eye = this.camera.position;
     const dir = this.player.forward(this.tmpDir);
+    // Stream terrain around whoever is looking at it, then run the ecosystem.
+    this.terrain.update(dt, this.player.pos);
+    this.wildlife.setPlayerPos(this.player.pos);
+    this.wildlife.update(dt, this.time, this.player,
+                         this.player.state === 'deck' && this.player.onLand);
     this.debris.update(dt, this.time, this.player.pos);
     this.fish.update(dt, this.time, eye);
     this.hook.update(dt, eye.clone().addScaledVector(dir, 0.5), this.time, this.debris,
@@ -536,6 +579,26 @@ class Game {
     }
 
     // HUD
+    // A short grace period after being hit, so a pack cannot stack three bites
+    // into the same instant. Caps incoming damage no matter how many close in,
+    // which leaves time to run for the water — the only escape there is.
+    const bites = this.wildlife.events.splice(0);
+    // Report any species that upgraded itself to a glTF body.
+    for (const u of this.wildlife.upgraded.splice(0)) {
+      this.hud.log(`Loaded ${u.key} model (${u.count} animals, ${u.clips} clips).`, 'good');
+    }
+    for (const k of this.wildlife.kills.splice(0)) {
+      if (k.pos.distanceTo(this.player.pos) < 150) {
+        this.hud.log(`A ${k.hunter} brings down a ${k.victim}.`);
+      }
+    }
+    if (bites.length && this.time > this.lastBite + 0.8) {
+      this.lastBite = this.time;
+      const worst = bites.reduce((a, b) => (b.damage > a.damage ? b : a));
+      this.player.health = Math.max(0, this.player.health - worst.damage);
+      this.hud.log(`The ${worst.label} tears into you.`, 'bad');
+    }
+
     this.hud.updateVitals(this.player);
     this.hud.updateClock(this.sky, this.player, this.raft);
     this.hud.refreshInventory(this.inv);

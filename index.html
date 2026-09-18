@@ -68,7 +68,21 @@
   #inv{position:absolute;bottom:92px;left:244px;right:244px;
     display:flex;gap:6px;padding:7px;flex-wrap:wrap;justify-content:center;
     width:fit-content;margin:0 auto}
-  /* No room beside the side panels: sit above them instead of under them. */
+  /* Between the side panels there is only ~312px at an 800px window, and five
+     74px slots do not fit. Shrink them rather than stacking everything. */
+  @media (max-width:900px){
+    #hotbar{gap:5px;padding:7px}
+    .hs{width:54px;padding:6px 3px 5px}
+    .hs .k{font-size:8px;top:1px;left:4px}
+    .hs .n{font-size:8.5px;margin-top:6px}
+    .hs .q{font-size:10.5px}
+    #inv{gap:5px;padding:6px}
+    .slot{min-width:52px;padding:4px 5px}
+    .slot .n{font-size:8px}
+    .slot .q{font-size:12px}
+  }
+
+  /* No room beside the side panels at all: sit above them instead. */
   @media (max-width:620px){
     #hotbar{left:18px;right:18px}
     #inv{left:18px;right:18px;bottom:96px}
@@ -298,7 +312,8 @@
       (local development only)</span>
   </div>
   <div class="foot">You are alone on a 2&times;2 raft. Wood and debris drift past on the current &mdash;
-    hook it, cut planks, build a deck and a roof before thirst finds you.</div>
+    hook it, cut planks, build a deck and a roof before thirst finds you. There is land to the
+    east, about eighty metres out. Something lives on it.</div>
   <button id="resetbtn">erase saved raft &amp; start over</button>
 </div>
 

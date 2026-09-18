@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
 import { CELL } from './raft.js';
+import { heightAt as landHeight, isLand } from './terrain.js';
 
 // Side order matches Raft: 0 = -z, 1 = +x, 2 = +z, 3 = -x.
 const NEIGHBOUR_OFFSET = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -48,6 +49,7 @@ export class Player {
     this.roll = 0;
     this.submerged = false;
     this.sheltered = false;
+    this.onLand = false;      // standing on the continent rather than the raft
     this.depth = 0;      // metres of water above your eyes
 
     this.health = 100;
@@ -58,6 +60,7 @@ export class Player {
 
     this._fwd = new THREE.Vector3();
     this._dir = new THREE.Vector3();
+    this._prev = new THREE.Vector3();
     this._p2 = new THREE.Vector2();
     this.events = [];      // messages for the HUD, drained by the game each frame
   }
@@ -174,6 +177,16 @@ export class Player {
     this.applyCamera(dt, time, wish.lengthSq() > 0);
   }
 
+  /**
+   * What is holding me up at this point — the raft, the land, or nothing.
+   * Every state asks this, so they can never disagree about where the floor is.
+   */
+  support(x, z) {
+    if (this.raft.solidAtWorld(x, z)) return { land: false, y: this.raft.deckY(x, z) };
+    if (isLand(x, z)) return { land: true, y: landHeight(x, z) };
+    return null;
+  }
+
   /** Slide along walls instead of stopping dead. */
   moveFlat(dx, dz, collide = true) {
     this._p2.set(this.pos.x + dx, this.pos.z + dz);
@@ -187,6 +200,7 @@ export class Player {
     this.depth = 0;
     const speed = (sprinting && this.hunger > 5 ? SPRINT : WALK);
     const d = this.moveDir(wish, this._dir);
+    const prev = this._prev.copy(this.pos);
     this.moveFlat(d.x * speed * dt, d.z * speed * dt);
 
     if (!moveLocked && input.pressed('Space')) {
@@ -210,13 +224,17 @@ export class Player {
       }
     }
 
-    if (!this.raft.solidAtWorld(this.pos.x, this.pos.z)) {
+    const ground = this.support(this.pos.x, this.pos.z);
+    if (!ground) {
       this.vel.set(d.x * speed * 0.7, 0, d.z * speed * 0.7);
       this.state = 'air';
       this.vy = 0;
       return;
     }
-    this.pos.y = this.raft.deckY(this.pos.x, this.pos.z);
+    this.onLand = ground.land;
+    // Step up onto a rise, but fall off anything you have walked over the top of.
+    if (ground.y > this.pos.y + 0.75) { this.pos.copy(prev); return; }
+    this.pos.y = ground.y;
     this.bob += Math.hypot(d.x, d.z) * speed * dt * (sprinting ? 3.6 : 2.8);
   }
 
@@ -237,12 +255,13 @@ export class Player {
     this.vy -= GRAVITY * dt;
     this.pos.y += this.vy * dt;
 
-    if (this.vy <= 0 && this.raft.solidAtWorld(this.pos.x, this.pos.z)) {
-      const deck = this.raft.deckY(this.pos.x, this.pos.z);
-      if (this.pos.y <= deck) {
-        this.pos.y = deck;
+    if (this.vy <= 0) {
+      const ground = this.support(this.pos.x, this.pos.z);
+      if (ground && this.pos.y <= ground.y) {
+        this.pos.y = ground.y;
         this.vy = 0;
         this.vel.set(0, 0, 0);
+        this.onLand = ground.land;
         this.state = 'deck';
         return;
       }
@@ -270,6 +289,18 @@ export class Player {
         this.state = 'deck';
         return;
       }
+    }
+
+    // Find your feet as soon as the seabed comes up to meet you.
+    const shore = landHeight(this.pos.x, this.pos.z);
+    if (shore > waveHeight(this.pos.x, this.pos.z, time) - 0.55) {
+      this.pos.y = shore;
+      this.vy = 0;
+      this.vel.set(0, 0, 0);
+      this.onLand = true;
+      this.state = 'deck';
+      this.say('You wade ashore.');
+      return;
     }
 
     const sea = waveHeight(this.pos.x, this.pos.z, time);
@@ -312,7 +343,7 @@ export class Player {
 
   // ── hunger, thirst, breath ─────────────────────────────────────────────────
   vitals(dt, time) {
-    const sheltered = this.state === 'deck' &&
+    const sheltered = this.state === 'deck' && !this.onLand &&
                       this.raft.shelteredAtWorld(this.pos.x, this.pos.z);
     this.sheltered = sheltered;
 
@@ -347,7 +378,8 @@ export class Player {
 
     // Inherit a little of the raft's roll so the deck feels like it is moving.
     const e = new THREE.Euler().setFromQuaternion(this.raft.group.quaternion, 'YXZ');
-    const want = this.state === 'deck' ? e.z * 0.45 : Math.sin(time * 0.6) * 0.02;
+    const want = (this.state === 'deck' && !this.onLand)
+      ? e.z * 0.45 : Math.sin(time * 0.6) * 0.02;
     this.roll = THREE.MathUtils.lerp(this.roll, want, Math.min(1, dt * 3));
 
     this.camera.position.set(this.pos.x, this.pos.y + EYE + bobY, this.pos.z);

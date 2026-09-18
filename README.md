@@ -6,13 +6,20 @@ water. This prototype covers the first ring of the loop:
 
 **Gather → Craft → Build → Upgrade the raft**
 
-You can also dive: press `F` at the deck edge, `Z` to swim down, and the swell,
-the light and the colour of the water all change as you go. Schools of small
-fish drift past below the raft. They are ambient for now — catching them is
-what the spear is for.
+You can dive: press `F` at the deck edge, `Z` to swim down, and the swell, the
+light and the colour of the water all change as you go. Schools of small fish
+drift past below the raft.
 
-Fishing, spearfishing, islands, shipwrecks and weather are deliberately left
-out — see *Where to go next* for where each one plugs in.
+And roughly **80 metres off the bow there is land** — a continent, not an
+island. Swim for it and you come ashore on a beach that climbs through conifer
+forest to a bare mountain ridge. It is inhabited: sauropods and stegosaurs
+browse the slopes, parasaur herds bolt at the first sign of trouble, raptors
+hunt in the treeline and a pair of tyrannosaurs work the high ground. They hunt
+*each other*, not just you — stand still long enough and you will hear a kill
+somewhere in the trees.
+
+Fishing, spearfishing, shipwrecks and weather are deliberately left out — see
+*Where to go next* for where each one plugs in.
 
 ## Running it
 
@@ -151,6 +158,12 @@ pause screen starts over.
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
 | `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current. |
 | `src/fish.js` | Schools of small fish. Two instanced meshes per species, so ~105 fish cost a handful of draw calls. |
+| `src/terrain.js` | The continent: one height function, streamed as LOD chunks around the viewer, with biome colouring and instanced forests. |
+| `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
+| `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
+| `tools/make_starters.py` | Generates a correctly set up starter `.blend` per species. |
+| `tools/convert_glb.py` | Round-trips a third-party `.glb` through Blender to fix deprecated materials. |
+| `tools/export_models.py` | Blender-side exporter: settings, manifest upkeep and pre-flight checks. |
 | `src/underwater.js` | Light, colour and marine snow falling off with depth. |
 | `src/hook.js` | The throwable hook — ballistic flight, attach, reel in. |
 | `src/player.js` | Deck / air / swim states, and hunger, thirst and breath. |
@@ -159,6 +172,55 @@ pause screen starts over.
 | `src/hud.js`, `src/input.js` | DOM HUD (including the dev admin panel); held-vs-tapped keys, mouse look with and without pointer lock. |
 | `src/textures.js` | Every texture is painted into a canvas at load time — no image assets. |
 | `src/main.js` | Wiring, the frame loop, interaction targeting, milestones, save/load. |
+
+### The continent
+
+The landmass is generated from a single `heightAt(x, z)` — the same discipline
+as the ocean. A wobbling radial mask makes the coastline, layered noise makes
+the hills, and ridged noise deep inland makes a mountain spine. The mesh, the
+player's feet, the trees and every animal all read that one function, so
+nothing can hover or sink.
+
+It is streamed in **64m chunks** around whoever is looking: fine near you,
+progressively coarser out to about 450m, rebuilt two chunks per frame so
+walking never stutters, and disposed once out of range. Chunks carry their own
+instanced forest — redwoods, conifers and cycads placed by height, slope and a
+moisture field, which is what makes forests and clearings rather than an even
+sprinkle. Roughly 2,300 trees are resident at any time for about 100 draw calls.
+
+### Swapping in real models
+
+Animals are built from primitives at runtime, which is why they look like
+primitives. `src/models.js` will load a `.glb` per species instead — scaled to
+match the body it replaces, stood on the ground from its own bounding box, and
+animated through `AnimationMixer` with clips matched by name (`idle`, `walk`,
+`run`, `attack`, `death`) and crossfaded from the AI state.
+
+It is entirely optional. Species are listed in `assets/models/manifest.json`;
+anything not listed keeps its procedural body, so a missing or broken asset
+can never break the world.
+
+`tools/make_starters.py` generates a starter `.blend` per species — right name,
+size, orientation, rig and five named actions — and `tools/export_models.py`
+exports from Blender straight into the game, updating the manifest for you:
+
+```bash
+/Applications/Blender.app/Contents/MacOS/Blender --background raptor.blend --python tools/export_models.py
+```
+
+See `assets/models/README.md` for the export settings it applies and what it
+checks.
+
+### Survival of the fittest
+
+Predators in `wildlife.js` do not have a special "attack the player" mode. They
+look for the nearest thing on the prey table and chase it; you are simply an
+entry on that table, and often not the most convenient one. Herbivores watch
+for predators and bolt. A kill removes an animal and the population tops itself
+back up a minute or so later, so the island does not empty out.
+
+Raptors will not take on a sauropod — size is checked before a chase starts —
+and nothing follows you into the sea, which makes the water a genuine escape.
 
 Three ideas do most of the work:
 
@@ -182,6 +244,11 @@ would split the raft in two.
 - Survival pressure: the rates in `Player.vitals()` (`player.js`).
 - Debris density and drift: `POOL`, `SPEED`, `BAND` in `debris.js`.
 - Fish: `SCHOOLS`, `PER_SCHOOL`, `DEPTH_MIN/MAX`, `FLEE_RADIUS` in `fish.js`.
+- Continent shape and distance from the raft: `WORLD` in `terrain.js`.
+- Terrain cost: `VIEW_CHUNKS`, `LOD_SEGMENTS`, `TREE_LOD`, `BUILD_BUDGET`.
+- Forest make-up: the `FLORA` table (heights, slopes, moisture, yields).
+- Animals: the `SPECIES` table in `wildlife.js` — counts, speed, sight, damage,
+  and the body proportions each one is built from.
 - Underwater darkness: `DARK_DEPTH` in `underwater.js`.
 - Diving budget: `SWIM_DOWN`, `SWIM_UP` and the breath drain in `player.js`.
   They are balanced together — ~18s of air, and a trip to 12m and back costs
@@ -211,10 +278,16 @@ Each of these has a deliberate hook already in place:
 - **Cooking** — the campfire is built and lit but has no interaction. Give it an
   input slot and turn raw fish into cooked food.
 - **Marine animals** — a shark that circles the raft and punishes swimming is
-  the cheapest way to make the water feel dangerous. It can reuse the school
-  steering in `fish.js` with one member and a taste for the player.
-- **Islands & shipwrecks** — the raft sits at the world origin and the current
-  flows past it; to travel, move the raft instead and stream landmarks in.
+  the cheapest way to make the water feel dangerous, and would close off the
+  "swim away from anything" escape. `Wildlife` already has the targeting.
+- **Fighting back** — nothing on land can be killed by the player yet. The
+  spear is craftable and holdable, and `Wildlife.pick()` already returns the
+  animal under the crosshair; it needs damage and a death state for the player
+  as attacker.
+- **Building ashore** — the raft grid is anchored to the raft. Letting
+  foundations sit on terrain would turn the continent into a second base.
+- **Shipwrecks & ruins** — the chunk loader is the natural hook: give a chunk a
+  deterministic chance of carrying a landmark, built the same way as its trees.
 - **Storms** — `Sky` already centralises the palette, fog and light. A storm is
   a weather state that scales wave amplitudes and darkens that palette.
 - **Larger construction** — the grid supports multiple storeys already

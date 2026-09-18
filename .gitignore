@@ -11,3 +11,7 @@
 
 # logs and scratch
 *.log
+
+# Blender autosave backups
+*.blend1
+*.blend2

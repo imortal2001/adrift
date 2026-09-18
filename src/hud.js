@@ -100,6 +100,7 @@ export class HUD {
     // not moving.
     if (this.adminOpen) tags.push(['Admin', 'warn']);
     if (sky.held) tags.push(['Time held', 'warn']);
+    if (player.onLand) tags.push(['Ashore', 'ok']);
     if (player.sheltered) tags.push(['Sheltered', 'ok']);
     if (sky.isNight) tags.push(['Night', 'cold']);
     if (player.state === 'swim') {
