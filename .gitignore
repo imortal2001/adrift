@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# editor / tooling
+.vscode/
+.idea/
+*.swp
+
+# local Claude Code preview config
+.claude/
+
+# logs and scratch
+*.log

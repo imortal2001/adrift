@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Adrift — Ocean Raft Survival</title>
+<style>
+  :root{
+    --ink:#f2f6f8; --panel:rgba(8,20,28,.82); --edge:rgba(160,220,240,.22);
+    --wood:#c98f4e; --good:#7fd38a; --warn:#ffcf6b; --bad:#ff7a6b; --water:#69c6f2;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#04121b;color:var(--ink);
+    font:14px/1.45 "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;user-select:none;cursor:default}
+  canvas{display:block;position:fixed;inset:0;z-index:0}
+  body.freelook canvas{cursor:none}
+
+  #ui{position:fixed;inset:0;pointer-events:none;z-index:30}
+  .panel{background:var(--panel);border:1px solid var(--edge);border-radius:10px;
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 8px 30px rgba(0,0,0,.35)}
+
+  /* ---------- crosshair + interaction prompt ---------- */
+  #reticle{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;
+    opacity:.75;transition:opacity .15s, transform .15s}
+  #reticle:before,#reticle:after{content:"";position:absolute;background:#fff;box-shadow:0 0 3px #000}
+  #reticle:before{left:10px;top:3px;width:2px;height:16px}
+  #reticle:after{left:3px;top:10px;width:16px;height:2px}
+  #reticle.hot{opacity:1;transform:scale(1.25)}
+  #prompt{position:absolute;left:50%;top:calc(50% + 34px);transform:translateX(-50%);
+    padding:7px 13px;white-space:nowrap;font-size:13px;letter-spacing:.2px;opacity:0;transition:opacity .12s}
+  #prompt.show{opacity:1}
+  #prompt b{color:var(--warn);font-weight:700}
+
+  /* ---------- vitals ---------- */
+  #vitals{position:absolute;left:18px;bottom:18px;width:210px;padding:11px 12px 9px}
+  .bar{margin-bottom:7px}
+  .bar:last-child{margin-bottom:0}
+  .bar .lab{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.9px;
+    text-transform:uppercase;opacity:.72;margin-bottom:3px}
+  .track{height:6px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden}
+  .fill{height:100%;width:100%;border-radius:3px;transition:width .25s linear}
+  #hpF{background:linear-gradient(90deg,#ff6a5c,#ff9d7a)}
+  #huF{background:linear-gradient(90deg,#d99b45,#f2c46a)}
+  #thF{background:linear-gradient(90deg,#3e9fd6,#7fd7f5)}
+  #oxF{background:linear-gradient(90deg,#9fd7ff,#e8f8ff)}
+  #oxRow{display:none}
+
+  /* ---------- hotbar ---------- */
+  #hotbar{position:absolute;bottom:18px;left:244px;right:244px;display:flex;gap:7px;
+    padding:8px;justify-content:center;width:fit-content;margin:0 auto}
+  .hs{position:relative;width:74px;padding:7px 5px 6px;border-radius:8px;text-align:center;
+    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);
+    cursor:pointer;transition:.12s}
+  .hs:hover{background:rgba(255,255,255,.1)}
+  .hs .k{position:absolute;top:2px;left:5px;font-size:9px;opacity:.45;font-weight:700}
+  .hs .n{font-size:10px;letter-spacing:.4px;margin-top:7px;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .hs .q{font-size:12px;font-weight:600;color:var(--wood);margin-top:2px}
+  .hs.tool .q{color:var(--good)}
+  .hs.sel{border-color:var(--warn);background:rgba(255,207,107,.15);
+    box-shadow:0 0 0 1px rgba(255,207,107,.35)}
+  .hs.empty .n{opacity:.3;font-style:italic}
+  .hs.empty .q{opacity:0}
+  .hs.out .n,.hs.out .q{opacity:.34}
+
+  /* ---------- material strip ---------- */
+  #inv{position:absolute;bottom:92px;left:244px;right:244px;
+    display:flex;gap:6px;padding:7px;flex-wrap:wrap;justify-content:center;
+    width:fit-content;margin:0 auto}
+  /* No room beside the side panels: sit above them instead of under them. */
+  @media (max-width:620px){
+    #hotbar{left:18px;right:18px}
+    #inv{left:18px;right:18px;bottom:96px}
+    #buildbar{bottom:170px}
+  }
+  .slot{min-width:62px;padding:6px 8px;border-radius:7px;background:rgba(255,255,255,.055);
+    border:1px solid rgba(255,255,255,.08);text-align:center}
+  .slot .n{font-size:9px;letter-spacing:.6px;text-transform:uppercase;opacity:.65}
+  .slot .q{font-size:15px;font-weight:600;color:var(--wood)}
+  .slot.tool .q{color:var(--good);font-size:12px;padding-top:2px}
+  #inv:empty:after{content:"no materials";font-size:12px;opacity:.5;padding:2px 6px}
+
+  /* ---------- clock / status ---------- */
+  #topright{position:absolute;right:18px;top:18px;text-align:right;padding:9px 12px;min-width:150px}
+  #clock{font-size:17px;font-weight:600;letter-spacing:.5px}
+  #daynum{font-size:10px;letter-spacing:1.1px;text-transform:uppercase;opacity:.6}
+  #tags{margin-top:6px;display:flex;gap:5px;justify-content:flex-end;flex-wrap:wrap}
+  .tag{font-size:9px;letter-spacing:.8px;text-transform:uppercase;padding:2px 6px;border-radius:4px;
+    background:rgba(255,255,255,.1)}
+  .tag.ok{background:rgba(127,211,138,.22);color:#b6efc0}
+  .tag.cold{background:rgba(105,198,242,.2);color:#bfe9fb}
+  .tag.warn{background:rgba(255,207,107,.22);color:#ffe0a3}
+
+  /* ---------- log ---------- */
+  #log{position:absolute;left:18px;top:18px;width:290px;display:flex;flex-direction:column;gap:4px}
+  .msg{padding:5px 9px;border-radius:6px;background:rgba(8,20,28,.72);border:1px solid var(--edge);
+    font-size:12px;animation:slide .25s ease both}
+  .msg.good{border-color:rgba(127,211,138,.5)}
+  .msg.bad{border-color:rgba(255,122,107,.5)}
+  @keyframes slide{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+
+  /* ---------- modal panels (craft / build) ---------- */
+  .modal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(620px,92vw);
+    max-height:78vh;overflow:auto;padding:16px 18px;display:none;pointer-events:auto}
+  .modal.open{display:block}
+  .modal h2{margin:0 0 2px;font-size:16px;letter-spacing:.4px}
+  .modal .sub{font-size:11px;opacity:.6;margin-bottom:13px;letter-spacing:.5px;text-transform:uppercase}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:9px}
+  .card{padding:10px 11px;border-radius:8px;background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.09);cursor:pointer;transition:.12s}
+  .card:hover{background:rgba(255,255,255,.1);border-color:var(--edge);transform:translateY(-1px)}
+  .card.no{opacity:.42;cursor:not-allowed;transform:none}
+  .card.sel{border-color:var(--warn);background:rgba(255,207,107,.13)}
+  .card .t{font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:baseline}
+  .card .t em{font-style:normal;font-size:9px;letter-spacing:.7px;opacity:.55;text-transform:uppercase}
+  .card .c{font-size:11px;opacity:.78;margin-top:4px}
+  .card .c s{text-decoration:none;color:var(--bad)}
+  .card .d{font-size:10.5px;opacity:.52;margin-top:4px;line-height:1.35}
+  .hint{margin-top:13px;font-size:11px;opacity:.5;border-top:1px solid rgba(255,255,255,.1);padding-top:9px}
+  .hint b{color:var(--warn);font-weight:700;opacity:.9}
+  .packslot{display:flex;gap:6px;margin-bottom:13px}
+  .packslot .ps{flex:1;padding:6px 4px;border-radius:6px;text-align:center;cursor:pointer;
+    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);font-size:10.5px}
+  .packslot .ps:hover{background:rgba(255,255,255,.11)}
+  .packslot .ps.sel{border-color:var(--warn);background:rgba(255,207,107,.15)}
+  .packslot .ps b{display:block;font-size:9px;opacity:.45;font-weight:700}
+  .packslot .ps em{font-style:italic;opacity:.35}
+
+  /* ---------- build bar ---------- */
+  #buildbar{position:absolute;left:50%;bottom:154px;transform:translateX(-50%);display:none;gap:6px;padding:7px}
+  #buildbar.open{display:flex}
+  .bslot{padding:6px 10px;border-radius:6px;font-size:11.5px;background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.09);text-align:center;min-width:74px}
+  .bslot .k{display:block;font-size:9px;opacity:.5;letter-spacing:.8px}
+  .bslot.sel{border-color:var(--warn);background:rgba(255,207,107,.14)}
+  .bslot.no{opacity:.4}
+
+  /* ---------- admin (local dev only) ---------- */
+  #adminPanel{position:absolute;right:18px;top:104px;width:236px;padding:12px 13px;
+    display:none;pointer-events:auto}
+  #adminPanel.open{display:block}
+  #adminPanel .ahead{font-size:11px;letter-spacing:1.3px;text-transform:uppercase;
+    display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;
+    padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.12)}
+  #adminPanel .ahead em{font-style:normal;font-size:8.5px;letter-spacing:.9px;
+    color:var(--warn);opacity:.85}
+  #adminPanel .arow{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:10px;letter-spacing:.9px;text-transform:uppercase;opacity:.7;margin-bottom:5px}
+  #adminPanel .arow b{font-size:17px;font-weight:600;letter-spacing:.5px;opacity:1;color:#fff}
+  #adminTime{width:100%;margin:2px 0 11px;accent-color:#ffcf6b;height:3px;cursor:pointer}
+  #adminPanel .abtns{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+  #adminPanel .abtns.give{margin-top:6px}
+  #adminPanel .abtns.give button:hover{background:rgba(127,211,138,.16);
+    border-color:rgba(127,211,138,.5)}
+  #adminPanel .abtns button{padding:7px 4px;border-radius:6px;cursor:pointer;
+    background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.1);
+    color:var(--ink);font:600 11.5px/1.25 inherit;transition:.12s}
+  #adminPanel .abtns button:hover{background:rgba(255,255,255,.13);border-color:var(--edge)}
+  #adminPanel .abtns button.on{border-color:var(--warn);background:rgba(255,207,107,.16)}
+  #adminPanel .abtns button span{display:block;font-weight:400;font-size:9px;opacity:.55;
+    letter-spacing:.6px;margin-top:2px}
+  #adminPanel .achk{display:flex;align-items:center;gap:7px;margin-top:10px;font-size:11.5px;
+    cursor:pointer}
+  #adminPanel .achk input{accent-color:#ffcf6b;cursor:pointer;margin:0}
+  #adminPanel .asec{margin:12px 0 7px;padding-top:9px;font-size:9px;letter-spacing:1.2px;
+    text-transform:uppercase;opacity:.5;border-top:1px solid rgba(255,255,255,.12)}
+  #adminPanel .awide{width:100%;padding:8px 6px;border-radius:6px;cursor:pointer;
+    background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.1);
+    color:var(--ink);font:600 11.5px/1.25 inherit;transition:.12s;text-align:center}
+  #adminPanel .awide:hover{background:rgba(127,211,138,.16);border-color:rgba(127,211,138,.5)}
+  #adminPanel .awide span{display:block;font-weight:400;font-size:9px;opacity:.55;
+    letter-spacing:.6px;margin-top:2px}
+  #adminPanel .ahint{margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.1);
+    font-size:9.5px;letter-spacing:.4px;opacity:.5;line-height:1.55}
+  #adminPanel .ahint b{color:var(--warn);font-weight:700}
+
+  /* ---------- overlays ---------- */
+  #underwater{position:fixed;inset:0;pointer-events:none;z-index:10;opacity:0;transition:opacity .3s;
+    background:radial-gradient(ellipse at center,rgba(12,86,120,.35) 0%,rgba(4,44,70,.78) 100%)}
+  #underwater.on{opacity:1}
+  #vig{position:fixed;inset:0;pointer-events:none;z-index:20;
+    box-shadow:inset 0 0 180px rgba(0,0,0,.55)}
+  #hurt{position:fixed;inset:0;pointer-events:none;z-index:21;opacity:0;transition:opacity .5s;
+    box-shadow:inset 0 0 160px rgba(180,20,20,.75)}
+
+  /* ---------- start / pause screen ---------- */
+  #splash{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:2px;background:linear-gradient(180deg,rgba(3,14,22,.82),rgba(3,20,32,.94));
+    pointer-events:auto;text-align:center;padding:24px}
+  #splash.hide{display:none}
+  #splash h1{margin:0;font-size:min(13vw,74px);font-weight:200;letter-spacing:.22em;text-transform:uppercase}
+  #splash .tagline{opacity:.62;letter-spacing:.3em;font-size:11px;text-transform:uppercase;margin-bottom:26px}
+  #go{pointer-events:auto;margin-bottom:22px;padding:13px 34px;border-radius:30px;cursor:pointer;
+    border:1px solid rgba(160,220,240,.45);background:rgba(105,198,242,.14);color:#fff;
+    font:600 13px/1 inherit;letter-spacing:.2em;text-transform:uppercase;transition:.15s}
+  #go:hover{background:rgba(105,198,242,.28);transform:translateY(-1px)}
+  #keys{display:grid;grid-template-columns:auto auto;gap:5px 16px;font-size:12.5px;opacity:.78;
+    max-width:520px;text-align:left}
+  #keys b{font-weight:600;color:var(--warn);font-size:11.5px}
+  #splash .foot{margin-top:24px;font-size:11px;opacity:.42;max-width:440px;line-height:1.6}
+  #resetbtn{pointer-events:auto;margin-top:14px;background:none;border:0;color:rgba(255,140,120,.7);
+    font:11px/1 inherit;letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
+  #resetbtn:hover{color:#ff9d8a}
+</style>
+</head>
+<body>
+<div id="underwater"></div>
+<div id="vig"></div>
+<div id="hurt"></div>
+
+<div id="ui">
+  <div id="reticle"></div>
+  <div id="prompt" class="panel"></div>
+  <div id="log"></div>
+
+  <div id="topright" class="panel">
+    <div id="clock">06:00</div>
+    <div id="daynum">Day 1 adrift</div>
+    <div id="tags"></div>
+  </div>
+
+  <div id="vitals" class="panel">
+    <div class="bar"><div class="lab"><span>Health</span><span id="hpV">100</span></div>
+      <div class="track"><div class="fill" id="hpF"></div></div></div>
+    <div class="bar"><div class="lab"><span>Hunger</span><span id="huV">100</span></div>
+      <div class="track"><div class="fill" id="huF"></div></div></div>
+    <div class="bar"><div class="lab"><span>Thirst</span><span id="thV">100</span></div>
+      <div class="track"><div class="fill" id="thF"></div></div></div>
+    <div class="bar" id="oxRow"><div class="lab"><span>Breath</span><span id="oxV">100</span></div>
+      <div class="track"><div class="fill" id="oxF"></div></div></div>
+  </div>
+
+  <div id="inv" class="panel"></div>
+  <div id="hotbar" class="panel"></div>
+  <div id="buildbar" class="panel"></div>
+
+  <div id="adminPanel" class="panel">
+    <div class="ahead">Admin <em>local dev only</em></div>
+    <div class="arow"><span>World time</span><b id="adminClock">12:00</b></div>
+    <input type="range" id="adminTime" min="0" max="1439" step="5"
+           aria-label="Time of day" />
+    <div class="abtns">
+      <button data-preset="dawn">Dawn<span>06:45</span></button>
+      <button data-preset="day">Day<span>12:00</span></button>
+      <button data-preset="dusk">Dusk<span>17:30</span></button>
+      <button data-preset="night">Night<span>00:00</span></button>
+    </div>
+    <label class="achk"><input type="checkbox" id="adminHold" /> Hold time still</label>
+
+    <div class="asec">Player</div>
+    <button id="adminRestore" class="awide">Restore vitals<span>health, hunger &amp; thirst</span></button>
+    <div class="abtns give">
+      <button id="adminGiveMats">Materials<span>a stack of each</span></button>
+      <button id="adminGiveGear">Equipment<span>every tool</span></button>
+    </div>
+
+    <div class="ahint"><b>`</b> close &nbsp; <b>M</b> day &nbsp; <b>N</b> night &nbsp; <b>T</b> hold<br>
+      <b>[</b> <b>]</b> nudge an hour &nbsp; <b>R</b> restore &nbsp; <b>G</b> materials &nbsp;
+      <b>K</b> equipment</div>
+  </div>
+
+  <div id="packPanel" class="modal panel">
+    <h2>Pack</h2><div class="sub">Press I to close</div>
+    <div id="packSlotLine" class="packslot"></div>
+    <div class="grid" id="packGrid"></div>
+    <div class="hint">Click anything you carry to register it to the highlighted
+      slot. <b>1</b>&ndash;<b>5</b> picks the slot, <b>Backspace</b> empties it.</div>
+  </div>
+
+  <div id="craftPanel" class="modal panel">
+    <h2>Crafting</h2><div class="sub">Press C to close</div>
+    <div class="grid" id="craftGrid"></div>
+    <div class="hint">Click a recipe to craft it. Tools are permanent once made.</div>
+  </div>
+</div>
+
+<div id="splash">
+  <h1>Adrift</h1>
+  <div class="tagline">Ocean Raft Survival &mdash; Prototype</div>
+  <button id="go">Wake up</button>
+  <div id="keys">
+    <span><b>W A S D</b> move &nbsp; <b>Shift</b> sprint &nbsp; <b>Space</b> jump / climb aboard</span>
+    <span><b>Mouse</b> look &nbsp; <b>Esc</b> pause &nbsp; <b>Arrow keys</b> also turn the view</span>
+    <span style="opacity:.62">If the browser will not capture the pointer (in an embedded
+      preview, say), free look is used instead &mdash; move the mouse as normal, and push it
+      to the edge of the window to keep turning.</span>
+    <span><b>E</b> gather floating debris, drink from a collector</span>
+    <span><b>1</b>&ndash;<b>5</b> pick a hotbar slot &nbsp; <b>Click</b> use what you are holding</span>
+    <span><b>I</b> pack &mdash; register tools and items into the five slots</span>
+    <span>Hold the <b>hammer</b> to build: the <b>wheel</b> or <b>[ ]</b> picks the piece,
+      <b>click</b> places it</span>
+    <span><b>Q</b> eat a coconut &nbsp; <b>C</b> crafting &nbsp; <b>B</b> take out the hammer</span>
+    <span><b>X</b> salvage the piece you are looking at &mdash; materials come back</span>
+    <span><b>F</b> slip into the water &nbsp; <b>Z</b> swim down &nbsp; <b>Space</b> swim up / climb out</span>
+    <span><b>H</b> pause and show this help</span>
+    <span id="adminHint" hidden><b>`</b> admin panel &mdash; set the time of day
+      (local development only)</span>
+  </div>
+  <div class="foot">You are alone on a 2&times;2 raft. Wood and debris drift past on the current &mdash;
+    hook it, cut planks, build a deck and a roof before thirst finds you.</div>
+  <button id="resetbtn">erase saved raft &amp; start over</button>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
