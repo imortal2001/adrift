@@ -26,7 +26,7 @@ Fishing, spearfishing, shipwrecks and weather are deliberately left out — see
 ES modules need to be served over HTTP (`file://` will not work):
 
 ```bash
-cd RaftSurvival && python3 serve.py 8124
+cd adrift && python3 serve.py 8124
 ```
 
 Then open <http://localhost:8124>. `serve.py` is `http.server` with caching

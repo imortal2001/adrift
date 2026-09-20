@@ -9,6 +9,10 @@
 # local Claude Code preview config
 .claude/
 
+# python (tools/ imports between scripts)
+__pycache__/
+*.pyc
+
 # logs and scratch
 *.log
 
