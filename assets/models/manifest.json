@@ -1,4 +1,10 @@
 {
   "_comment": "Species whose .glb is present in this folder. tools/export_models.py maintains this; safe to edit by hand. Listing a species with no file logs a warning; leaving it out is silent.",
-  "models": ["raptor"]
+  "models": [
+    "raptor",
+    "sauropod",
+    "stegosaur",
+    "parasaur",
+    "tyrannosaur"
+  ]
 }

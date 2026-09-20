@@ -20,8 +20,7 @@ export const MODELS = {
   sauropod:    { file: 'sauropod.glb',    yaw: 0 },
   stegosaur:   { file: 'stegosaur.glb',   yaw: 0 },
   parasaur:    { file: 'parasaur.glb',    yaw: 0 },
-  // This model is built running along +X; the game's forward is +Z.
-  raptor:      { file: 'raptor.glb',      yaw: -Math.PI / 2 },
+  raptor:      { file: 'raptor.glb',      yaw: 0 },
   tyrannosaur: { file: 'tyrannosaur.glb', yaw: 0 },
 };
 
