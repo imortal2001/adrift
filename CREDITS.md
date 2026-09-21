@@ -8,9 +8,13 @@
 
 ## Art
 
-Terrain, water, sky, flora, raft and debris are generated procedurally at load
-time. The wildlife models in `assets/models/` are **not** — see the table below,
-and read the warning attached to it.
+Terrain, water, sky, flora, the reef, raft and debris are generated
+procedurally at load time. The wildlife models in `assets/models/` are **not** —
+see the table below, and read the warning attached to it.
+
+`assets/models/reef_fish.glb` is the exception among the files in that folder:
+it is generated from scratch by `tools/build_fish.py`, so it is original work
+and carries no third-party licence. It is not in the table for that reason.
 
 Wildlife you model yourself in Blender is original work and needs no entry.
 

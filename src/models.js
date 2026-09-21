@@ -22,6 +22,9 @@ export const MODELS = {
   parasaur:    { file: 'parasaur.glb',    yaw: 0 },
   raptor:      { file: 'raptor.glb',      yaw: 0 },
   tyrannosaur: { file: 'tyrannosaur.glb', yaw: 0 },
+  // Not an animal the wildlife system drives: one file holding every reef fish
+  // body, which src/fish.js takes apart and draws instanced.
+  reef_fish:   { file: 'reef_fish.glb',   yaw: 0 },
 };
 
 // Clip names in the wild are a mess: "Walk", "walk", "Armature|Run",
