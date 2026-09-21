@@ -7,8 +7,13 @@ water. This prototype covers the first ring of the loop:
 **Gather → Craft → Build → Upgrade the raft**
 
 You can dive: press `F` at the deck edge, `Z` to swim down, and the swell, the
-light and the colour of the water all change as you go. Schools of small fish
-drift past below the raft.
+light and the colour of the water all change as you go. **Under the raft is a
+coral reef** — sand at about 18m with coral heads standing 8m off it, brain
+coral and staghorn and barrel sponges and sea fans swaying in the surge, with
+sunlight thrown across the sand in caustics. Reef fish work the coral in
+schools: yellow and blue tangs, chromis, wrasse, snappers out in the blue.
+Swim far enough out and the shelf falls away into a basin deeper than one
+breath will take you.
 
 And roughly **80 metres off the bow there is land** — a continent, not an
 island. Swim for it and you come ashore on a beach that climbs through conifer
@@ -157,10 +162,13 @@ pause screen starts over.
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
 | `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current. |
-| `src/fish.js` | Schools of small fish. Two instanced meshes per species, so ~105 fish cost a handful of draw calls. |
+| `src/fish.js` | Reef fish in schools — glTF bodies, one instanced draw per species, and the swim done in the vertex shader. ~190 fish for 6 draw calls. |
+| `src/reef.js` | What grows on the sea bed: coral, sponges, anemones, seagrass and rock, plus the surge that bends the soft ones. |
+| `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Shared by the forest and the reef. |
 | `src/terrain.js` | The continent: one height function, streamed as LOD chunks around the viewer, with biome colouring and instanced forests. |
 | `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
 | `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
+| `tools/build_fish.py` | Builds the four reef-fish bodies in Blender and exports them as one `.glb`. |
 | `tools/make_starters.py` | Generates a correctly set up starter `.blend` per species. |
 | `tools/convert_glb.py` | Round-trips a third-party `.glb` through Blender to fix deprecated materials. |
 | `tools/export_models.py` | Blender-side exporter: settings, manifest upkeep and pre-flight checks. |
@@ -187,6 +195,70 @@ walking never stutters, and disposed once out of range. Chunks carry their own
 instanced forest — redwoods, conifers and cycads placed by height, slope and a
 moisture field, which is what makes forests and clearings rather than an even
 sprinkle. Roughly 2,300 trees are resident at any time for about 100 draw calls.
+
+### The reef
+
+The sea bed comes out of the same `heightAt(x, z)` as the land — there is one
+surface, and the waterline is just where it crosses zero. Out from the beach it
+shelves to a sand floor at about 18m, ridged noise piles coral heads up to 8m
+off that, and past the shelf edge it drops into a basin at 42m.
+
+The depths are set against the **air supply**, not against a reference photo.
+You have about 18 seconds and you descend at 2.4 m/s, so coral tops at ~10m are
+a comfortable visit, the sand at ~18m spends most of a breath, and the basin is
+deliberately below `MAX_DEPTH` — deep water is meant to stay out of reach.
+
+`reefMask(x, z, out)` says where coral grows, and everything downstream reads
+it: the terrain raises coral heads where the mask is high, the props grow on
+the colonies while the seagrass takes the sand between them, and the reef fish
+school over ground the mask likes. Species are picked by **weighted lottery**
+among everything that could live at that spot rather than first-match-wins,
+which is the difference between a reef and one coral repeated 800 times.
+
+Two things do most of the work for how it *reads*. Water clarity is a depth
+curve in `underwater.js`, opened up so you can see 25–30m on the shelf; the
+first cut fogged out at 12m and the sea bed came across as a grey wall you
+could never see enough of. And the sunlight is focused into **caustics** —
+three sine grids beaten together and sharpened, gated to fragments below the
+waterline, applied to the terrain and the reef from the same clock.
+
+The props are geometry standing **on** the sea bed, not part of it, so nothing
+that reads `heightAt` knows they exist — which is how the first cut had a third
+of the reef fish swimming through boulders. `Terrain.clearanceAt(x, z)` answers
+the question they actually need: the height of the sea bed *or the top of
+whatever is standing on it*. It is backed by a 1.5m obstacle field stamped as
+the props are scattered, rebuilt whole whenever the reef chunk set changes
+(props near a chunk edge stamp cells on both sides, and unpicking one chunk's
+contribution from a shared maximum costs more than the rebuild). One lookup per
+fish per frame, about 0.05ms for the lot.
+
+The swimmer gets the sharper version of the same problem. `heightAt` is the
+sea bed, so clamping to it stops you sinking through the sand — but the props
+stand *on* that floor, and a height field is too blunt for something you are
+steering yourself. `Terrain.collideReef()` treats each solid prop as a vertical
+cylinder and resolves overlaps along the **axis of least penetration**: barely
+under the lip of a boulder and you are lifted onto it, well into its flank and
+you are pushed out sideways. Resolving always-sideways flings anyone who swims
+down onto a wide coral head clear across the reef; always-up lets you climb a
+barrel sponge like a ladder. Props are bucketed 4m to a cell — wider than the
+biggest prop plus a body, so a 3×3 lookup sees everything that could reach you
+and nothing is bucketed twice. About 0.0001ms a frame.
+
+Soft props are not solid. A sea fan, an anemone and a clump of seagrass bend in
+the surge, so they bend around you too; it is the same `soft` column in the
+`REEF` table that drives the sway shader.
+
+The two radii come from one measurement pulling opposite ways: the fish field
+pads it (nothing should end up inside a rock) and player collision shrinks it
+(a bounding box round a lumpy boulder is mostly empty at the corners, and being
+stopped by that is an invisible wall).
+
+Fish bodies are built by `tools/build_fish.py` and drawn instanced. Nothing is
+skinned: the swim is a travelling sine down the length of the body with the
+nose pinned, which the vertex shader does for free, so 190 fish cost six draw
+calls and no CPU beyond steering them. Counter-shading — dark spine, pale belly
+— is baked into the vertex colours, and a per-instance tint over the top is
+what turns one mesh into a yellow tang and a blue one.
 
 ### Swapping in real models
 
@@ -243,7 +315,19 @@ would split the raft in two.
 
 - Survival pressure: the rates in `Player.vitals()` (`player.js`).
 - Debris density and drift: `POOL`, `SPEED`, `BAND` in `debris.js`.
-- Fish: `SCHOOLS`, `PER_SCHOOL`, `DEPTH_MIN/MAX`, `FLEE_RADIUS` in `fish.js`.
+- Fish: the `SPECIES` table in `fish.js` — body, colour, zone, school count and
+  size — plus `ZONES` for the depth bands and `FLEE_RADIUS`.
+- Reef shape: `SHELF_FLOOR`, `BASIN`, `SHELF_EDGE`, `REEF_HEIGHT` in
+  `terrain.js`. Raising the shelf brings the coral into easier diving range.
+- Reef make-up and density: the `REEF` table in `reef.js` (depth band, slope,
+  reef-mask window, size and how much it sways), and `samples` in `buildReef`.
+- How close fish will come to the reef: `BED_CLEARANCE` in `fish.js` and
+  `REEF_CELL` (the obstacle field's resolution) in `terrain.js`.
+- What the swimmer bumps into: the `soft < 0.5` test in `buildReef` decides
+  which props are solid, and the `hit` radius beside it decides how wide they
+  feel. `SOLID_CELL` is the collision bucket size.
+- Water clarity and caustics: the fog curve and the `applyCaustics` shader in
+  `underwater.js`.
 - Continent shape and distance from the raft: `WORLD` in `terrain.js`.
 - Terrain cost: `VIEW_CHUNKS`, `LOD_SEGMENTS`, `TREE_LOD`, `BUILD_BUDGET`.
 - Forest make-up: the `FLORA` table (heights, slopes, moisture, yields).

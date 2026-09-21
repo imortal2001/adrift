@@ -77,13 +77,14 @@ class Game {
     this.raft = new Raft(this.scene);
     this.inv = new Inventory();
     this.hotbar = new Hotbar();
-    this.player = new Player(this.camera, this.raft);
-    this.debris = new DebrisField(this.scene, this.raft);
+    // Terrain first: the player and the fish both collide against its reef.
     this.terrain = new Terrain(this.scene);
+    this.player = new Player(this.camera, this.raft, this.terrain);
+    this.debris = new DebrisField(this.scene, this.raft);
     // Seed the wildlife around a point well inland from the nearest coast.
     this.wildlife = new Wildlife(this.scene, { x: 210, z: -150 });
-    this.fish = new FishSchools(this.scene);
-    this.underwater = new Underwater(this.scene);
+    this.fish = new FishSchools(this.scene, this.terrain);
+    this.underwater = new Underwater(this.scene, this.ocean);
     this.hook = new Hook(this.scene);
     this.hud = new HUD();
     this.input = new Input(this.renderer.domElement);
@@ -504,7 +505,7 @@ class Game {
     const eye = this.camera.position;
     const dir = this.player.forward(this.tmpDir);
     // Stream terrain around whoever is looking at it, then run the ecosystem.
-    this.terrain.update(dt, this.player.pos);
+    this.terrain.update(dt, this.player.pos, this.time);
     this.wildlife.setPlayerPos(this.player.pos);
     this.wildlife.update(dt, this.time, this.player,
                          this.player.state === 'deck' && this.player.onLand);
@@ -586,6 +587,9 @@ class Game {
     // Report any species that upgraded itself to a glTF body.
     for (const u of this.wildlife.upgraded.splice(0)) {
       this.hud.log(`Loaded ${u.key} model (${u.count} animals, ${u.clips} clips).`, 'good');
+    }
+    for (const u of this.fish.upgraded.splice(0)) {
+      this.hud.log(`Loaded reef fish models (${u.count} of ${u.meshes} bodies).`, 'good');
     }
     for (const k of this.wildlife.kills.splice(0)) {
       if (k.pos.distanceTo(this.player.pos) < 150) {

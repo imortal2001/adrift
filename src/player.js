@@ -30,11 +30,20 @@ const DIVE_RANGE = DIVE_SPEED * (2 * DIVE_VY / GRAVITY);
 const SURFACE_EYE = 0.24;    // how far your eyes float above the waterline
 // A dive has to be survivable: at these rates a trip to 12m and back costs
 // about 8 of the ~18 seconds of air, leaving time to actually look around.
+// MAX_DEPTH is the floor over water too deep to have one you can reach — the
+// basin bottoms out past -40. Anywhere shallower, the sea bed itself stops you;
+// see the clamp in swim(). Until the reef went in these were the same number,
+// because the sea bed *was* a flat plane at -26.
 const SWIM_DOWN = 2.4, SWIM_UP = 3.2, BUOYANCY = 1.6, MAX_DEPTH = -26;
 const RISE_CAP = 2.4, SINK_CAP = 1.2;
 
 export class Player {
-  constructor(camera, raft) {
+  /**
+   * @param terrain  the live Terrain, for reef collision while swimming.
+   *                 Optional: without it you swim through the coral.
+   */
+  constructor(camera, raft, terrain = null) {
+    this.terrain = terrain;
     this.camera = camera;
     this.camera.rotation.order = 'YXZ';
     this.raft = raft;
@@ -48,6 +57,7 @@ export class Player {
     this.bob = 0;
     this.roll = 0;
     this.submerged = false;
+    this.onBed = false;   // feet on the sea bed rather than in open water
     this.sheltered = false;
     this.onLand = false;      // standing on the continent rather than the raft
     this.depth = 0;      // metres of water above your eyes
@@ -333,7 +343,23 @@ export class Player {
     if (diving) vy -= SWIM_DOWN;
     else if (rising) vy += SWIM_UP;
     else vy += THREE.MathUtils.clamp((floatY - this.pos.y) * BUOYANCY, -SINK_CAP, RISE_CAP);
-    this.pos.y = THREE.MathUtils.clamp(this.pos.y + vy * dt, MAX_DEPTH, floatY + 0.35);
+    // The sea bed is a floor, not a suggestion. Over the shelf that is the
+    // sand; over the basin the bed is below MAX_DEPTH and the depth cap is
+    // what stops you, which is the intended feeling out there — no bottom.
+    const bed = landHeight(this.pos.x, this.pos.z);
+    this.pos.y = THREE.MathUtils.clamp(this.pos.y + vy * dt,
+                                       Math.max(MAX_DEPTH, bed), floatY + 0.35);
+
+    // The boulders and coral are geometry standing on that floor, not part of
+    // it. Push out of anything solid, and stand on it if that is the shorter
+    // way out. Only while under — at the surface you are floating over the top
+    // of it all and being shoved around by a coral head you cannot see would
+    // just feel like the raft had grown a reef.
+    if (this.terrain && this.pos.y < floatY - 0.3) {
+      const stand = this.terrain.collideReef(this.pos, RADIUS, EYE);
+      if (stand > this.pos.y) this.pos.y = Math.min(stand, floatY + 0.35);
+    }
+    this.onBed = this.pos.y <= bed + 0.02;
 
     const eyeY = this.pos.y + EYE;
     const surface = waveHeight(this.pos.x, this.pos.z, time);

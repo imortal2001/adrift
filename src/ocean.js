@@ -86,7 +86,8 @@ void main(){
 
 const frag = /* glsl */`
 uniform float uTime, uFogDensity, uNight;
-uniform vec3 uSunDir, uSunColor, uSkyTop, uSkyHorizon, uDeep, uShallow, uFog;
+uniform float uUnderwater, uUnderDensity;
+uniform vec3 uSunDir, uSunColor, uSkyTop, uSkyHorizon, uDeep, uShallow, uFog, uUnderFog;
 varying vec3 vWorld;
 varying float vHeight;
 ${WAVE_GLSL}
@@ -116,8 +117,14 @@ void main(){
     float sunAlign = max(dot(-V, uSunDir), 0.0);
     col += uSunColor * pow(sunAlign, 16.0) * 0.7 * window;
     col += uSunColor * pow(sunAlign, 3.0) * 0.06 * window;
-    float f = 1.0 - exp(-pow(dist * uFogDensity * 3.0, 2.0));
-    gl_FragColor = vec4(mix(col, uDeep * 0.75, clamp(f, 0.0, 1.0)), 1.0);
+    // Fog the underside with the water we are actually standing in. Using the
+    // air fog here made the whole ceiling fade to near-black a few metres out,
+    // which is what the water column looked like from below: a lid, not a
+    // surface.
+    float dens = mix(uFogDensity * 3.0, uUnderDensity, uUnderwater);
+    vec3 into = mix(uDeep * 0.75, uUnderFog, uUnderwater);
+    float f = 1.0 - exp(-pow(dist * dens, 2.0));
+    gl_FragColor = vec4(mix(col, into, clamp(f, 0.0, 1.0)), 1.0);
     return;
   }
 
@@ -164,6 +171,10 @@ export class Ocean {
       uDeep:       { value: new THREE.Color(0x05222f) },
       uShallow:    { value: new THREE.Color(0x1d7d91) },
       uFog:        { value: new THREE.Color(0xbfd9e8) },
+      // Set by src/underwater.js while the camera is under the surface.
+      uUnderwater:  { value: 0 },
+      uUnderDensity:{ value: 0.045 },
+      uUnderFog:    { value: new THREE.Color(0x11536b) },
     };
 
     this.mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
