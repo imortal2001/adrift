@@ -12,15 +12,25 @@ export const ITEMS = {
   scrap:   { name: 'Scrap',   tool: false },
   coconut: { name: 'Coconut', tool: false, action: 'eat',
              hint: 'Click to eat' },
+  fish:    { name: 'Raw fish', tool: false, action: 'eat',
+             hint: 'Click to eat — raw, so it does less for you than it could' },
 
   hammer:  { name: 'Hammer',  tool: true, action: 'build',
              hint: 'Held out to build — wheel or [ ] picks the piece' },
   hook:    { name: 'Hook',    tool: true, action: 'hook',
              hint: 'Click to throw it at debris out of reach' },
   spear:   { name: 'Spear',   tool: true, action: 'spear',
-             hint: 'For spearfishing — not implemented yet' },
+             hint: 'Right-click to throw it — then E to pull it back out' },
   rod:     { name: 'Rod',     tool: true, action: 'rod',
-             hint: 'For fishing from the deck — not implemented yet' },
+             hint: 'Click to cast — click again the moment the float goes under. Right-click baits the hook with a fish' },
+};
+
+// What eating each food does. Raw fish fills you up but is salty, so it costs
+// a little water; cooking it is the obvious next step once the campfire does
+// something.
+export const FOOD = {
+  coconut: { hunger: 26, thirst: 11,  text: 'You crack the coconut open. Milk and flesh.' },
+  fish:    { hunger: 22, thirst: -3,  text: 'You eat the fish raw. Salty, but it keeps you going.' },
 };
 
 /** Items worth a hotbar slot: the ones that actually do something in hand. */

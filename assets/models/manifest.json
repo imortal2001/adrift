@@ -6,6 +6,12 @@
     "stegosaur",
     "parasaur",
     "tyrannosaur",
-    "reef_fish"
+    "reef_fish",
+    "tool_hammer",
+    "tool_spear",
+    "tool_rod",
+    "shark_blacktip",
+    "shark_greatwhite",
+    "whale_humpback"
   ]
 }

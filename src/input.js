@@ -24,6 +24,8 @@ export class Input {
     this.mouseDY = 0;
     this.wheel = 0;
     this.clicks = [];          // mouse buttons pressed this frame
+    this.buttons = new Set();  // mouse buttons held down now
+    this.ups = [];             // mouse buttons released this frame
     this.locked = false;
     this.lockDenied = false;   // set by the game when a lock request is refused
     this.sensitivity = 0.0022;
@@ -48,7 +50,14 @@ export class Input {
       if (NO_DEFAULT.includes(e.code)) e.preventDefault();
     });
     addEventListener('keyup', e => this.held.delete(e.code));
-    addEventListener('blur', () => { this.held.clear(); this.overCanvas = false; });
+    addEventListener('blur', () => {
+      this.held.clear();
+      this.overCanvas = false;
+      // A button held when the window loses focus never sends its mouseup; let
+      // it go, or a rod would reel forever.
+      for (const b of this.buttons) this.ups.push(b);
+      this.buttons.clear();
+    });
 
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === target;
@@ -73,7 +82,14 @@ export class Input {
       if (!this.allowLook) return;
       if (!this.locked && e.target !== target) return;
       this.clicks.push(e.button);
+      this.buttons.add(e.button);
       if (!this.locked) e.preventDefault();   // no text-selection drag
+    });
+
+    // Released anywhere, not just over the canvas: drag off the edge of the
+    // window mid-reel and the button still has to come back up.
+    addEventListener('mouseup', e => {
+      if (this.buttons.delete(e.button)) this.ups.push(e.button);
     });
 
     addEventListener('wheel', e => {
@@ -122,10 +138,14 @@ export class Input {
   down(code) { return this.held.has(code); }
   pressed(code) { return this.tapped.has(code); }
   clicked(button = 0) { return this.clicks.includes(button); }
+  /** A mouse button held down right now — for the things you hold, not click. */
+  mouseDown(button = 0) { return this.buttons.has(button); }
+  released(button = 0) { return this.ups.includes(button); }
 
   endFrame() {
     this.tapped.clear();
     this.clicks.length = 0;
+    this.ups.length = 0;
     this.mouseDX = this.mouseDY = 0;
     this.wheel = 0;
   }

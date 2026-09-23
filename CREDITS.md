@@ -10,7 +10,8 @@
 
 Terrain, water, sky, flora, the reef, raft and debris are generated
 procedurally at load time. The wildlife models in `assets/models/` are **not** —
-see the table below, and read the warning attached to it.
+see the table below, and read the warning attached to it. Nor are the three
+held tools, which have their own section at the end.
 
 `assets/models/reef_fish.glb` is the exception among the files in that folder:
 it is generated from scratch by `tools/build_fish.py`, so it is original work
@@ -76,3 +77,109 @@ because the problem is common in converted rigs.
 > licence here before this repository is shared or made public. If it turns out
 > to be **ND** (no derivatives) it cannot stay: the file has already been
 > converted, which is a derivative.
+
+### Held tools
+
+What you see in your hand, drawn by `src/viewmodel.js`. All three are CC BY 4.0,
+confirmed on their Sketchfab pages (none carries a NoAI restriction), and the
+author, licence and source are also embedded in each original file's
+`asset.extras`. Unlike the wildlife above, there is nothing disputed about
+these: the licence is the uploader's own work, attributed here as it asks.
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/tool_hammer.glb` | Stone hammer Axe (Free) | wolfgar74 | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/stone-hammer-axe-free-a0e76cba79784776b4346e6ae1732472) |
+| `assets/models/tool_spear.glb` | Stone Age Spear | Ben | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/stone-age-spear-2e9bb69fa7934df3901cf6313c540e8d) |
+| `assets/models/tool_rod.glb` | Fishing Rod | KOREA HERITAGE SERVICE [KHS] | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/fishing-rod-c6e7d4f5672348aaa874f181454ceb05) |
+
+**Changes made.** CC BY asks that modifications be indicated. All three were put
+through `tools/build_tools.py`, which:
+
+- reorients each to stand along +Y, rescales it to a real-world length
+  (hammer 0.46 m, spear 1.75 m, rod 2.20 m) and moves its origin to the grip;
+- **hammer and rod:** downsizes the embedded textures (base colour to JPEG at
+  1024, data maps to 512). The hammer went from 19 MB to 1.5 MB;
+- **spear:** replaces its three untextured white materials with wood, knapped
+  stone and rawhide, painted as vertex colours; and **lengthens the shaft**
+  about 3.2x along its own axis. The head and lashing are the author's geometry
+  unchanged. As shipped the spear was about 15:1 long to thick, which at spear
+  length is an 11 cm shaft behind a 45 cm head.
+
+The source files are not in the repository. To rebuild, download them from the
+links above into `~/Downloads` and run the script.
+
+
+### Sea life
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/shark_blacktip.glb` | Blacktip Reef Shark | Lais.Marques | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/blacktip-reef-shark-a52bb96c5a0c4157b49982471f8902b0) |
+
+This work is based on "Blacktip Reef Shark"
+(https://sketchfab.com/3d-models/blacktip-reef-shark-a52bb96c5a0c4157b49982471f8902b0)
+by Lais.Marques (https://sketchfab.com/Lais.Marques), licensed under CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/). The Sketchfab page carries no
+NoAI tag.
+
+**Changes made.** It is the game's blacktip reef shark, put through
+`tools/build_shark.py`, which:
+
+- takes it at its rest pose without the armature or its animation (the game
+  swims it with its own shader), turned into the game's frame;
+- joins its six meshes into one and packs their six textures into one 2048²
+  atlas (the body downsampled to half its width, the fins and eyes to a
+  quarter or half);
+- tags each vertex with the fin it belongs to, for the swim shader;
+- adds a normal map, made from the colour textures' own detail and a fine
+  grain — the original has none.
+
+The colours, markings and eyes are the author's, unchanged.
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/shark_greatwhite.glb` | Shark | AndrejKrebs | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/shark-5d5fc65b6b514e2cb8c3fbc04791a89a) |
+
+This work is based on "Shark"
+(https://sketchfab.com/3d-models/shark-5d5fc65b6b514e2cb8c3fbc04791a89a) by
+AndrejKrebs (https://sketchfab.com/AndrejKrebs), licensed under CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/). The Sketchfab page carries no
+NoAI tag.
+
+**Changes made.** It is the game's great white shark, put through
+`tools/build_great_white.py`, which:
+
+- takes it at its rest pose without the armature or its animation (the game
+  swims it with its own shader), turned into the game's frame and joined
+  with its teeth into one mesh;
+- tags each vertex with the fin it belongs to, from the skin weights;
+- adds a small dark eye where the original paints one, and a small white
+  patch in an unused corner of the colour texture for the teeth and eyes to
+  take their colour from;
+- downsizes the textures from 4096² PNG to 2048² JPEG and drops the specular
+  map.
+
+Its colours are the author's, unchanged.
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/whale_humpback.glb` | Game-ready Humpback Whale | Allie2k | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/game-ready-humpback-whale-da07e3ff73914ff28d2b8cf9da794036) |
+
+This work is based on "Game-ready Humpback Whale"
+(https://sketchfab.com/3d-models/game-ready-humpback-whale-da07e3ff73914ff28d2b8cf9da794036)
+by Allie2k (https://sketchfab.com/Allie2k), licensed under CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/). The Sketchfab page carries no
+NoAI tag.
+
+**Changes made.** It is the game's humpback whale, put through
+`tools/build_whale.py`, which:
+
+- centres it and scales it to 12.5 m;
+- tags each vertex with the part it belongs to (flippers, flukes, eyes), for
+  the swim shader;
+- repaints the eyeballs dark brown and flattens their normal map;
+- flips the normal map's green channel from DirectX's convention to glTF's;
+- re-encodes the textures from PNG to JPEG, at the same 2048² size.
+
+The shape, colours and the rest of its textures are the author's, unchanged.
+
+Everything else in `assets/models/reef_fish.glb` is original (see above).

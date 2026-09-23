@@ -23,7 +23,17 @@ export class HUD {
       underwater: $('underwater'), hurt: $('hurt'), splash: $('splash'),
       hp: [$('hpF'), $('hpV')], hu: [$('huF'), $('huV')],
       th: [$('thF'), $('thV')], ox: [$('oxF'), $('oxV')], oxRow: $('oxRow'),
+      fishing: $('fishing'),
     };
+    const f = this.el.fishing;
+    this.fish = f && {
+      name: f.querySelector('.fname'), meta: f.querySelector('.fmeta'),
+      cast: f.querySelector('.fb.cast i'), tension: f.querySelector('.fb.tension i'),
+      slack: f.querySelector('.fb.tension .slack'), danger: f.querySelector('.fb.tension .danger'),
+      line: f.querySelector('.fb.line i'), stam: f.querySelector('.fb.stam i'),
+      hint: f.querySelector('.fh'),
+    };
+    this._fishHint = '';
     this.msgs = [];
     this._invSig = '';
     this._craftSig = '';
@@ -111,6 +121,54 @@ export class HUD {
       this._tagSig = sig;
       this.el.tags.innerHTML = tags.map(([t, c]) => `<span class="tag ${c}">${t}</span>`).join('');
     }
+  }
+
+  /**
+   * The rod's meters: the swing while casting, and tension, line and the
+   * fish's fight while reeling. `null` hides them. The zones are passed in, not
+   * known here — this only draws what fight.js decides.
+   */
+  setFishing(v) {
+    const el = this.el.fishing, f = this.fish;
+    if (!el) return;
+    if (!v) {
+      if (el.classList.contains('open')) el.className = 'panel';
+      return;
+    }
+    el.classList.add('open');
+    el.classList.toggle('cast', v.mode === 'cast');
+    el.classList.toggle('fight', v.mode === 'fight');
+    const pct = x => `${(Math.max(0, Math.min(1, x)) * 100).toFixed(1)}%`;
+    let hint;
+    if (v.mode === 'cast') {
+      f.name.textContent = 'Cast';
+      f.meta.textContent = `${v.metres.toFixed(0)} m`;
+      f.cast.style.width = pct(v.power);
+      el.classList.remove('strain');
+      hint = 'Let go at the top of the swing to throw it furthest';
+    } else {
+      f.name.textContent = v.title;
+      f.meta.textContent = `${v.line.toFixed(1)} m out`;
+      f.slack.style.width = pct(v.slackAt);
+      f.danger.style.width = pct(1 - v.dangerAt);
+      f.tension.style.width = pct(v.tension);
+      f.tension.style.background = v.tension >= v.dangerAt ? 'var(--bad)'
+        : v.tension >= v.dangerAt - 0.15 ? 'var(--warn)'
+        : v.tension < v.slackAt ? '#9ad8f5' : 'var(--good)';
+      const out = v.line / v.lineMax;
+      f.line.style.width = pct(out);
+      f.line.style.background = out > 0.8 ? 'var(--bad)' : 'var(--water)';
+      f.stam.style.width = pct(v.stamina);
+      el.classList.toggle('strain', v.overload > 0.05);
+      hint = v.overload > 0.05 ? '<b>Let go</b> — the line is about to snap'
+        : v.looseness > 0.15 ? '<b>Reel</b> — the line is going slack'
+        : out > 0.8 ? '<b>Reel</b> — it is nearly out of line'
+        : v.cover > 0.3 ? '<b>Reel</b> — it is heading for the rocks, turn it'
+        : v.jumping ? 'It is jumping — keep the line tight'
+        : v.running ? 'It is running — ease off and let it tire'
+        : '<b>Hold</b> to reel it in';
+    }
+    if (hint !== this._fishHint) { f.hint.innerHTML = hint; this._fishHint = hint; }
   }
 
   /** @param strength 0..1, so deep water reads darker than a dunk at the surface. */

@@ -8,17 +8,22 @@ import { Raft } from './raft.js';
 import { DebrisField } from './debris.js';
 import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
+import { Whale } from './whale.js';
 import { Underwater } from './underwater.js';
+import { Viewmodel, THRUST_REACH } from './viewmodel.js';
+import { ThrownSpears, travelTime } from './spear.js';
+import { Fishing } from './fishing.js';
 import { Terrain, heightAt as landHeight, coastDistance, CHUNK } from './terrain.js';
 import { Wildlife } from './wildlife.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { BuildMode } from './build.js';
-import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS } from './items.js';
+import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, FOOD } from './items.js';
 import { Hotbar, SLOTS } from './hotbar.js';
 
 const SAVE_KEY = 'adrift.save.v2';
+
 
 // What the admin "give" buttons hand over. Enough to build without grinding,
 // not so much that the numbers stop being readable.
@@ -83,9 +88,15 @@ class Game {
     this.debris = new DebrisField(this.scene, this.raft);
     // Seed the wildlife around a point well inland from the nearest coast.
     this.wildlife = new Wildlife(this.scene, { x: 210, z: -150 });
-    this.fish = new FishSchools(this.scene, this.terrain);
+    this.fish = new FishSchools(this.scene, this.terrain, this.raft);
+    this.whale = new Whale(this.scene, this.terrain, this.raft, this.fish);
     this.underwater = new Underwater(this.scene, this.ocean);
     this.hook = new Hook(this.scene);
+    this.viewmodel = new Viewmodel(this.renderer, this.camera, this.sky);
+    // Thrown spears wear the same body the hand holds, glTF or procedural.
+    this.spears = new ThrownSpears(this.scene, this.terrain, this.raft, this.fish,
+                                   () => this.viewmodel.cloneBody('spear'));
+    this.fishing = new Fishing(this.scene, this.raft, this.fish, this.viewmodel);
     this.hud = new HUD();
     this.input = new Input(this.renderer.domElement);
     this.build = new BuildMode(this.raft, this.inv, this.hud);
@@ -286,11 +297,12 @@ class Game {
     this.hud.refreshCraft(this.inv);
   }
 
-  eat() {
-    if (!this.inv.remove('coconut', 1)) return;
-    this.player.hunger = Math.min(100, this.player.hunger + 26);
-    this.player.thirst = Math.min(100, this.player.thirst + 11);
-    this.hud.log('You crack the coconut open. Milk and flesh.', 'good');
+  eat(id = 'coconut') {
+    const food = FOOD[id];
+    if (!food || !this.inv.remove(id, 1)) return;
+    this.player.hunger = THREE.MathUtils.clamp(this.player.hunger + food.hunger, 0, 100);
+    this.player.thirst = THREE.MathUtils.clamp(this.player.thirst + food.thirst, 0, 100);
+    this.hud.log(food.text, 'good');
     this.hud.refreshInventory(this.inv);
   }
 
@@ -318,26 +330,122 @@ class Game {
     switch (ITEMS[id].action) {
       case 'hook':
         if (this.hook.busy) this.hook.release();
-        else this.hook.throwFrom(eye.clone().addScaledVector(dir, 0.5), dir.clone());
+        else {
+          this.viewmodel.use('hook');
+          this.hook.throwFrom(eye.clone().addScaledVector(dir, 0.5), dir.clone());
+        }
         break;
       case 'eat':
-        this.eat();
+        this.viewmodel.use('eat');
+        this.eat(id);
         break;
+      // The thrust plays whether or not it lands; thrust() decides if it did.
       case 'spear':
-        this.hud.log('Nothing to spear yet — fish are still too quick.', 'bad');
+        this.viewmodel.use('spear');
+        this.thrust(eye, dir);
         break;
       case 'rod':
-        this.hud.log('Fishing is not built yet.', 'bad');
-        break;
+        break;                         // the rod reads the button itself; see frame()
       default:
         this.hud.log(`${ITEMS[id].name} is raw material — nothing to do with it in hand.`);
     }
   }
 
+  /**
+   * Right-click with a spear in hand. It leaves the inventory the moment it
+   * leaves the hand — until you pull it back out of whatever it hit.
+   */
+  throwSpear(eye, dir) {
+    if (!this.inv.has('spear')) {
+      this.hud.log('No spear in hand — go and fetch the one you threw.', 'bad');
+      return;
+    }
+    if (!this.viewmodel.canRelease('spear')) return;   // still being drawn
+
+    // Leave from the hand, but aim at what the crosshair is on. Throwing
+    // parallel to the view from a hand up by your right ear would land
+    // everything a foot to the right of where you looked.
+    //
+    // A fish under the crosshair is a target, and the throw converges on it —
+    // on where it will be when the point arrives, not where it is now. A
+    // silverside is a hand's width across and swims 1-2 m/s, which is half a
+    // metre over a half-second throw; without the lead a dead-centre throw
+    // misses behind it every time. This is soft aim assist, and deliberately
+    // tight: the fish has to be within ~10 degrees of the crosshair.
+    const submerged = this.player.submerged;
+    const from = this.viewmodel.gripWorld(new THREE.Vector3());
+    const fish = this.fish.pick(eye, dir, 30, 0.985);
+    let point;
+    if (fish) {
+      const t = travelTime(fish.pos.distanceTo(from), submerged);
+      point = fish.pos.clone().addScaledVector(fish.vel, t);
+    } else {
+      point = eye.clone().addScaledVector(dir, submerged ? 6 : 25);
+    }
+    const aim = point.sub(from).normalize();
+
+    this.inv.remove('spear', 1);
+    this.spears.throw(from, aim, submerged, !fish);
+    this.viewmodel.release();
+    this.hud.refreshInventory(this.inv);
+  }
+
+  retrieveSpear(s) {
+    const { where, fish } = this.spears.take(s);
+    this.inv.add('spear', 1);
+    const how = { drifting: 'You catch the spear as it drifts up',
+                  water: 'You fish the spear out of the water',
+                  deck: 'You work the spear out of the deck',
+                  seabed: 'You pull the spear out of the sand',
+                  ground: 'You pull the spear out of the ground' };
+    let text = how[where] || 'You take the spear back';
+    if (fish.length) {
+      this.inv.add('fish', fish.length);
+      this.hotbar.autoAssign('fish');
+      text += ` — ${this.describeCatch(fish)} on it`;
+    }
+    this.hud.log(`${text}.`, 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  /**
+   * Left-click with the spear: a thrust that skewers the fish on the
+   * crosshair, if one is within THRUST_REACH — which is exactly where the
+   * animation puts the point, so what you see is what you catch.
+   */
+  thrust(eye, dir) {
+    const f = this.fish.pick(eye, dir, THRUST_REACH, 0.9);
+    if (!f) {
+      // A miss still scares everything near the point.
+      if (this.player.submerged) this.fish.startle(eye.clone().addScaledVector(dir, THRUST_REACH), 2.5, 0.05);
+      this.hud.log('A thrust at nothing. Right-click to throw it.');
+      return;
+    }
+    this.fish.take(f);
+    this.viewmodel.skewer(this.fish.bodyFor(f));
+    this.inv.add('fish', 1);
+    this.hotbar.autoAssign('fish');
+    this.hud.log(`You spear a ${f.sp.name}.`, 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  /** "a blue tang", "2 chromis and a snapper" — for the log. */
+  describeCatch(fish) {
+    const counts = new Map();
+    for (const f of fish) counts.set(f.name, (counts.get(f.name) || 0) + 1);
+    const parts = [...counts].map(([name, n]) => (n === 1 ? `a ${name}` : `${n} ${name}`));
+    return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
+  }
+
   // ── what is under the crosshair ────────────────────────────────────────────
   /** @returns {{prompt:string, act:Function}|null} */
   findInteraction(eye, dir) {
-    const it = this.debris.pick(eye, dir, this.player.state === 'swim' ? 4.2 : 3.6);
+    const reach = this.player.state === 'swim' ? 4.2 : 3.6;
+    const spear = this.spears.pick(eye, dir, reach);
+    if (spear) {
+      return { prompt: '<b>E</b> take your spear', act: () => this.retrieveSpear(spear) };
+    }
+    const it = this.debris.pick(eye, dir, reach);
     if (it) {
       return { prompt: `<b>E</b> gather ${DEBRIS_KINDS[it.kind].label}`, act: () => this.gather(it) };
     }
@@ -395,9 +503,30 @@ class Game {
       };
     }
 
-    // Fish are ambient for now; the prompt points at what a spear is for.
-    if (this.fish.pick(eye, dir, 3.0)) {
+    // A fish under the crosshair: say what would actually catch it from here.
+    // The two reaches are the thrust's (the shaft ahead of the hand) and the
+    // throw's (how far a spear stays fast enough to skewer) — offering a thrust at
+    // a fish two metres out of reach is worse than saying nothing.
+    const armed = this.hotbar.held === 'spear' && this.inv.has('spear');
+    if (armed) {
+      if (this.fish.pick(eye, dir, THRUST_REACH, 0.9)) {
+        return { prompt: '<b>Click</b> to thrust', act: null };
+      }
+      if (this.fish.pick(eye, dir, this.player.submerged ? 3.7 : 9, 0.985)) {
+        return { prompt: '<b>Right-click</b> to throw', act: null };
+      }
+    } else if (this.fish.pick(eye, dir, 3.0)) {
       return { prompt: 'Too quick to catch by hand — you need a spear', act: null };
+    }
+    // Nothing that size goes on a spear. Said once you are near enough to see
+    // how big it is, so a shark passing does not look like a missed target —
+    // and only in the water with it, not through the deck at the mahi-mahi
+    // circling under the raft.
+    const big = this.player.submerged && this.fish.pick(eye, dir, 9, 0.97, true);
+    if (big) {
+      return { prompt: big.sp.catchable === false
+        ? 'Far too big to catch — give it room'
+        : 'Far too big for a spear — that is one for a baited line', act: null };
     }
     return null;
   }
@@ -477,8 +606,10 @@ class Game {
     }
     if (input.pressed('KeyH')) { this.pause(); return; }
 
+    // Q eats whatever there is, coconut first — it does not cost you water.
     if (!panelOpen && input.pressed('KeyQ')) {
-      if (this.inv.count('coconut') > 0) this.eat();
+      if (this.inv.count('coconut') > 0) this.eat('coconut');
+      else if (this.inv.count('fish') > 0) this.eat('fish');
     }
 
     // Hotbar: the number keys are the slots, and the wheel cycles them unless
@@ -511,6 +642,8 @@ class Game {
                          this.player.state === 'deck' && this.player.onLand);
     this.debris.update(dt, this.time, this.player.pos);
     this.fish.update(dt, this.time, eye);
+    this.whale.update(dt, this.time);
+    this.spears.update(dt, this.time);
     this.hook.update(dt, eye.clone().addScaledVector(dir, 0.5), this.time, this.debris,
                      it => this.gather(it));
 
@@ -520,6 +653,7 @@ class Game {
       if (this.build.active) {
         prompt = this.build.update(eye, dir, input);
         if (input.clicked(0)) {
+          this.viewmodel.use('build');
           const placed = this.build.place();
           if (placed) {
             this.hud.log(`${placed.name} built.`, 'good');
@@ -540,7 +674,13 @@ class Game {
             prompt = ITEMS[id].hint.replace('Click', '<b>Click</b>');
           }
         }
-        if (input.clicked(0)) this.useHeld(eye, dir);
+        // The rod is held, not clicked: the swing meter charges while the
+        // button is down and the reel winds while it is down, so it gets the
+        // button's whole state rather than one click.
+        if (this.hotbar.held === 'rod' && this.inv.has('rod')) {
+          this.fishing.control({ press: input.clicked(0), hold: input.mouseDown(0),
+                                 release: input.released(0) }, eye, dir, this.player);
+        } else if (input.clicked(0)) this.useHeld(eye, dir);
       }
 
       // Salvage works whether or not build mode is on.
@@ -554,13 +694,25 @@ class Game {
         }
       }
 
-      // Right-click stays a shortcut for the hook, when it is the thing in hand.
+      // Right-click throws: the spear if it is in hand, otherwise the hook.
+      // With the rod, it baits the hook with one of your fish instead.
       if (input.clicked(2)) {
-        if (this.hotbar.held === 'hook') this.useHeld(eye, dir);
-        else if (this.inv.has('hook')) this.hud.log('Select the hook slot first.', 'bad');
-        else this.hud.log('You have nothing to throw. Craft a hook.', 'bad');
+        const held = this.hotbar.held;
+        if (held === 'rod' && this.inv.has('rod')) {
+          const d = this.fishing.toggleBait(this.inv.has('fish'));
+          if (d > 0) this.inv.remove('fish', 1);
+          else if (d < 0) this.inv.add('fish', 1);
+          if (d) this.hud.refreshInventory(this.inv);
+          if (!d && this.fishing.busy) this.hud.log('Reel in first to change the bait.', 'bad');
+        } else if (held === 'spear') this.throwSpear(eye, dir);
+        else if (held === 'hook') this.useHeld(eye, dir);
+        else if (this.inv.has('hook') || this.inv.has('spear')) {
+          this.hud.log('Select the hook or the spear first.', 'bad');
+        } else this.hud.log('You have nothing to throw. Craft a hook.', 'bad');
       }
     }
+    // A line in the water says what it is doing over anything else.
+    if (this.fishing.prompt) prompt = this.fishing.prompt;
     this.hud.setPrompt(prompt);
     // A visible cursor sliding around mid-look is a distraction; panels get it back.
     document.body.classList.toggle('freelook', input.allowLook && !this.cursorPanel);
@@ -572,6 +724,27 @@ class Game {
     const light = this.underwater.update(dt, eye, submerged, depth, this.sky,
                                          this.scene, this.sky.night);
     this.hud.setUnderwater(submerged, submerged ? 1 - light : 0);
+
+    // After underwater.update(), which has just dimmed the lights the tool
+    // copies — so what is in your hand goes dark and blue with the world.
+    const held = this.hotbar.held;
+    this.viewmodel.update(dt, {
+      held,
+      owned: !!held && this.inv.has(held),
+      hidden: held === 'hook' && this.hook.busy,     // it is out on the line
+    });
+
+    // After the viewmodel, so the line hangs from where the rod tip is now.
+    this.fishing.update(dt, this.time, this.player, held === 'rod' && this.inv.has('rod'));
+    for (const e of this.fishing.events.splice(0)) {
+      if (e.catch) {
+        this.inv.add('fish', e.count);
+        this.hotbar.autoAssign('fish');
+        this.hud.refreshInventory(this.inv);
+      }
+      if (e.text) this.hud.log(e.text, e.kind);
+    }
+    this.hud.setFishing(this.fishing.meter);
     if (submerged && this.player.breath < 30 && !this._gasping) {
       this._gasping = true;
       this.hud.log('Your chest is burning. Get to the surface.', 'bad');
@@ -588,8 +761,11 @@ class Game {
     for (const u of this.wildlife.upgraded.splice(0)) {
       this.hud.log(`Loaded ${u.key} model (${u.count} animals, ${u.clips} clips).`, 'good');
     }
+    for (const id of this.viewmodel.upgraded.splice(0)) {
+      this.hud.log(`Loaded ${ITEMS[id].name.toLowerCase()} model.`, 'good');
+    }
     for (const u of this.fish.upgraded.splice(0)) {
-      this.hud.log(`Loaded reef fish models (${u.count} of ${u.meshes} bodies).`, 'good');
+      this.hud.log(`Loaded sea life models (${u.meshes} bodies).`, 'good');
     }
     for (const k of this.wildlife.kills.splice(0)) {
       if (k.pos.distanceTo(this.player.pos) < 150) {
@@ -619,6 +795,7 @@ class Game {
     if (this.time - this.lastSave > 10) { this.save(); this.lastSave = this.time; }
 
     this.renderer.render(this.scene, this.camera);
+    this.viewmodel.render();
     input.endFrame();
   }
 
@@ -651,7 +828,14 @@ class Game {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         raft: this.raft.toJSON(),
-        inv: this.inv.toJSON(),
+        // Thrown spears are not saved where they lie; count them as carried,
+        // so reloading never costs you one.
+        inv: { ...this.inv.toJSON(),
+               ...(this.spears.count ? { spear: this.inv.count('spear') + this.spears.count } : {}),
+               // ...and a fish on the hook as bait is a fish in the bag.
+               ...(this.spears.fishCount || this.fishing.bait
+                 ? { fish: this.inv.count('fish') + this.spears.fishCount + (this.fishing.bait ? 1 : 0) }
+                 : {}) },
         hotbar: this.hotbar.toJSON(),
         player: this.player.toJSON(),
         time: this.sky.time,
