@@ -50,6 +50,20 @@ server works for just playing.
 Three.js r170 is vendored in `vendor/`, so there is no install step and the game
 needs no network access.
 
+### Asset gallery
+
+A separate app, for looking at every asset the game draws — dinosaurs, fish,
+tools, trees, terrain, water, corals, flotsam and the raft — in a 3D viewer,
+without launching the game:
+
+```bash
+python3 gallery/serve.py
+```
+
+Then open <http://localhost:8125>. It builds everything with the game's own
+code and models, runs on this machine only, and has its own
+[README](gallery/README.md), including how to register a new asset.
+
 ## Controls
 
 | | |
@@ -179,6 +193,7 @@ pause screen starts over.
 | `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
 | `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
 | `tools/build_fish.py` | Builds all thirteen sea-life bodies in Blender — colour patterns baked into vertex colours — and exports them as one `.glb`. |
+| `gallery/` | The asset gallery: a separate app and server that shows every asset in a 3D viewer. See its README. |
 | `tools/simulate_fight.mjs` | Plays the rod's fight thousands of times per species with five kinds of player, for tuning `fight.js` by numbers rather than feel. |
 | `tools/build_tools.py` | Puts the three third-party tool models in the frame the hand holds them by, colours the spear, and shrinks their textures. |
 | `tools/make_starters.py` | Generates a correctly set up starter `.blend` per species. |

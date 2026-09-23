@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Adrift Asset Gallery</title>
+<style>
+  :root{
+    --bg:#0a151d; --bg2:#0f1f2a; --panel:#122431; --card:#152a38; --line:rgba(160,220,240,.14);
+    --ink:#eef4f7; --dim:#9fb3bf; --faint:#6f8795;
+    --accent:#69c6f2; --good:#7fd38a; --warn:#ffcf6b; --bad:#ff8a7a; --wood:#d39a5a;
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font:14px/1.45 "Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  button,input,select{font:inherit;color:inherit}
+  a{color:var(--accent)}
+
+  /* ── shell ── */
+  .app{display:grid;grid-template-columns:232px 1fr;height:100vh}
+  aside{background:var(--bg2);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .brand{padding:18px 18px 14px;border-bottom:1px solid var(--line)}
+  .brand h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.18em;text-transform:uppercase}
+  .brand p{margin:3px 0 0;font-size:11.5px;color:var(--faint);letter-spacing:.04em}
+  nav{overflow:auto;padding:8px 8px 16px;flex:1}
+  nav button{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;
+    padding:8px 10px;border:0;border-radius:7px;background:none;cursor:pointer;text-align:left;color:var(--dim)}
+  nav button:hover{background:rgba(255,255,255,.05);color:var(--ink)}
+  nav button.on{background:rgba(105,198,242,.14);color:var(--ink)}
+  nav button .n{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+  nav .sep{height:1px;background:var(--line);margin:8px 6px}
+  nav button.gaps .n{color:var(--warn)}
+  nav button.unreg .n{color:var(--bad)}
+  .foot{padding:10px 16px;border-top:1px solid var(--line);font-size:11px;color:var(--faint)}
+
+  main{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line)}
+  .bar h2{margin:0 auto 0 0;font-size:19px;font-weight:600}
+  .search{width:min(260px,100%);padding:7px 11px;border-radius:8px;border:1px solid var(--line);background:var(--panel)}
+  .chips{display:flex;gap:5px;flex-wrap:wrap}
+  .chip{padding:5px 10px;border-radius:14px;border:1px solid var(--line);background:none;cursor:pointer;font-size:12px;color:var(--dim)}
+  .chip.on{border-color:var(--accent);color:var(--ink);background:rgba(105,198,242,.12)}
+  .blurb{padding:10px 20px 0;color:var(--dim);font-size:13px;max-width:780px}
+  .scroll{overflow:auto;flex:1;padding:6px 20px 30px}
+  .group{margin:18px 0 8px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(188px,1fr));gap:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;
+    text-align:left;padding:0;display:flex;flex-direction:column;transition:transform .12s,border-color .12s}
+  .card:hover,.card:focus-visible{border-color:rgba(105,198,242,.55);transform:translateY(-2px);outline:none}
+  .thumb{aspect-ratio:4/3;background:#1d2a33 center/cover no-repeat;position:relative}
+  .thumb.wait::after{content:'';position:absolute;inset:0;margin:auto;width:22px;height:22px;border-radius:50%;
+    border:2px solid rgba(255,255,255,.15);border-top-color:var(--accent);animation:spin .9s linear infinite}
+  .thumb.fail{display:grid;place-items:center;color:var(--bad);font-size:12px}
+  @keyframes spin{to{transform:rotate(1turn)}}
+  .meta{padding:9px 11px 11px}
+  .meta b{display:block;font-weight:600;font-size:13.5px}
+  .meta span{font-size:11.5px;color:var(--faint)}
+  .badge{display:inline-block;padding:1px 7px;border-radius:9px;font-size:10.5px;letter-spacing:.03em;margin-top:5px}
+  .k-glTF{background:rgba(105,198,242,.15);color:var(--accent)}
+  .k-code{background:rgba(211,154,90,.16);color:var(--wood)}
+  .k-shader{background:rgba(127,211,138,.15);color:var(--good)}
+  .k-unreg{background:rgba(255,138,122,.16);color:var(--bad)}
+  .empty{color:var(--faint);padding:30px 0}
+  .gap{background:var(--card);border:1px dashed rgba(255,207,107,.4);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .gap b{color:var(--warn)} .gap span{display:block;color:var(--dim);font-size:13px;margin-top:2px}
+  .gap em{font-style:normal;font-size:11px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase}
+
+  /* ── detail ── */
+  .detail{position:fixed;inset:0;z-index:10;display:none;grid-template-columns:1fr 340px;background:var(--bg)}
+  .detail.open{display:grid}
+  .view{position:relative;min-width:0;min-height:0}
+  .view canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+  .view canvas:active{cursor:grabbing}
+  .vtop{position:absolute;left:14px;top:14px;right:14px;display:flex;gap:8px;align-items:center;pointer-events:none}
+  .vtop > *{pointer-events:auto}
+  .vbtn{padding:7px 12px;border-radius:8px;border:1px solid var(--line);background:rgba(10,21,29,.78);cursor:pointer;
+    backdrop-filter:blur(6px)}
+  .vbtn:hover{border-color:rgba(105,198,242,.5)}
+  .vbottom{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;gap:5px;flex-wrap:wrap;
+    justify-content:center;max-width:calc(100% - 28px)}
+  .hint{position:absolute;right:14px;bottom:16px;font-size:11px;color:var(--faint);text-align:right;pointer-events:none}
+  .loading{position:absolute;inset:0;display:none;place-items:center;color:var(--dim)}
+  .loading.on{display:grid}
+  .side{background:var(--bg2);border-left:1px solid var(--line);overflow:auto;padding:18px 18px 28px}
+  .side h3{margin:0;font-size:20px;font-weight:600}
+  .side .crumb{font-size:11.5px;color:var(--faint);letter-spacing:.05em;margin-bottom:4px}
+  .sec{margin-top:18px}
+  .sec > .lab{display:block;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:7px}
+  .seg{display:flex;flex-wrap:wrap;gap:5px}
+  .seg button{padding:6px 10px;border-radius:7px;border:1px solid var(--line);background:var(--panel);cursor:pointer;font-size:12.5px}
+  .seg button.on{border-color:var(--accent);background:rgba(105,198,242,.15)}
+  .seg button:disabled{opacity:.4;cursor:default}
+  dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:13px}
+  dt{color:var(--faint)} dd{margin:0}
+  .src{font:12px/1.5 ui-monospace,Menlo,monospace;color:var(--dim);word-break:break-word;background:var(--panel);
+    padding:8px 10px;border-radius:7px}
+  .toggles label{display:flex;align-items:center;gap:8px;font-size:13px;margin:5px 0;cursor:pointer}
+  .toggles input{accent-color:var(--accent)}
+  input[type=range]{width:100%;accent-color:var(--warn)}
+  .time{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin-bottom:3px}
+  .note{font-size:12.5px;color:var(--bad);margin-top:10px}
+
+  /* ── the lock screen for anything but a dev machine ── */
+  .locked{display:grid;place-items:center;height:100vh;text-align:center;color:var(--dim);padding:24px}
+
+  @media (max-width:760px){
+    .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto 1fr}
+    aside{border-right:0;border-bottom:1px solid var(--line);min-width:0}
+    nav{display:flex;overflow-x:auto;padding:6px}
+    nav button{width:auto;white-space:nowrap}
+    nav .sep,.foot{display:none}
+    .brand{padding:12px 16px}
+    .bar,.scroll,.blurb{padding-left:16px;padding-right:16px}
+    .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+    .detail{grid-template-columns:minmax(0,1fr);grid-template-rows:55vh 1fr}
+    .side{border-left:0;border-top:1px solid var(--line)}
+    .hint{display:none}
+  }
+</style>
+<script type="importmap">
+{ "imports": { "three": "/vendor/three.module.js" } }
+</script>
+</head>
+<body>
+<div class="app" id="app">
+  <aside>
+    <div class="brand"><h1>Adrift</h1><p>Asset gallery · local dev only</p></div>
+    <nav id="nav"></nav>
+    <div class="foot" id="foot">Loading the game's assets…</div>
+  </aside>
+  <main>
+    <div class="bar">
+      <h2 id="title">All assets</h2>
+      <div class="chips" id="chips"></div>
+      <input class="search" id="search" type="search" placeholder="Search assets" aria-label="Search assets" />
+    </div>
+    <div class="blurb" id="blurb"></div>
+    <div class="scroll" id="list"></div>
+  </main>
+</div>
+
+<div class="detail" id="detail" role="dialog" aria-modal="true" aria-labelledby="dName">
+  <div class="view" id="view">
+    <div class="vtop">
+      <button class="vbtn" id="back">← Back</button>
+      <button class="vbtn" id="prev" aria-label="Previous asset">‹</button>
+      <button class="vbtn" id="next" aria-label="Next asset">›</button>
+    </div>
+    <div class="vbottom seg" id="views"></div>
+    <div class="hint">Drag to rotate · scroll to zoom · right-drag to pan<br>← → next asset · Esc to close</div>
+    <div class="loading" id="loading">Building…</div>
+  </div>
+  <div class="side" id="side">
+    <div class="crumb" id="dCrumb"></div>
+    <h3 id="dName"></h3>
+    <div id="dBadge"></div>
+    <div class="note" id="dNote" hidden></div>
+    <div class="sec" id="dVariantsSec"><div class="lab">Version</div><div class="seg" id="dVariants"></div></div>
+    <div class="sec" id="dClipsSec"><div class="lab">Animation</div><div class="seg" id="dClips"></div></div>
+    <div class="sec"><div class="lab">Backdrop</div>
+      <div class="seg" id="dBackdrop">
+        <button data-b="studio">Studio</button><button data-b="world">In-game daylight</button><button data-b="underwater">Underwater</button>
+      </div>
+      <div id="dTimeRow" class="sec" style="margin-top:10px">
+        <div class="time"><span>Time of day</span><b id="dClock">12:00</b></div>
+        <input type="range" id="dTime" min="0" max="1439" step="5" value="720" aria-label="Time of day" />
+      </div>
+    </div>
+    <div class="sec toggles"><div class="lab">Display</div>
+      <label><input type="checkbox" id="tRotate" /> Turn slowly</label>
+      <label><input type="checkbox" id="tWire" /> Wireframe</label>
+      <label><input type="checkbox" id="tGrid" checked /> Metre grid</label>
+      <label><input type="checkbox" id="tFigure" checked /> Person for scale (1.75 m)</label>
+    </div>
+    <div class="sec"><div class="lab">About</div><dl id="dFacts"></dl></div>
+    <div class="sec"><div class="lab">Model</div><dl id="dStats"></dl></div>
+    <div class="sec"><div class="lab">Comes from</div><div class="src" id="dSource"></div></div>
+  </div>
+</div>
+
+<script type="module">
+  // The gallery is a development tool. The server only listens on this
+  // machine, and the page refuses to run anywhere that is not one — using
+  // the same test the game uses for its admin panel.
+  const h = location.hostname;
+  const local = location.protocol === 'file:' || ['localhost', '127.0.0.1', '0.0.0.0', '[::1]', '::1', ''].includes(h) ||
+    h.endsWith('.local') || h.endsWith('.localhost') || /^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(h);
+  if (!local) {
+    document.body.innerHTML = '<div class="locked"><div><h2>Not available</h2>' +
+      '<p>The asset gallery only runs on a local development machine.</p></div></div>';
+  } else {
+    import('./app/main.js');
+  }
+</script>
+</body>
+</html>
