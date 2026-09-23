@@ -10,7 +10,8 @@
 
 Terrain, water, sky, flora, the reef, raft and debris are generated
 procedurally at load time. The wildlife models in `assets/models/` are **not** —
-see the table below, and read the warning attached to it.
+see the table below, and read the warning attached to it. Nor are the three
+held tools, which have their own section at the end.
 
 `assets/models/reef_fish.glb` is the exception among the files in that folder:
 it is generated from scratch by `tools/build_fish.py`, so it is original work
@@ -76,3 +77,33 @@ because the problem is common in converted rigs.
 > licence here before this repository is shared or made public. If it turns out
 > to be **ND** (no derivatives) it cannot stay: the file has already been
 > converted, which is a derivative.
+
+### Held tools
+
+What you see in your hand, drawn by `src/viewmodel.js`. All three are CC BY 4.0,
+confirmed on their Sketchfab pages (none carries a NoAI restriction), and the
+author, licence and source are also embedded in each original file's
+`asset.extras`. Unlike the wildlife above, there is nothing disputed about
+these: the licence is the uploader's own work, attributed here as it asks.
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/tool_hammer.glb` | Stone hammer Axe (Free) | wolfgar74 | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/stone-hammer-axe-free-a0e76cba79784776b4346e6ae1732472) |
+| `assets/models/tool_spear.glb` | Stone Age Spear | Ben | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/stone-age-spear-2e9bb69fa7934df3901cf6313c540e8d) |
+| `assets/models/tool_rod.glb` | Fishing Rod | KOREA HERITAGE SERVICE [KHS] | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/fishing-rod-c6e7d4f5672348aaa874f181454ceb05) |
+
+**Changes made.** CC BY asks that modifications be indicated. All three were put
+through `tools/build_tools.py`, which:
+
+- reorients each to stand along +Y, rescales it to a real-world length
+  (hammer 0.46 m, spear 1.75 m, rod 2.20 m) and moves its origin to the grip;
+- **hammer and rod:** downsizes the embedded textures (base colour to JPEG at
+  1024, data maps to 512). The hammer went from 19 MB to 1.5 MB;
+- **spear:** replaces its three untextured white materials with wood, knapped
+  stone and rawhide, painted as vertex colours; and **lengthens the shaft**
+  about 3.2x along its own axis. The head and lashing are the author's geometry
+  unchanged. As shipped the spear was about 15:1 long to thick, which at spear
+  length is an 11 cm shaft behind a 45 cm head.
+
+The source files are not in the repository. To rebuild, download them from the
+links above into `~/Downloads` and run the script.

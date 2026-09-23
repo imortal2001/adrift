@@ -1,0 +1,552 @@
+// ── Viewmodel ────────────────────────────────────────────────────────────────
+// The thing in your hand. Until this existed the hotbar decided what a click
+// did but nothing was ever drawn, so there was no way to tell a hammer from a
+// spear except by reading the slot number.
+//
+// It is drawn as a second pass over the finished frame, into its own scene,
+// after clearing depth. That is the standard trick and it earns its keep here:
+// a 1.75m spear held at the hip would otherwise push through the deck, the
+// walls and every coral head you swim past. It also means the tool never
+// casts into the world's shadow map or picks up its fog.
+//
+// Lighting is copied from the world each frame — after underwater.js has
+// dimmed it — so the tool goes blue and dark at depth along with everything
+// else, with a small fill of its own so it never drops to a silhouette.
+//
+// Bodies: tools/build_tools.py prepares three glTF tools in a common frame —
+// standing along +Y, working end up, origin at the grip. Everything held has
+// a procedural body in that same frame, which is what you see until the .glb
+// arrives, forever if it never does, and always for the hook and coconut.
+
+import * as THREE from 'three';
+import { ModelLibrary } from './models.js';
+
+// Where each item sits in camera space (the camera looks down -Z, +X is
+// right) and how it is turned there. `model` names the glTF body in
+// assets/models/, if there is one. Exported so a pose can be tuned live from
+// the console — the arrays are read every frame.
+//
+// Reading `rot` for a tool that stands along +Y (three's default XYZ order):
+// x tips the working end away from you, z leans it left (+) or right (-), and
+// y only spins it about its own handle. So "point the spear at the middle of
+// the screen" is z, not y — y does nothing to where the tip goes.
+//
+// Tuned in a narrow portrait window as well as widescreen. The narrow one is
+// the harder case: at arm's length it shows only ~24cm either side of centre,
+// so anything posed for a wide screen alone ends up off the right-hand edge.
+export const POSES = {
+  hammer:  { model: 'tool_hammer', pos: [0.30, -0.37, -0.56], rot: [-0.30, -1.35, 0.30] },
+  // Carried overhand, the way a spear you mean to throw is: the grip above
+  // eye level at the right, the shaft running forward across the top of the
+  // view. It angles well across rather than at the crosshair, because anything
+  // aimed at the middle of the screen is seen end-on — the stone point shrinks
+  // to a dot behind the lashing.
+  spear:   { model: 'tool_spear',  pos: [0.27, 0.12, -0.14], rot: [-1.64, 0.0, 0.56] },
+  rod:     { model: 'tool_rod',    pos: [0.27, -0.38, -0.34], rot: [-0.95, 0.0, 0.22] },
+  hook:    { model: null,          pos: [0.19, -0.17, -0.52], rot: [0.12, 0.0, 0.20], scale: 1.3 },
+  coconut: { model: null,          pos: [0.17, -0.22, -0.60], rot: [0.30, 0.40, 0.0] },
+};
+
+// What a click looks like, per action: seconds, and a curve from progress
+// 0..1 to a pose offset. Each is a wind-up, a fast stroke and a slow return,
+// because that shape is what makes a motion read as effort rather than as a
+// model being rotated.
+const USES = {
+  build: { time: 0.40, curve: t => {             // hammer: overhead strike
+    const up = ease(t / 0.28), down = ease((t - 0.28) / 0.17), back = ease((t - 0.45) / 0.55);
+    const rx = t < 0.28 ? 0.55 * up : t < 0.45 ? 0.55 - 1.45 * down : -0.90 * (1 - back);
+    const py = t < 0.28 ? 0.05 * up : t < 0.45 ? 0.05 - 0.14 * down : -0.09 * (1 - back);
+    return { rx, py, pz: -0.05 * Math.sin(Math.PI * Math.min(1, t * 1.6)) };
+  } },
+  spear: { time: 0.50, curve: t => thrust(t) },    // spear: point on target, drive
+  rod: { time: 0.75, curve: t => {               // rod: swing it back, flick
+    const back = ease(t / 0.38), flick = ease((t - 0.38) / 0.16), rest = ease((t - 0.54) / 0.46);
+    const rx = t < 0.38 ? 0.75 * back : t < 0.54 ? 0.75 - 1.25 * flick : -0.50 * (1 - rest);
+    return { rx, py: rx * 0.06 };
+  } },
+  hook: { time: 0.34, curve: t => {              // hook: arm back and let go
+    const back = ease(t / 0.35), fling = ease((t - 0.35) / 0.25);
+    return t < 0.35 ? { rx: 0.60 * back, pz: 0.08 * back }
+                    : { rx: 0.60 - 1.2 * fling, pz: 0.08 - 0.30 * fling };
+  } },
+  // The rod's forward flick after a wind-up. The wind-up itself is held, not
+  // played — it is `windup` below — so this only has to carry it through.
+  cast: { time: 0.55, curve: t => {
+    const f = ease(t / 0.22), back = ease((t - 0.22) / 0.78);
+    return { rx: t < 0.22 ? -0.6 * f : -0.6 * (1 - back) };
+  } },
+  eat: { time: 0.70, curve: t => {               // coconut: to the mouth
+    const k = Math.sin(Math.PI * Math.min(1, t));
+    return { px: -0.20 * k, py: 0.17 * k, pz: 0.22 * k, rx: -0.35 * k };
+  } },
+};
+
+const SWAP_DOWN = 0.16, SWAP_UP = 0.22;    // seconds to lower and raise on a swap
+
+// Grip to working end, along +Y — where tools/build_tools.py leaves them.
+const TIPS = { rod: 1.98, spear: 1.01 };
+
+// ── the spear thrust ─────────────────────────────────────────────────────────
+// How far ahead of your eye the point lands at full extension — and so how
+// far a thrust catches a fish. main.js reads this for the catch, so what you
+// see and what you get cannot drift apart.
+export const THRUST_REACH = 1.9;
+const SPEAR_TIP = 1.01;                    // grip to point, tools/build_tools.py
+
+const _aim = new THREE.Vector3();
+/**
+ * A thrust is not the carry pose slid forward. The spear is carried angled
+ * across the top of the view, and sliding that forward moves the point
+ * diagonally, a third of a screen left of the crosshair — while the fish it
+ * catches is dead centre. So the thrust swings the point onto the crosshair
+ * and drives the spear along its own shaft until the tip is THRUST_REACH out.
+ *
+ * Worked out from the carry pose each time rather than hard-coded, so it stays
+ * right if POSES.spear is retuned.
+ */
+function thrust(t) {
+  const p = POSES.spear;
+  // Aim from where the grip rests to the point on the view axis.
+  _aim.set(-p.pos[0], -p.pos[1], -THRUST_REACH - p.pos[2]).normalize();
+  // Invert the pose convention (XYZ Euler on a +Y shaft): a tip direction of
+  // (-sin z, cos z cos x, cos z sin x).
+  const z = Math.asin(-_aim.x);
+  const x = Math.atan2(_aim.z / Math.cos(z), _aim.y / Math.cos(z));
+  // Where the grip has to be for the point to land on target at full reach.
+  const gx = -_aim.x * SPEAR_TIP, gy = -_aim.y * SPEAR_TIP, gz = -THRUST_REACH - _aim.z * SPEAR_TIP;
+  const dx = gx - p.pos[0], dy = gy - p.pos[1], dz = gz - p.pos[2];
+
+  // Swing on target and draw back, drive, hold a beat, recover.
+  let a, k;
+  if (t < 0.20)      { a = ease(t / 0.20); k = -0.14 * a; }
+  else if (t < 0.38) { a = 1; k = -0.14 + 1.14 * ease((t - 0.20) / 0.18); }
+  else if (t < 0.50) { a = 1; k = 1; }
+  else               { a = 1 - ease((t - 0.50) / 0.50); k = a; }
+  return { rx: (x - p.rot[0]) * a, rz: (z - p.rot[2]) * a,
+           px: dx * k, py: dy * k, pz: dz * k };
+}
+
+/** Seconds into a thrust at which the point reaches full extension. */
+export const THRUST_HIT = 0.38 * 0.50;
+
+// A fish speared with a thrust: it appears on the point the moment the point
+// reaches it, and stays long enough to see what you caught.
+const SKEWER_HIDE = 1.7;
+
+function ease(t) {
+  t = Math.min(1, Math.max(0, t));
+  return t * t * (3 - 2 * t);
+}
+
+// ── procedural bodies, in the glTF tools' frame ──────────────────────────────
+const mat = (color, rough = 0.8, extra = {}) =>
+  new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0, ...extra });
+
+function cyl(r0, r1, y0, y1, m, seg = 8) {
+  const g = new THREE.CylinderGeometry(r1, r0, y1 - y0, seg);
+  g.translate(0, (y0 + y1) / 2, 0);
+  return new THREE.Mesh(g, m);
+}
+
+const BODIES = {
+  hammer() {
+    const g = new THREE.Group();
+    g.add(cyl(0.020, 0.017, -0.06, 0.37, mat(0x5a3f28)));
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.22), mat(0x6c6a64, 0.6, { flatShading: true }));
+    head.position.y = 0.35;
+    g.add(head);
+    return g;
+  },
+  spear() {
+    const g = new THREE.Group();
+    g.add(cyl(0.020, 0.018, -0.74, 0.90, mat(0x7d5836)));
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.13, 6), mat(0x6f685e, 0.4, { flatShading: true }));
+    tip.position.y = 0.95;
+    g.add(tip, cyl(0.024, 0.024, 0.84, 0.90, mat(0x9f7c4b, 0.9)));
+    return g;
+  },
+  rod() {
+    const g = new THREE.Group();
+    g.add(cyl(0.017, 0.004, -0.22, 1.98, mat(0x4a3a26)), cyl(0.022, 0.022, -0.20, 0.12, mat(0x2f261c)));
+    return g;
+  },
+  hook() {
+    // A bent scrap-iron hook on a coil of rope: the recipe is plank, rope and
+    // scrap, so that is what it looks like.
+    const g = new THREE.Group();
+    const iron = mat(0x6d6a66, 0.45, { metalness: 0.55 });
+    g.add(cyl(0.007, 0.007, 0.0, 0.12, iron, 6));
+    const bend = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.007, 6, 14, Math.PI * 1.15), iron);
+    bend.rotation.z = Math.PI;
+    bend.position.set(0.035, 0.0, 0);
+    const barb = new THREE.Mesh(new THREE.ConeGeometry(0.010, 0.03, 5), iron);
+    barb.position.set(0.068, 0.018, 0);
+    // The coil faces you, not the sky: seen edge-on it reads as a bar. It sits
+    // on the top of the shank, where the rope is tied off.
+    const coil = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.0075, 6, 18), mat(0xb39360, 0.95));
+    coil.position.y = 0.14;
+    g.add(bend, barb, coil);
+    return g;
+  },
+  coconut() {
+    const g = new THREE.Group();
+    const nut = new THREE.Mesh(new THREE.IcosahedronGeometry(0.085, 1),
+                               mat(0x6b4a2b, 0.95, { flatShading: true }));
+    nut.scale.set(1, 1.12, 1);
+    g.add(nut);
+    // The three germination pores. Without them a brown low-poly ball is a
+    // rock; with them it is a coconut.
+    const pore = mat(0x241710, 1.0);
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2;
+      const d = new THREE.Mesh(new THREE.SphereGeometry(0.011, 6, 4), pore);
+      d.position.set(Math.cos(a) * 0.022, 0.088, Math.sin(a) * 0.022);
+      g.add(d);
+    }
+    return g;
+  },
+};
+
+export class Viewmodel {
+  /**
+   * @param renderer  the game's renderer; this draws a second pass with it
+   * @param camera    the game's camera, which the rig follows
+   * @param sky       for the sun, sky light and night fraction
+   */
+  constructor(renderer, camera, sky) {
+    this.renderer = renderer;
+    this.camera = camera;
+    this.sky = sky;
+
+    this.scene = new THREE.Scene();
+    this.rig = new THREE.Group();          // follows the camera exactly
+    this.hand = new THREE.Group();         // the animated pose, in camera space
+    this.rig.add(this.hand);
+    this.scene.add(this.rig);
+
+    this.sun = new THREE.DirectionalLight(0xffffff, 1);
+    this.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
+    // A little light of its own, so a dark stone head held at 20m down or at
+    // midnight is still recognisably the thing you selected.
+    this.fill = new THREE.AmbientLight(0xffffff, 0.3);
+    this.scene.add(this.sun, this.sun.target, this.hemi, this.fill);
+
+    this.bodies = new Map();               // item id -> Object3D, built lazily
+    this.current = null;                   // what is drawn now
+    this.want = null;                      // what should be drawn
+    this.swap = 0;                         // 0 raised .. 1 fully lowered
+    this.lowering = false;
+
+    this.useKind = null;
+    this.useT = 1;
+
+    this.skewered = null;                  // { mesh, t } — a thrust-caught fish on show
+
+    // How hard something is pulling on the rod, 0..1. Set by fishing.js; the
+    // rod bows toward the pull and shakes with it.
+    this.strain = 0;
+    this._strain = 0;
+    // How far the rod is drawn back for a cast, 0..1 — held while the swing
+    // meter charges. Eased slowly on the way back, fast on the way through.
+    this.windup = 0;
+    this._windup = 0;
+    this.windupRate = 6;
+
+    this.bobPhase = 0;
+    this.bobAmp = 0;
+    this.sway = new THREE.Vector2();       // lag behind the look, yaw and pitch
+    this.lastYaw = null;
+    this.lastPitch = 0;
+    this.lastPos = new THREE.Vector3();
+    this.time = 0;
+    this.visible = false;
+
+    this.upgraded = [];                    // glTF bodies that arrived, for the log
+    this.library = new ModelLibrary();
+    this.loadModels();
+  }
+
+  body(id) {
+    if (this.bodies.has(id)) return this.bodies.get(id);
+    const make = BODIES[id];
+    const obj = make ? make() : null;
+    if (obj) this.prepare(obj);
+    this.bodies.set(id, obj);
+    return obj;
+  }
+
+  prepare(obj) {
+    obj.traverse(o => {
+      if (!o.isMesh) return;
+      o.castShadow = false;
+      o.receiveShadow = false;
+      o.frustumCulled = false;             // camera-space and always in view
+    });
+  }
+
+  /** Swap each procedural body for its glTF one as it loads. Best-effort. */
+  async loadModels() {
+    const jobs = Object.entries(POSES).filter(([, p]) => p.model).map(async ([id, p]) => {
+      const entry = await this.library.get(p.model);
+      if (!entry) return;
+      const obj = entry.scene.clone(true);
+      this.prepare(obj);
+      const old = this.bodies.get(id);
+      this.bodies.set(id, obj);
+      if (old && old.parent) {             // currently in hand: swap in place
+        old.parent.remove(old);
+        this.hand.add(obj);
+      }
+      this.upgraded.push(id);
+    });
+    await Promise.all(jobs);
+  }
+
+  /**
+   * World position of a held tool's working end — the rod tip the line hangs
+   * from — or null if that tool is not the one in hand.
+   */
+  tipWorld(id, out) {
+    const b = this.bodies.get(id);
+    if (!b || this.current !== id || !b.parent) return null;
+    b.updateWorldMatrix(true, false);
+    return b.localToWorld(out.set(0, TIPS[id] || 0, 0));
+  }
+
+  /** Whether what is in hand can be let go of now — not mid-swap. */
+  canRelease(id) {
+    return this.current === id && !this.lowering && this.swap < 0.5;
+  }
+
+  /** World position of the grip: where a thrown thing leaves the hand. */
+  gripWorld(out) {
+    return this.hand.getWorldPosition(out);
+  }
+
+  /**
+   * A copy of an item's body for the world — the same one the hand holds, but
+   * never with a thrust-caught fish still on show on it: that fish is already in
+   * your bag, and throwing the spear should not throw a second copy of it.
+   */
+  cloneBody(id) {
+    const b = this.body(id);
+    if (!b) return new THREE.Group();
+    const shown = this.skewered && this.skewered.mesh.parent === b ? this.skewered.mesh : null;
+    if (shown) b.remove(shown);
+    const copy = b.clone(true);
+    if (shown) b.add(shown);
+    return copy;
+  }
+
+  /**
+   * Show a fish on the spear in hand, for a thrust that caught one. The fish is
+   * a still copy from FishSchools.bodyFor(); this owns it from here on.
+   */
+  skewer(mesh) {
+    this.clearSkewer();
+    this.skewered = { mesh, t: 0 };
+  }
+
+  clearSkewer() {
+    if (!this.skewered) return;
+    const m = this.skewered.mesh;
+    m.removeFromParent();
+    m.geometry.dispose();
+    m.material.dispose();
+    this.skewered = null;
+  }
+
+  /**
+   * The thing in hand has just left it. Drop straight to fully lowered with
+   * nothing held, so the next one — if there is one — is drawn up fresh,
+   * rather than lowering a spear that is already in the air.
+   */
+  release() {
+    this.clearSkewer();
+    this.setBody(null);
+    this.swap = 1;
+    this.lowering = false;
+    this.useT = 1;
+  }
+
+  /** Play the click animation for an action. Ignored if one is running. */
+  use(action) {
+    if (!USES[action] || this.useT < 1 || this.swap > 0) return;
+    this.useKind = action;
+    this.useT = 0;
+  }
+
+  /**
+   * @param held      item id in the selected slot, or null
+   * @param owned     whether you actually have one — an empty bound slot
+   *                  shows empty hands, not a ghost of the tool
+   * @param hidden    true while the item is out of your hand (a thrown hook)
+   * @param playing   false on the title screen and while paused
+   */
+  update(dt, { held, owned, hidden = false, playing = true }) {
+    this.time += dt;
+    const want = playing && owned && POSES[held] ? held : null;
+    this.visible = playing;
+
+    // ── swapping: lower what is there, change it at the bottom, raise ──
+    if (want !== this.current && !this.lowering) {
+      this.lowering = true;
+      this.useT = 1;                       // a swap cancels a swing
+    }
+    if (this.lowering) {
+      this.swap = Math.min(1, this.swap + dt / SWAP_DOWN);
+      if (this.swap >= 1 || !this.current) {
+        this.swap = 1;
+        this.setBody(want);
+        this.lowering = false;
+      }
+    } else if (this.swap > 0) {
+      this.swap = Math.max(0, this.swap - dt / SWAP_UP);
+    }
+    if (this.current) {
+      const b = this.bodies.get(this.current);
+      if (b) b.visible = !hidden;
+    }
+
+    // ── follow the camera ──
+    this.camera.updateMatrixWorld();
+    this.rig.position.setFromMatrixPosition(this.camera.matrixWorld);
+    this.rig.quaternion.setFromRotationMatrix(this.camera.matrixWorld);
+
+    // ── bob from how fast the eye is actually moving ──
+    const moved = Math.hypot(this.rig.position.x - this.lastPos.x, this.rig.position.z - this.lastPos.z);
+    const speed = dt > 0 ? Math.min(8, moved / dt) : 0;
+    this.lastPos.copy(this.rig.position);
+    this.bobAmp += (Math.min(1, speed / 5.3) - this.bobAmp) * Math.min(1, dt * 6);
+    this.bobPhase += dt * (2.2 + speed * 1.9);
+
+    // ── lag behind the look ──
+    const yaw = this.cameraYaw(), pitch = this.cameraPitch();
+    if (this.lastYaw === null) { this.lastYaw = yaw; this.lastPitch = pitch; }
+    let dy = yaw - this.lastYaw;
+    if (dy > Math.PI) dy -= Math.PI * 2;
+    if (dy < -Math.PI) dy += Math.PI * 2;
+    const dp = pitch - this.lastPitch;
+    this.lastYaw = yaw; this.lastPitch = pitch;
+    this.sway.x = THREE.MathUtils.clamp(this.sway.x + dy * 0.9, -0.12, 0.12);
+    this.sway.y = THREE.MathUtils.clamp(this.sway.y + dp * 0.9, -0.10, 0.10);
+    this.sway.multiplyScalar(Math.exp(-dt * 9));
+
+    this.showSkewer(dt);
+    this.pose(dt);
+    this.light();
+  }
+
+  /**
+   * Hang the fish on the point when the thrust reaches it, and take it
+   * off again once it has been seen. The shaft goes through its flanks, the
+   * same as on a thrown spear.
+   */
+  showSkewer(dt) {
+    const k = this.skewered;
+    if (!k) return;
+    k.t += dt;
+    const spear = this.current === 'spear' ? this.bodies.get('spear') : null;
+    if (!spear || k.t > SKEWER_HIDE) { this.clearSkewer(); return; }
+    if (k.t > THRUST_HIT && k.mesh.parent !== spear) {
+      k.mesh.position.set(0, 0.70, 0);
+      k.mesh.rotation.set(0, 0.9, Math.PI / 2);
+      k.mesh.castShadow = false;
+      k.mesh.frustumCulled = false;
+      spear.add(k.mesh);
+    }
+  }
+
+  setBody(id) {
+    if (this.current) {
+      const old = this.bodies.get(this.current);
+      if (old) this.hand.remove(old);
+    }
+    this.current = id;
+    if (id) {
+      const b = this.body(id);
+      if (b) this.hand.add(b);
+    }
+  }
+
+  cameraYaw() {
+    const e = new THREE.Euler().setFromQuaternion(this.rig.quaternion, 'YXZ');
+    return e.y;
+  }
+
+  cameraPitch() {
+    const e = new THREE.Euler().setFromQuaternion(this.rig.quaternion, 'YXZ');
+    return e.x;
+  }
+
+  pose(dt) {
+    const p = POSES[this.current];
+    if (!p) return;
+    const h = this.hand;
+
+    let o = {};
+    if (this.useT < 1) {
+      this.useT = Math.min(1, this.useT + dt / USES[this.useKind].time);
+      o = USES[this.useKind].curve(this.useT);
+    }
+
+    // Drawn back over the shoulder for a cast, as far as the swing is charged.
+    this._windup += (this.windup - this._windup) * Math.min(1, dt * this.windupRate);
+    if (this.current === 'rod' && this._windup > 0.001) {
+      o = { ...o, rx: (o.rx || 0) + 0.9 * this._windup, py: (o.py || 0) + 0.05 * this._windup };
+    }
+
+    // A fish on the line: the rod bows toward it and shudders as it fights.
+    this._strain += (this.strain - this._strain) * Math.min(1, dt * 6);
+    if (this.current === 'rod' && this._strain > 0.01) {
+      const k = this._strain;
+      o = { ...o,
+            rx: (o.rx || 0) - 0.34 * k + Math.sin(this.time * 23) * 0.035 * k,
+            rz: (o.rz || 0) + Math.sin(this.time * 17 + 1.3) * 0.025 * k,
+            pz: (o.pz || 0) - 0.05 * k };
+    }
+
+    // A walk is two steps per stride, so the vertical bob runs at twice the
+    // side-to-side one. The idle drift keeps a held tool from looking bolted
+    // to the screen.
+    const b = this.bobAmp;
+    const bobX = Math.sin(this.bobPhase) * 0.011 * b;
+    const bobY = Math.abs(Math.sin(this.bobPhase)) * -0.016 * b;
+    const idle = Math.sin(this.time * 1.3) * 0.004;
+    const s = ease(this.swap);
+
+    h.position.set(
+      p.pos[0] + (o.px || 0) + bobX - this.sway.x * 0.35,
+      p.pos[1] + (o.py || 0) + bobY + idle - this.sway.y * 0.25 - 0.40 * s,
+      p.pos[2] + (o.pz || 0));
+    h.rotation.set(
+      p.rot[0] + (o.rx || 0) + this.sway.y * 1.2 + 0.9 * s,
+      p.rot[1] + (o.ry || 0) + this.sway.x * 1.6,
+      p.rot[2] + (o.rz || 0) + bobX * 2.0);
+    h.scale.setScalar(p.scale || 1);
+  }
+
+  /** Match the world's light this frame, which underwater.js has already dimmed. */
+  light() {
+    const sky = this.sky;
+    this.sun.color.copy(sky.sun.color);
+    this.sun.intensity = sky.sun.intensity;
+    this.sun.position.copy(this.rig.position).addScaledVector(sky.sunDir, 5);
+    this.sun.target.position.copy(this.rig.position);
+    this.hemi.color.copy(sky.hemi.color);
+    this.hemi.groundColor.copy(sky.hemi.groundColor);
+    this.hemi.intensity = sky.hemi.intensity;
+    this.fill.intensity = 0.30 * (1 - sky.night * 0.6);
+  }
+
+  /** Draw over the finished frame. Call after the world's render. */
+  render() {
+    if (!this.visible || !this.current) return;
+    const r = this.renderer;
+    const auto = r.autoClear;
+    r.autoClear = false;
+    r.clearDepth();
+    r.render(this.scene, this.camera);
+    r.autoClear = auto;
+  }
+}

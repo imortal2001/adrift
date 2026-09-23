@@ -6,6 +6,9 @@
     "stegosaur",
     "parasaur",
     "tyrannosaur",
-    "reef_fish"
+    "reef_fish",
+    "tool_hammer",
+    "tool_spear",
+    "tool_rod"
   ]
 }
