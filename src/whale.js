@@ -9,13 +9,16 @@
 // arches its back and sounds, the flukes coming up clear of the water as it
 // goes down. Then nothing for a while.
 //
-// The body is the `whale` mesh in reef_fish.glb, bent by the same swim shader
+// The body is whale_humpback.glb — a textured humpback ("Game-ready Humpback
+// Whale" by Allie2k, CC BY 4.0), converted by tools/build_whale.py — or, without
+// it, the `whale` mesh in reef_fish.glb. Either is bent by the same swim shader
 // as the fish, but up and down: a whale's flukes are horizontal. No model, no
 // whale; nothing depends on it.
 
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
-import { fishMaterial, normalise, BODY_LENGTH } from './fish.js';
+import { normalise, BODY_LENGTH } from './fish.js';
+import { swimMaterial, styleFor, Swimmer, applySkin, skinOf } from './swim.js';
 
 const LENGTH = 12.5;                 // metres; a grown humpback is 12-16
 const CRUISE_DEPTH = -9;             // where its back rides between breaths
@@ -40,7 +43,10 @@ export class Whale {
     this.terrain = terrain;
     this.raft = raft;
     this.ready = false;
-    this.material = fishMaterial({ axis: 'y' });
+    this.style = styleFor('whale');
+    this.material = swimMaterial({ axis: 'y', style: this.style });
+    this.swimmer = new Swimmer(this.style);
+    this.lastPitch = 0;
 
     this.pos = new THREE.Vector3();
     this.vel = new THREE.Vector3();
@@ -59,15 +65,20 @@ export class Whale {
   }
 
   async load(library) {
-    const entry = await library.get('reef_fish');
-    let src = null;
-    entry?.scene.traverse(o => { if (o.isMesh && o.name === 'whale') src = o.geometry; });
-    if (!src) return;
-    const geo = normalise(src);
-    geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(new Float32Array([0]), 1));
-    geo.setAttribute('aRate', new THREE.InstancedBufferAttribute(new Float32Array([1.3]), 1));
-    // In model units: a quarter of a metre of body at the flukes, scaled up.
-    geo.setAttribute('aAmp', new THREE.InstancedBufferAttribute(new Float32Array([0.10]), 1));
+    // Its own model first; the procedural one in reef_fish.glb if that is missing.
+    let body = null;
+    for (const file of ['whale_humpback', 'reef_fish']) {
+      const entry = await library.get(file);
+      entry?.scene.traverse(o => { if (o.isMesh && o.name === 'whale') body = o; });
+      if (body) break;
+    }
+    if (!body) return;
+    const geo = normalise(body.geometry);
+    this.skin = skinOf(body);
+    if (this.skin) applySkin(this.material, this.skin);
+    this.swimAttr = new THREE.InstancedBufferAttribute(new Float32Array(4), 4);
+    this.swimAttr.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute('aSwim', this.swimAttr);
     this.mesh = new THREE.InstancedMesh(geo, this.material, 1);
     this.mesh.setColorAt(0, new THREE.Color(0xffffff));
     this.mesh.frustumCulled = false;
@@ -236,6 +247,15 @@ export class Whale {
     m.updateMatrix();
     this.mesh.setMatrixAt(0, m.matrix);
     this.mesh.instanceMatrix.needsUpdate = true;
+
+    // The stroke: harder as it climbs or sounds, and the arch of a dive is
+    // the body curving — which for a whale is up and down, not sideways.
+    const pitchRate = (this.pitch - this.lastPitch) / Math.max(dt, 1e-4);
+    this.lastPitch = this.pitch;
+    const effort = this.state === 'sound' || this.state === 'rise' ? 0.5 : 0;
+    this.swimmer.step(dt, speed / CRUISE_SPEED, -pitchRate, effort);
+    this.swimmer.write(this.swimAttr.array, 0);
+    this.swimAttr.needsUpdate = true;
   }
 
   updateSpout(dt) {

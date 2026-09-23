@@ -416,6 +416,8 @@ class Game {
   thrust(eye, dir) {
     const f = this.fish.pick(eye, dir, THRUST_REACH, 0.9);
     if (!f) {
+      // A miss still scares everything near the point.
+      if (this.player.submerged) this.fish.startle(eye.clone().addScaledVector(dir, THRUST_REACH), 2.5, 0.05);
       this.hud.log('A thrust at nothing. Right-click to throw it.');
       return;
     }
@@ -520,8 +522,11 @@ class Game {
     // how big it is, so a shark passing does not look like a missed target —
     // and only in the water with it, not through the deck at the mahi-mahi
     // circling under the raft.
-    if (this.player.submerged && this.fish.pick(eye, dir, 7, 0.97, true)) {
-      return { prompt: 'Far too big for a spear — that is one for a baited line', act: null };
+    const big = this.player.submerged && this.fish.pick(eye, dir, 9, 0.97, true);
+    if (big) {
+      return { prompt: big.sp.catchable === false
+        ? 'Far too big to catch — give it room'
+        : 'Far too big for a spear — that is one for a baited line', act: null };
     }
     return null;
   }

@@ -25,6 +25,12 @@ export const MODELS = {
   // Not an animal the wildlife system drives: one file holding every reef fish
   // body, which src/fish.js takes apart and draws instanced.
   reef_fish:   { file: 'reef_fish.glb',   yaw: 0 },
+  // A species can take its body from a file of its own instead: the blacktip
+  // is a third-party model of the species (CREDITS.md), converted by
+  // tools/build_shark.py.
+  shark_blacktip: { file: 'shark_blacktip.glb', yaw: 0 },
+  shark_greatwhite: { file: 'shark_greatwhite.glb', yaw: 0 },     // tools/build_great_white.py
+  whale_humpback: { file: 'whale_humpback.glb', yaw: 0 },         // tools/build_whale.py
   // Held tools, drawn by src/viewmodel.js. Prepared by tools/build_tools.py
   // into one frame — standing along +Y, origin at the grip — so `yaw` is
   // unused for them; the pose table in viewmodel.js does the turning.

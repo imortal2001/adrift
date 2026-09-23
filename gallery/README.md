@@ -27,7 +27,9 @@ of the game.
   from `src/`, and every model is the game's own file from `assets/models/`.
   Where the game has a built-in fallback for a model (dinosaurs, fish, tools),
   you can switch between the two.
-- **Animations** — every clip in a glTF, playable.
+- **Animations** — every clip in a glTF, playable; and for the fish, each way
+  the game moves them: cruising, fast, gliding, turning, a startle, hooked and
+  landed.
 - **Three backdrops** — a neutral studio; *in-game daylight*, which is the
   game's own sky, sun and ocean at any time of day; and *underwater*, through
   the game's own underwater pass (fog, dimmed light, motes, caustics).

@@ -107,3 +107,79 @@ through `tools/build_tools.py`, which:
 
 The source files are not in the repository. To rebuild, download them from the
 links above into `~/Downloads` and run the script.
+
+
+### Sea life
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/shark_blacktip.glb` | Blacktip Reef Shark | Lais.Marques | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/blacktip-reef-shark-a52bb96c5a0c4157b49982471f8902b0) |
+
+This work is based on "Blacktip Reef Shark"
+(https://sketchfab.com/3d-models/blacktip-reef-shark-a52bb96c5a0c4157b49982471f8902b0)
+by Lais.Marques (https://sketchfab.com/Lais.Marques), licensed under CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/). The Sketchfab page carries no
+NoAI tag.
+
+**Changes made.** It is the game's blacktip reef shark, put through
+`tools/build_shark.py`, which:
+
+- takes it at its rest pose without the armature or its animation (the game
+  swims it with its own shader), turned into the game's frame;
+- joins its six meshes into one and packs their six textures into one 2048²
+  atlas (the body downsampled to half its width, the fins and eyes to a
+  quarter or half);
+- tags each vertex with the fin it belongs to, for the swim shader;
+- adds a normal map, made from the colour textures' own detail and a fine
+  grain — the original has none.
+
+The colours, markings and eyes are the author's, unchanged.
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/shark_greatwhite.glb` | Shark | AndrejKrebs | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/shark-5d5fc65b6b514e2cb8c3fbc04791a89a) |
+
+This work is based on "Shark"
+(https://sketchfab.com/3d-models/shark-5d5fc65b6b514e2cb8c3fbc04791a89a) by
+AndrejKrebs (https://sketchfab.com/AndrejKrebs), licensed under CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/). The Sketchfab page carries no
+NoAI tag.
+
+**Changes made.** It is the game's great white shark, put through
+`tools/build_great_white.py`, which:
+
+- takes it at its rest pose without the armature or its animation (the game
+  swims it with its own shader), turned into the game's frame and joined
+  with its teeth into one mesh;
+- tags each vertex with the fin it belongs to, from the skin weights;
+- adds a small dark eye where the original paints one, and a small white
+  patch in an unused corner of the colour texture for the teeth and eyes to
+  take their colour from;
+- downsizes the textures from 4096² PNG to 2048² JPEG and drops the specular
+  map.
+
+Its colours are the author's, unchanged.
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/whale_humpback.glb` | Game-ready Humpback Whale | Allie2k | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/game-ready-humpback-whale-da07e3ff73914ff28d2b8cf9da794036) |
+
+This work is based on "Game-ready Humpback Whale"
+(https://sketchfab.com/3d-models/game-ready-humpback-whale-da07e3ff73914ff28d2b8cf9da794036)
+by Allie2k (https://sketchfab.com/Allie2k), licensed under CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/). The Sketchfab page carries no
+NoAI tag.
+
+**Changes made.** It is the game's humpback whale, put through
+`tools/build_whale.py`, which:
+
+- centres it and scales it to 12.5 m;
+- tags each vertex with the part it belongs to (flippers, flukes, eyes), for
+  the swim shader;
+- repaints the eyeballs dark brown and flattens their normal map;
+- flips the normal map's green channel from DirectX's convention to glTF's;
+- re-encodes the textures from PNG to JPEG, at the same 2048² size.
+
+The shape, colours and the rest of its textures are the author's, unchanged.
+
+Everything else in `assets/models/reef_fish.glb` is original (see above).

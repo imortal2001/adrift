@@ -9,6 +9,9 @@
     "reef_fish",
     "tool_hammer",
     "tool_spear",
-    "tool_rod"
+    "tool_rod",
+    "shark_blacktip",
+    "shark_greatwhite",
+    "whale_humpback"
   ]
 }

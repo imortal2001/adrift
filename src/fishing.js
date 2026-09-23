@@ -302,6 +302,10 @@ export class Fishing {
     const mid = (sp.length[0] + sp.length[1]) / 2;
     const length = rand(mid, sp.length[1]);
     const mesh = this.fish.displayBody(key, length);
+    // From here the fight drives its body, not the spear-struggle in fish.js.
+    mesh.userData.driven = true;
+    mesh.rotation.order = 'YXZ';
+    mesh.userData.yaw = Math.atan2(this.pos.x - this.tip.x, this.pos.z - this.tip.z);
     this.scene.add(mesh);
     this.catch = { key, name: sp.name, mesh, length };
 
@@ -477,13 +481,13 @@ export class Fishing {
           this.pos.lerpVectors(this.from, deck, e);
           this.pos.y += Math.sin(Math.PI * p) * 1.2;
           this.vm.strain = 0.6 * (1 - p);
-          this.lie(time, deck, p);
+          this.lie(dt, time, deck, p);
         } else {
           // Out of the water and swung in to the tip.
           const hang = this.tip.clone().setY(this.tip.y - 0.45);
           this.pos.lerpVectors(this.from, hang, e);
           this.vm.strain = 0.3;
-          this.hang(time, this.tip);
+          this.hang(dt, time, this.tip);
         }
         if (this.t >= (this.catch.length > BIG ? LAND_TIME + 0.5 : LAND_TIME)) {
           const { key, name } = this.catch;
@@ -535,7 +539,7 @@ export class Fishing {
     if (f.jump >= 0 && f.jump < dt / 0.6 + 0.01) this.splash(this.pos.clone().setY(sea), 0.9);
     this.lastPhase = f.phase;
 
-    this.swim(time, f);
+    this.swim(dt, time, f);
 
     if (!outcome) return;
     if (outcome === 'landed') {
@@ -551,17 +555,66 @@ export class Fishing {
     else this.finish();                              // snapped or spooled: gone
   }
 
-  /** The hooked fish, swimming: pointed the way it is going, thrashing with the pull. */
-  swim(time, f) {
+  /**
+   * The hooked fish, fighting. Which way it faces says what it is doing:
+   *
+   *   running    swimming away from you, along its run
+   *   resting    hanging off the line, nose away, holding station
+   *   reeled in  towed head-first, twisting side to side against it
+   *   broadside  a tang turns its flank to the line and planes
+   *   jumping    along its arc, and a mahi twists as it goes
+   *
+   * The body beats harder the harder it pulls, and the head-shakers — sharks,
+   * barracuda, a grouper heading for its hole — snap the body side to side.
+   * A big fish turns slower than a small one.
+   */
+  swim(dt, time, f) {
     const m = this.catch?.mesh;
     if (!m) return;
+    const u = m.userData;
     m.position.copy(this.fishPos);
-    const vel = this.fishPos.clone().sub(this.fishPrev);
-    if (vel.lengthSq() < 1e-6) vel.set(this.fishPos.x - this.tip.x, 0, this.fishPos.z - this.tip.z);
-    m.lookAt(this.fishPos.clone().add(vel));
-    // Pointed the way it is moving. A tang's bearing sweeps it side to side
-    // across the line, which is what turns its flat flank to you.
-    m.rotateY(Math.sin(time * (14 + 10 * f.pull)) * (0.25 + 0.4 * f.pull));
+
+    const vx = (this.fishPos.x - this.fishPrev.x) / Math.max(dt, 1e-4);
+    const vy = (this.fishPos.y - this.fishPrev.y) / Math.max(dt, 1e-4);
+    const vz = (this.fishPos.z - this.fishPrev.z) / Math.max(dt, 1e-4);
+    const speed = Math.hypot(vx, vz);
+    const ax = this.fishPos.x - this.tip.x, az = this.fishPos.z - this.tip.z;
+    const al = Math.hypot(ax, az) || 1;
+    const away = Math.atan2(ax / al, az / al);
+    const style = f.p.style;
+
+    let want;
+    if (f.jump >= 0 || (style === 'deep' && f.stamina < 0.35)) {
+      want = speed > 0.2 ? Math.atan2(vx, vz) : away;              // along its path
+    } else if (style === 'broadside') {
+      want = away + Math.PI / 2 * Math.sign(Math.sin(f.t * 0.45) || 1);
+    } else if (f.phase === 'run') {
+      want = speed > 0.4 ? Math.atan2(vx, vz) : away;
+    } else if (this.reeling && f.tension > 0.18) {
+      want = away + Math.PI + 0.7 * Math.sin(f.t * 1.7);           // towed, twisting
+    } else {
+      want = away + 0.45 * Math.sin(f.t * 0.8);                    // hanging off the line
+    }
+    let turn = want - u.yaw;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    const effort = Math.min(1.5, f.pull / Math.max(0.3, f.strength)) + (f.jump >= 0 ? 0.8 : 0);
+    const rate = (2.5 + 4 * effort) / Math.sqrt(Math.max(0.2, this.catch.length));
+    const step = THREE.MathUtils.clamp(turn, -rate * dt, rate * dt);
+    u.yaw += step;
+    const yawRate = step / Math.max(dt, 1e-4);
+
+    // Nose up climbing, down diving; in the air, along the arc.
+    const pitch = THREE.MathUtils.clamp(-Math.atan2(vy, Math.max(speed, 0.6)), f.jump >= 0 ? -1.2 : -0.6,
+                                        f.jump >= 0 ? 1.2 : 0.6);
+    const roll = style === 'acrobat' && f.jump >= 0 ? Math.sin(f.jump * Math.PI * 2) * 0.9
+               : THREE.MathUtils.clamp(-yawRate * 0.1, -0.4, 0.4);
+    m.rotation.set(pitch, u.yaw, roll);
+
+    // Head-shakes: a snap of the whole body, side to side.
+    const shake = { shark: 1.0, blitz: 0.6, bury: 0.5, surge: 0.35, dart: 0.4, acrobat: 0.3 }[style] ?? 0.15;
+    const snap = shake * effort * Math.sin(f.t * (9 + 6 * shake)) * 4;
+    u.swimmer.step(dt, 0.8 + effort, yawRate + snap, effort);
+    u.swimmer.writeVec(u.mat.userData.swim);
   }
 
   /**
@@ -577,25 +630,36 @@ export class Fishing {
   }
 
   /** A big fish coming over the side and lying there, tail slapping. */
-  lie(time, at, p) {
+  lie(dt, time, at, p) {
     const m = this.catch?.mesh;
     if (!m) return;
     m.position.copy(this.pos);
     const side = new THREE.Vector3(-this.heading.z, 0, this.heading.x);
+    m.rotation.set(0, 0, 0);
     m.lookAt(m.position.clone().add(side));
     // Coming up it hangs nose to the line; once down it lies on its flank.
     m.rotateZ(Math.PI / 2 * p);
-    m.rotateY(Math.sin(time * 16) * 0.3 * (0.4 + 0.6 * p));
+    // Out of the water a fish does not swim, it flops: hard slaps of the whole
+    // body, a beat apart.
+    const u = m.userData;
+    const slap = Math.sin(time * 3.2) > 0.2;
+    u.swimmer.step(dt, 0, slap ? Math.sin(time * 14) * 6 : 0, slap ? 1.4 : 0.1);
+    u.swimmer.writeVec(u.mat.userData.swim);
   }
 
   /** The fish on the end of the line out of the water: head up, thrashing. */
-  hang(time, tip) {
+  hang(dt, time, tip) {
     const m = this.catch?.mesh;
     if (!m) return;
     const up = tip.clone().sub(this.pos).normalize();
     m.position.copy(this.pos).addScaledVector(up, -0.12 - this.catch.length * 0.5);
+    m.rotation.set(0, 0, 0);
     m.lookAt(this.pos);                   // nose (+Z) at the hook
-    m.rotateY(Math.sin(time * 19) * 0.45);
+    m.rotateZ(Math.sin(time * 2.3) * 0.5);   // twisting on the line
+    // Thrashing: the body flung from side to side, the tail going mad.
+    const u = m.userData;
+    u.swimmer.step(dt, 0, Math.sin(time * 11) * 7, 1.5);
+    u.swimmer.writeVec(u.mat.userData.swim);
   }
 
   /** A sagging curve while it is slack; tighter the harder it is pulled. */

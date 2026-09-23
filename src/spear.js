@@ -26,8 +26,8 @@ import { waveHeight } from './ocean.js';
 
 const AIR_SPEED = 22;          // m/s off the hand — a decent javelin throw
 // What an arm manages against water. Set against the fish rather than the
-// physics: they scatter from anything within 3.2m (fish.js, FLEE_RADIUS), so a
-// throw has to stay fast enough to skewer a little past that — about 3.7m.
+// physics: a shoal bolts from you inside about 2.5 m (fish.js, SENSE), so a
+// throw has to stay fast enough to skewer well past that — about 3.7m.
 const WATER_SPEED = 12;
 const LOFT = 1.4;              // m/s of lift, so a throw at the horizon carries
 const GRAVITY = 9.8;
@@ -142,6 +142,9 @@ export class ThrownSpears {
     // Fish first: they are in the way of the ground, not behind it. Only a
     // point moving with some force skewers anything; a spear drifting up to
     // the surface just nudges past.
+    // A spear through the water frightens what it passes — after each fish's
+    // reaction time, so one it was aimed at is hit before it can get away.
+    if (wet && speed > 4) this.fish.startle(tip, 1.4, 0.2);
     if (speed > 2.5 && s.catch.length < SKEWER_MAX) {
       this._hits.length = 0;
       for (const f of this.fish.hitSegment(this._prevTip, tip, this._hits)) {

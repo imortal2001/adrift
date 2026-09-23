@@ -27,7 +27,8 @@
 import * as THREE from 'three';
 import { ModelLibrary } from '/src/models.js';
 import { SPECIES as DINOS, Wildlife } from '/src/wildlife.js';
-import { FishSchools, fishMaterial, normalise, BODY_LENGTH, BIG } from '/src/fish.js';
+import { FishSchools, normalise, BODY_LENGTH, BIG } from '/src/fish.js';
+import { swimMaterial, styleFor, Swimmer, skinOf } from '/src/swim.js';
 import { Whale } from '/src/whale.js';
 import { FIGHTERS } from '/src/fight.js';
 import { REEF, reefGeometry, reefMaterial } from '/src/reef.js';
@@ -153,36 +154,70 @@ function shadows(obj) {
   return obj;
 }
 
-async function reefFishMesh(name) {
-  const entry = await lib.get('reef_fish');
+/** A body from reef_fish.glb, with its painted skin. */
+async function reefFishMesh(name, model = null) {
+  // A species with a model file of its own takes its body from that, as the
+  // game does (the blacktip: tools/build_shark.py).
+  const entry = await lib.get(model || 'reef_fish');
   let src = null;
-  entry?.scene.traverse(o => { if (o.isMesh && o.name === name) src = o.geometry; });
+  entry?.scene.traverse(o => { if (o.isMesh && (o.name === name || (model && !src))) src = o; });
+  if (!src && model) return reefFishMesh(name);
   return src;
 }
 
-/** A fish that swims: the game's swim shader on one instance. */
-function swimmer(geo, { axis = 'x', rate = 8, amp = 0.4, color = 0xffffff, length = 1, lift = 0.3 }) {
+/**
+ * A fish that swims: the game's swim shader and swim driver on one fish, as
+ * speared and hooked fish are drawn in play. Its "animations" are the ways a
+ * fish moves in the game, so each can be inspected on its own.
+ */
+const MOVES = ['Cruise', 'Fast', 'Glide', 'Turning', 'Startle', 'Hooked', 'Landed'];
+function swimmer(geo, key, { axis = 'x', color = 0xffffff, length = 1, lift = 0.3, skin = null }) {
   const g = normalise(geo);
-  g.setAttribute('aPhase', new THREE.InstancedBufferAttribute(new Float32Array([0]), 1));
-  g.setAttribute('aRate', new THREE.InstancedBufferAttribute(new Float32Array([rate]), 1));
-  g.setAttribute('aAmp', new THREE.InstancedBufferAttribute(new Float32Array([amp]), 1));
-  const mat = fishMaterial({ axis });
-  const mesh = new THREE.InstancedMesh(g, mat, 1);
-  mesh.setColorAt(0, new THREE.Color(color));
+  const style = styleFor(key);
+  const mat = swimMaterial({ axis, style, single: true, skin });
+  mat.color.set(color);
+  const mesh = new THREE.Mesh(g, mat);
   mesh.castShadow = true;
   mesh.frustumCulled = false;
   g.computeBoundingBox();
   const s = length / BODY_LENGTH;
   const size = g.boundingBox.getSize(V()).multiplyScalar(s);
   const y = size.y / 2 + lift;
-  mesh.setMatrixAt(0, new THREE.Matrix4().compose(V(0, y, 0), new THREE.Quaternion(), V(s, s, s)));
+  mesh.position.set(0, y, 0);
+  mesh.scale.setScalar(s);
+  const sw = new Swimmer(style, 1);
+  let move = 'Cruise', since = 0;
   return {
     object: mesh,
     frame: { center: V(0, y, 0), size },
     // Side-on and a little from the front: a fish is its profile. A flatfish
     // is its back, so that one is seen from above.
     view: axis === 'y' ? { yaw: 1.2, pitch: 0.75 } : { yaw: 1.2, pitch: 0.12 },
-    update: (dt, t) => { mat.userData.time.value = t; },
+    clips: MOVES,
+    play: name => { move = name; since = 0; },
+    current: () => move,
+    update: (dt, t) => {
+      mat.userData.time.value = t;
+      since += dt;
+      switch (move) {
+        case 'Fast': sw.step(dt, 2.2, 0, 0.3); break;
+        case 'Glide': sw.coasting = true; sw.coastT = 1; sw.step(dt, 0.6, 0, 0); break;
+        case 'Turning': sw.step(dt, 1, 1.3 * Math.sin(t * 0.7), 0); break;
+        case 'Startle':
+          // A fright every two seconds: the C-start snap, then a burst.
+          if (since > 2) { since = 0; sw.startle(Math.random() < 0.5 ? -1 : 1); }
+          sw.step(dt, since < 0.8 ? 3 : 1, 0, since < 0.8 ? 1 : 0);
+          break;
+        case 'Hooked': sw.step(dt, 1.6, Math.sin(t * 11) * 3, 1.2); break;
+        case 'Landed': {
+          const slap = Math.sin(t * 3.2) > 0.2;
+          sw.step(dt, 0, slap ? Math.sin(t * 14) * 6 : 0, slap ? 1.4 : 0.1);
+          break;
+        }
+        default: sw.step(dt, 1, 0, 0);
+      }
+      sw.writeVec(mat.userData.swim);
+    },
   };
 }
 
@@ -263,42 +298,51 @@ export async function loadRegistry() {
                     surface: 'near the surface', raft: 'under the raft', deep: 'past the drop-off' }[sp.zone];
     add({
       id: `fish-${sp.key}`, name: cap(sp.name), category: 'animals', group: 'Aquatic',
-      kind: 'glTF model', files: ['reef_fish.glb'], backdrop: 'underwater',
-      source: `assets/models/reef_fish.glb · mesh "${sp.mesh}" · tools/build_fish.py`,
+      kind: 'glTF model', backdrop: 'underwater',
+      files: sp.model ? [`${sp.model}.glb`, 'reef_fish.glb'] : ['reef_fish.glb'],
+      source: sp.model ? `assets/models/${sp.model}.glb · tools/${sp.model === 'shark_greatwhite' ? 'build_great_white' : 'build_shark'}.py · CREDITS.md`
+                       : `assets/models/reef_fish.glb · mesh "${sp.mesh}" · tools/build_fish.py`,
       facts: [
         ['Lives', where], ['Length', range(sp.length)],
         ['Schools', `${sp.schools} × ${sp.per === 1 ? 'a lone fish' : sp.per + ' fish'}`],
-        ['Caught with', sp.length[1] > BIG ? 'a baited line only' : 'spear or rod'],
+        ['Caught with', sp.catchable === false ? 'nothing \u2014 scenery, like the whale'
+          : sp.length[1] > BIG ? 'a baited line only' : 'spear or rod'],
+        ['When approached', { hide: 'dives into the coral', bolt: 'bolts along the bottom, then settles',
+          curious: 'turns to watch you; backs off only when close', retreat: 'backs away toward its hole, facing you',
+          ignore: 'keeps its line; swerves at arm\u2019s length', dart: 'the school bursts away',
+          circle: 'comes over and circles you, wide, to look',
+          school: 'a fright ripples through the shoal' }[sp.react || 'school']],
         ...(fighter ? [['Fights', fighter.style]] : []),
         ...(sp.color !== 0xffffff ? [['Tint', '#' + sp.color.toString(16).padStart(6, '0')]] : []),
       ],
       variants: [{ id: 'model', label: 'glTF model' }, { id: 'fallback', label: 'Built-in fallback' }],
       async build(variant) {
-        const geo = variant === 'fallback' ? fallbackGeo(fish) : await reefFishMesh(sp.mesh);
+        const body = variant === 'fallback' ? null : await reefFishMesh(sp.mesh, sp.model);
+        const geo = variant === 'fallback' ? fallbackGeo(fish) : body?.geometry;
         if (!geo) return { object: null, missing: 'reef_fish.glb has no mesh named ' + sp.mesh };
-        return swimmer(geo, { axis: sp.zone === 'sand' ? 'y' : 'x', rate: sp.rate ? mid(sp.rate) : 8.5,
-                              amp: sp.amp ?? 0.4, color: sp.color, length: mid(sp.length),
-                              lift: sp.zone === 'sand' ? 0.02 : 0.35 });
+        return swimmer(geo, sp.key, { axis: sp.zone === 'sand' ? 'y' : 'x', color: sp.color,
+                                      length: mid(sp.length), lift: sp.zone === 'sand' ? 0.02 : 0.35,
+                                      skin: skinOf(body) });
       },
     });
   }
 
   add({
     id: 'whale', name: 'Humpback whale', category: 'animals', group: 'Aquatic',
-    kind: 'glTF model', files: ['reef_fish.glb'], backdrop: 'underwater',
-    source: 'assets/models/reef_fish.glb · mesh "whale" · src/whale.js',
+    kind: 'glTF model', files: ['whale_humpback.glb', 'reef_fish.glb'], backdrop: 'underwater',
+    source: 'assets/models/whale_humpback.glb (tools/build_whale.py; fallback reef_fish.glb "whale") · src/whale.js',
     facts: [['Lives', '50–95 m from the raft'], ['Behaviour', 'cruises at 9 m, surfaces to blow, sounds flukes-up'],
             ['Caught with', 'nothing — scenery only']],
     async build() {
       const w = new Whale(scratch, null, raftStub, { library: lib });
       for (let i = 0; i < 200 && !w.ready; i++) await new Promise(r => setTimeout(r, 25));
-      if (!w.ready) return { object: null, missing: 'reef_fish.glb has no whale mesh' };
+      if (!w.ready) return { object: null, missing: 'neither whale_humpback.glb nor reef_fish.glb has a whale' };
       w.mesh.removeFromParent();
       w.update(0.001, 0);                          // lets it write its own scale
       const s = new THREE.Vector3();
       new THREE.Matrix4().fromArray(w.mesh.instanceMatrix.array).decompose(V(), new THREE.Quaternion(), s);
       const length = s.x * BODY_LENGTH;
-      return swimmer(w.mesh.geometry, { axis: 'y', rate: 1.3, amp: 0.10, length, lift: 0.8 });
+      return swimmer(w.mesh.geometry, 'whale', { axis: 'y', length, lift: 0.8, skin: w.skin });
     },
   });
 

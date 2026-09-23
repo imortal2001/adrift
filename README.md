@@ -185,15 +185,19 @@ pause screen starts over.
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
 | `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current. |
-| `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species, and the swim done in the vertex shader. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off) and how it behaves there. |
+| `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
+| `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
 | `src/whale.js` | One humpback, ambient: cruises, surfaces to blow, sounds flukes-up. Not catchable. |
 | `src/reef.js` | What grows on the sea bed: coral, sponges, anemones, seagrass and rock, plus the surge that bends the soft ones. |
 | `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Shared by the forest and the reef. |
 | `src/terrain.js` | The continent: one height function, streamed as LOD chunks around the viewer, with biome colouring and instanced forests. |
 | `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
 | `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
-| `tools/build_fish.py` | Builds all thirteen sea-life bodies in Blender — colour patterns baked into vertex colours — and exports them as one `.glb`. |
+| `tools/build_fish.py` | Builds all fifteen sea-life bodies in Blender — each species' own face, textured skin (via `tools/fish_textures.py`), fins with rays, gills, eyes, every vertex tagged with its part for the swim shader — and exports them as one `.glb`. |
 | `gallery/` | The asset gallery: a separate app and server that shows every asset in a 3D viewer. See its README. |
+| `tools/build_great_white.py` | Converts a third-party great white (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, fin tags from its bones, its teeth joined in, a dark eye, textures downsized. |
+| `tools/build_whale.py` | Converts a third-party humpback whale (CC BY 4.0, see CREDITS.md) for the game: centred and scaled to 12.5 m, flipper and fluke tags from its shape, dark eyes, its normal map flipped to glTF's convention. |
+| `tools/build_shark.py` | Converts a third-party blacktip reef shark (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, one mesh and one texture atlas, fin tags for the swim shader, a normal map. |
 | `tools/simulate_fight.mjs` | Plays the rod's fight thousands of times per species with five kinds of player, for tuning `fight.js` by numbers rather than feel. |
 | `tools/build_tools.py` | Puts the three third-party tool models in the frame the hand holds them by, colours the spear, and shrinks their textures. |
 | `tools/make_starters.py` | Generates a correctly set up starter `.blend` per species. |
@@ -284,18 +288,159 @@ pads it (nothing should end up inside a rock) and player collision shrinks it
 (a bounding box round a lumpy boulder is mostly empty at the corners, and being
 stopped by that is an invisible wall).
 
-Fish bodies are built by `tools/build_fish.py` and drawn instanced. Nothing is
-skinned: the swim is a travelling sine down the length of the body with the
-nose pinned, which the vertex shader does for free, so ~220 fish cost one draw
-call per species and no CPU beyond steering them. Each species sets its own
-beat and amplitude — a tuna's stiff, fast tail against a grouper's lazy sweep —
-and the flounder and the whale bend up and down instead of side to side (the
-flounder lies on its side; the whale's flukes are horizontal). Counter-shading
-is baked into the vertex colours; the original reef fish take a per-instance
-tint over the top (one mesh, yellow tang and blue), and the newer species
-carry their whole pattern in the mesh — the snapper's red, the tuna's gold
-stripe and finlets, the barracuda's bars, the grouper's blue spots, the
-shark's black fin tips.
+**The bodies** are built by `tools/build_fish.py` from each species' real
+proportions: superellipse sections (a tang is lens-shaped, a tuna a torpedo),
+fins made of rays with membrane between them, notched webbing on the spiny
+dorsals, sickle fins on the tuna and mackerel, and pelvic fins.
+
+**The skin** is textured, to the standard the dinosaurs set: they are
+textured models with a 2048² colour map and a normal map, and next to them
+flat vertex colour looked like plastic. Each species now carries the same two
+maps, in a 1024² atlas painted by `tools/fish_textures.py`:
+
+- **scales** that overlap the way real ones do — each lies over the front of
+  the one behind, is raised toward its free edge and throws a shadow where it
+  tucks under — sized per species (a tuna's tiny, a chromis's large), each a
+  slightly different shade, fading to bare skin over the head;
+- the species' **pattern**: counter-shading, the grouper's round blue spots,
+  the peacock flounder's blue rings, the barracuda's bars, the tuna's gold
+  stripe, the blue tang's palette, the porgy's brown face;
+- **mottle and grain**, so no flank is one flat colour, and the **lateral
+  line** as a row of pores — the mackerel's dropping sharply under its second
+  dorsal, as a king mackerel's does;
+- **fins** with rays that are segmented and fork toward the edge, over a
+  lighter membrane, and black tips where the species has them;
+- a shark's **denticle** grain and pale flank band; a humpback's wrinkles,
+  throat grooves, scars, barnacles and blotched white belly.
+
+The normal map carries the relief — scales, rays, grooves — so the fish catch
+the light underwater instead of reading as smooth. The yellow tang, chromis
+and wrasse are painted in greyscale and take a per-instance tint; everything
+else is painted in its own colours. Meshes are about twice as dense as before
+(1,000–2,000 vertices a species), lighter for the small shoaling fish that are
+drawn by the hundred; all the fish together are about 460k triangles, and the
+model file is 4.4 MB — about the size of one dinosaur.
+
+**The faces** are each species' own, from the species descriptions (sources
+below). The head is shaped per fish — the front of it dropped or raised, the
+crown flattened, a shark's snout flattened — and then the face is laid on it:
+mouth line (its size, position and tilt), lips, jaw, teeth, nostrils, gill
+cover and preopercle, eyes (size, height, shape, pupil) and markings.
+
+| Fish | Face |
+|---|---|
+| Yellow tang | steep head, eyes set high, a long snout concave above and below, a small down-turned mouth |
+| Blue tang | a pointed but shorter snout, a small mouth low on the head, eyes high; the black palette starts at the eye |
+| Chromis | short snout, a big eye, a small, slightly upturned mouth |
+| Wrasse | pointed snout, thick lips, canines jutting at the front of the jaws |
+| Silverside | a head wider than the body, a huge eye (twice the snout), a small oblique mouth |
+| Red snapper | a triangular head, a large mouth reaching under the front of its red eye, canines |
+| Porgy | a long sloping snout, a large mouth with thick lips and a heavy lower jaw, orange at the corner; a brown face with a blue line under the eye and pale stripes below it |
+| Flounder | both eyes on the upper side, widely spaced and raised on short stalks; a small mouth ending under the lower eye |
+| King mackerel | a pointed snout shorter than the rest of the head, a large mouth with knife-like teeth |
+| Yellowfin tuna | a conical snout, a small eye, a small mouth ending well before it |
+| Great barracuda | a long pike-like head, flat on top; the lower jaw jutting past the upper; fangs of unequal size |
+| Grouper | flat between the eyes, a huge mouth running back past the eye, a protruding lower jaw, thick lips, a rounded preopercle |
+| Mahi-mahi | a bull: the tall, flat forehead of the male, a small eye set low near the mouth |
+| Blacktip reef shark | a short, broadly rounded snout; oval eyes with slit pupils; nostrils under the snout with their nipple-shaped flaps; an arched, down-turned mouth with serrated teeth; five gill slits |
+| Humpback whale | (the procedural fallback; the game's whale is now a textured model, below) tubercles — golf-ball knobs — along the rostrum and on the jaw, twin blowholes behind a raised splashguard, a long arching mouth line with the eye just past its corner, throat pleats |
+
+The blacktip is the exception to "built from scratch": its body is a
+textured model of the real species ("Blacktip Reef Shark" by Lais.Marques,
+CC BY 4.0 — see CREDITS.md) — slim, the short rounded snout, the author's
+black tips, pale flank band and slit-pupilled eyes — converted by
+`tools/build_shark.py` into one mesh with one texture atlas, given a normal
+map, and swum by the same shader as everything else. The procedural blacktip
+in `reef_fish.glb` is its fallback. The great white is the same kind of
+import ("Shark" by AndrejKrebs, CC BY 4.0), kept in its own slate-and-white
+colours and teeth, converted by `tools/build_great_white.py`. So is the
+humpback whale ("Game-ready Humpback Whale" by Allie2k, CC BY 4.0): the long
+white-edged flippers, tubercles, throat pleats and knobbly dorsal hump are the
+author's, converted by `tools/build_whale.py` — flippers and flukes tagged for
+the swim shader from the shape (it has no rig), the eyes darkened, and its
+normal map flipped from DirectX's convention to glTF's. The procedural whale
+in `reef_fish.glb` is its fallback.
+
+The blue tang and the silverside used to borrow the yellow tang's and the
+chromis's bodies; each now has its own, because the faces and shapes are too
+different to share.
+
+Sources for the faces: yellow tang ([FishBase](https://www.fishbase.se/summary/zebrasoma-flavescens),
+[Smithsonian](https://biogeodb.stri.si.edu/caribbean/en/thefishes/species/5690));
+blue tang ([Australian Museum](https://australian.museum/learn/animals/fishes/blue-tang-paracanthurus-hepatus/),
+[Reef Life Survey](https://reeflifesurvey.com/species/paracanthurus-hepatus/));
+chromis ([FishBase](https://fishbase.se/summary/5679)); wrasse
+([Smithsonian](https://biogeodb.stri.si.edu/caribbean/en/thefishes/species/3906));
+silverside ([Smithsonian](https://biogeodb.stri.si.edu/sftep/en/thefishes/species/804),
+[FishBase](https://www.fishbase.se/summary/Atherinomorus-stipes)); red snapper
+([Florida Museum](https://www.floridamuseum.ufl.edu/discover-fish/species-profiles/lutjanus-campechanus/),
+[Smithsonian](https://biogeodb.stri.si.edu/caribbean/en/thefishes/species/3686));
+porgy ([Smithsonian](https://biogeodb.stri.si.edu/caribbean/en/thefishes/species/3743),
+[Wikipedia](https://en.wikipedia.org/wiki/Jolthead_porgy)); flounder
+([Smithsonian](https://biogeodb.stri.si.edu/caribbean/en/thefishes/species/4313),
+[Animal Diversity Web](https://animaldiversity.org/accounts/Bothus_lunatus/));
+king mackerel ([Smithsonian](https://biogeodb.stri.si.edu/caribbean/en/thefishes/species/4261),
+[SC DNR](https://www.dnr.sc.gov/swap/supplemental/marine/kingmackerel2015.pdf));
+yellowfin tuna ([NCFishes](https://ncfishes.com/marine-fishes-of-north-carolina/thunnus-albacares/));
+barracuda ([Animal Diversity Web](https://animaldiversity.org/accounts/Sphyraena_barracuda/),
+[Wikipedia](https://en.wikipedia.org/wiki/Great_barracuda)); grouper
+([Wikipedia](https://en.wikipedia.org/wiki/Coral_grouper),
+[FishBase](https://www.fishbase.se/summary/Cephalopholis-miniata.html));
+mahi-mahi ([Wikipedia](https://en.wikipedia.org/wiki/Mahi-mahi)); blacktip reef
+shark ([Shark Research Institute](https://www.sharks.org/blacktip-reef-shark-carcharhinus-melanopterus),
+[Aquarium of the Pacific](https://www.aquariumofpacific.org/onlinelearningcenter/species/blacktip_reef_shark));
+humpback ([Marine Mammal Center](https://www.marinemammalcenter.org/animal-care/learn-about-marine-mammals/cetaceans/humpback-whale),
+[Whale Watch Western Australia](https://whalewatchwesternaustralia.com/humpback-whale-tubercles/)).
+
+**The material** (`src/swim.js`) takes those maps and adds a silvery
+flash on a flank turned edge-on (strongest on silversides, mackerel and tuna);
+glassy eyes; and fins that glow faintly, as thin fins do with light behind
+them. (Without the model file, the fallback body gets procedural scales from
+the shader instead.)
+
+**The swim.** Nothing is skinned. Every vertex is tagged with the part of the
+fish it belongs to, and the vertex shader moves each part its own way: the
+body with a travelling wave and a C-curve into turns, the tail lagging it so
+it flicks, the dorsal and anal fins rippling, the pectorals rowing or — for a
+shark, a tuna or the whale — lifting like wings. Each species has its own
+style (`STYLES` in `swim.js`), close to the real one:
+
+| Swims like | Who |
+|---|---|
+| thunniform: a rigid body, a narrow tail beating fast | tuna, and mackerel nearly |
+| labriform: rowing with the pectorals, body kept still | wrasse, tangs, chromis when hovering |
+| burst and coast: a few strokes, then a glide | barracuda, grouper, snapper, porgy, tangs |
+| the whole body sweeping, head included | blacktip shark |
+| an up-and-down wave, fins rippling round the edge | flounder |
+| slow up-and-down flukes | whale |
+
+The stroke follows what the fish is doing: it beats faster and wider as it
+speeds up, a bigger fish of the same species beats slower, it bends into its
+turns and banks slightly, it glides between bursts, and it sculls with its
+fins to hold station. Big fish accelerate and turn wide; small ones dart.
+
+**Reactions** are per species (`react` in `SPECIES`, `SENSE` for the
+distances): come within about 2.5 m of a shoal and one fish snaps into a
+C-start and bolts, and the fright ripples through the rest, each fish a beat
+after its neighbour; the shoal moves off and regroups. Chromis drop into the
+coral instead. A flounder shoots off along the bottom and settles again. A
+barracuda turns to watch you and only backs off when you are close; a grouper
+backs away toward its hole, still facing you; the shark keeps its line and
+swerves at arm's length. A spear through the water frightens what it passes
+(after each fish's reaction time, so the one it was aimed at is hit first), so
+does a missed thrust, and so does taking a fish out of its shoal. With a
+couple of seconds between throws, spear hit rates are the same as before any
+of this — measured; a quick second throw into a school you have just scared
+is harder.
+
+**Caught.** A speared fish struggles on the spear in bursts that weaken over
+about ten seconds and stop. A hooked one fights as it pulls (see Fishing): it
+swims away on its runs, hangs off the line nose-away when resting, is towed in
+head-first and twisting when you reel against it, turns its flank to the line
+if it is a tang, circles if it is a spent tuna, arcs through its jumps — a
+mahi twisting as it goes — and sharks, barracuda and a grouper heading for its
+hole shake their heads. Swung out of the water it thrashes on the line, and a
+big one landed on the deck flops.
 
 **Where each one lives**, and how it behaves there, follows the real fish:
 
@@ -305,11 +450,12 @@ shark's black fin tips.
 | Porgy | low over the reef | in ones and twos, picking at the bottom |
 | Flounder | on the open sand, between colonies | lies flat and still, camouflaged; bolts along the bottom if you get close |
 | Mackerel | mid-water | a fast school |
-| Barracuda | 3-6 m over a coral head | hangs almost motionless; hardly bothers to move away from you |
-| Grouper | just off the bottom | solitary, stays by its hole |
+| Barracuda | 3-6 m over a coral head | hangs almost motionless; turns to watch you rather than moving off |
+| Grouper | just off the bottom | solitary, stays by its hole, and backs into it if you come close |
 | Blacktip reef shark | over the reef | a slow, wide patrol; does not get out of your way |
 | Mahi-mahi | under the raft, near the surface | circles it — dorado gather under anything floating |
 | Yellowfin tuna | past the drop-off | a fast school over deep water |
+| Great white shark | past the drop-off, rarely | a lone 4 m patroller over deep water; comes over to circle you at about six metres, and cannot be caught — like the whale, it is there to be seen |
 
 Anything longer than 80 cm (`BIG` in `fish.js`) will not go on a spear: the
 throw and the thrust pass through it, and looking at one underwater says it is
@@ -435,7 +581,14 @@ Measured, per player, the share landed:
 So the small fish forgive anything, the big ones need you to watch the
 tension, and the barracuda needs you to watch it closely. A skilled fight
 takes 8 s for a flounder, about 20 s for a grouper, 28 s for a blacktip and
-39 s for a tuna.
+40 s for a tuna.
+
+Size counts: a fish bigger than its species' usual pulls harder (strength
+goes with size^0.8) and lasts longer (stamina with size^0.4). Running fish
+change direction mid-run, a darting wrasse all the time and a tuna hardly at
+all (`TURNS` in `fight.js`) — that only moves where the fish is drawn, so the
+numbers above are unchanged by it. How the hooked fish looks while it does
+all this is under **Caught**, above.
 
 **What bites** depends on the water under the float, and on the hook:
 
@@ -482,7 +635,9 @@ from the raft. It cruises at 9 m, and every minute or so comes up and blows
 three to five times, a dozen seconds apart — a bushy spout about 4 m tall —
 then arches over and sounds, the flukes coming up clear of the water as it
 goes down. It is scenery, not a catch: nothing on a raft lands forty tonnes.
-It uses the same swim shader as the fish, bending up and down.
+Its body is `whale_humpback.glb` (see *The faces* above), and it uses the same
+swim shader as the fish, bending up and down: the flukes beat, and the long
+flippers lift and droop slowly.
 
 ### Swapping in real models
 
@@ -540,9 +695,11 @@ would split the raft in two.
 - Survival pressure: the rates in `Player.vitals()` (`player.js`).
 - Debris density and drift: `POOL`, `SPEED`, `BAND` in `debris.js`.
 - Fish: the `SPECIES` table in `fish.js` — body, colour, zone, school count,
-  size, and per species `hover`, `flee`, `roam`, `amp`/`rate` (the swim) and
-  `bed` — plus `ZONES` for where each zone is, `FLEE_RADIUS`, and `BIG` for
-  what is too big to spear. The whale: the constants at the top of `whale.js`.
+  size, and per species `hover`, `react`, `roam` and `bed` — plus `ZONES` for
+  where each zone is, `SENSE` for how close you get before each kind of fish
+  reacts, and `BIG` for what is too big to spear. How each species swims — its
+  stroke, turning, gliding, fins, scales and sheen — is `STYLES` in `swim.js`.
+  The whale: the constants at the top of `whale.js`.
 - Reef shape: `SHELF_FLOOR`, `BASIN`, `SHELF_EDGE`, `REEF_HEIGHT` in
   `terrain.js`. Raising the shelf brings the coral into easier diving range.
 - Reef make-up and density: the `REEF` table in `reef.js` (depth band, slope,

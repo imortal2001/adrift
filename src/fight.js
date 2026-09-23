@@ -81,6 +81,11 @@ const SHOCK = { dart: 9, dive: 7, broadside: 3, run: 3.5, surge: 5, flat: 3,
                 blitz: 7, bury: 5, acrobat: 7, deep: 3, shark: 4 };
 const COVER_RATE = 0.55;             // how fast a burying fish gets home
 const COVER_TURN = 0.74;             // tension above this turns it back
+// How often a running fish changes direction, per second, by style: a darting
+// wrasse twists all the time, a tuna holds its line. Only where it is drawn —
+// the bearing plays no part in the tension.
+const TURNS = { dart: 1.2, acrobat: 0.9, blitz: 0.4, shark: 0.3, surge: 0.3, dive: 0.25,
+                broadside: 0, run: 0.15, deep: 0.1, bury: 0.1, flat: 0.1 };
 
 export class Fight {
   /**
@@ -94,7 +99,9 @@ export class Fight {
     this.key = key;
     this.p = FIGHTERS[key] || FIGHTERS.silver;
     this.rng = rng;
+    // A bigger fish than usual pulls harder, and lasts a little longer.
     this.strength = this.p.pull * Math.pow(size, 0.8);
+    this.endurance = this.p.stamina * Math.pow(size, 0.4);
     this.lineMax = lineMax;
 
     this.tension = 0.4;
@@ -223,11 +230,15 @@ export class Fight {
     }
 
     // ── stamina ── it tires fastest pulling against a tight line
-    this.stamina -= dt * (0.02 + 0.10 * this.pull * this.tension) / this.p.stamina;
+    this.stamina -= dt * (0.02 + 0.10 * this.pull * this.tension) / this.endurance;
     if (this.phase === 'rest' && this.tension < 0.3) this.stamina += dt * 0.012;
     this.stamina = Math.min(1, Math.max(0, this.stamina));
 
     // ── where it is, for drawing ──
+    // Changing direction mid-run: a twist back across the line.
+    if (this.phase === 'run' && this.jump < 0 && this.rng() < (TURNS[this.p.style] || 0) * dt) {
+      this.bearingTarget = -this.bearingTarget * 0.8 + (this.rng() - 0.5) * 0.4;
+    }
     if (this.p.style === 'broadside') this.bearingTarget = 0.5 * Math.sin(this.t * 0.9);
     // The death circle: a spent tuna swims wide circles right under you.
     if (this.p.style === 'deep' && this.stamina < 0.35) {
