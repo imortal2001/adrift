@@ -12,8 +12,6 @@ export const ITEMS = {
   scrap:   { name: 'Scrap',   tool: false },
   coconut: { name: 'Coconut', tool: false, action: 'eat',
              hint: 'Click to eat' },
-  fish:    { name: 'Raw fish', tool: false, action: 'eat',
-             hint: 'Click to eat — raw, so it does less for you than it could' },
 
   hammer:  { name: 'Hammer',  tool: true, action: 'build',
              hint: 'Held out to build — wheel or [ ] picks the piece' },
@@ -24,6 +22,34 @@ export const ITEMS = {
   rod:     { name: 'Rod',     tool: true, action: 'rod',
              hint: 'Click to cast — click again the moment the float goes under. Right-click baits the hook with a fish' },
 };
+
+// Every fish you can catch is an item of its own, so what you caught is what
+// you carry: a red snapper stays a red snapper in the pack, in the hotbar and
+// in your hand, rather than all going into one sack of "raw fish". The names
+// are the species' in src/fish.js (kept here so the item table does not pull
+// in the renderer). All of them eat the same, as FOOD.fish. Smallest first,
+// which is the order bait is picked in. A third name, where the full one is
+// too long for a hotbar slot, is what the slot shows.
+export const CATCHES = [
+  ['chromis', 'Chromis'], ['silver', 'Silverside'], ['wrasse', 'Wrasse'],
+  ['tang', 'Yellow tang', 'Tang'], ['bluetang', 'Blue tang'], ['flounder', 'Flounder'],
+  ['porgy', 'Porgy'], ['snapper', 'Red snapper', 'Snapper'], ['mackerel', 'Mackerel'],
+  ['grouper', 'Grouper'], ['barracuda', 'Barracuda'], ['mahi', 'Mahi-mahi'],
+  ['tuna', 'Yellowfin tuna', 'Tuna'], ['blacktip', 'Blacktip shark', 'Blacktip'],
+];
+
+/** The item a caught fish of this species becomes. */
+export const fishItem = key => `fish_${key}`;
+/** The species of a fish item, or null for anything else. */
+export const fishOf = id => ITEMS[id]?.fish ?? null;
+
+for (const [key, name, short] of CATCHES) {
+  ITEMS[fishItem(key)] = { name, short, tool: false, action: 'eat', fish: key,
+    hint: 'Click to eat — raw, so it does less for you than it could' };
+}
+
+/** What eating an item does, fish by fish or otherwise. */
+export const foodOf = id => FOOD[id] ?? (fishOf(id) ? FOOD.fish : null);
 
 // What eating each food does. Raw fish fills you up but is salty, so it costs
 // a little water; cooking it is the obvious next step once the campfire does
@@ -83,6 +109,12 @@ export const DEBRIS_KINDS = {
   coconut: { label: 'Coconut',   yield: { coconut: 1 },         weight: 10 },
 };
 
+// What an unrecorded old catch most likely was: the small fish, weighted by
+// how many of each swim round the raft (schools × fish per school, fish.js).
+const LEGACY_CATCH = [['chromis', 72], ['silver', 48], ['tang', 26], ['wrasse', 18],
+  ['bluetang', 10], ['snapper', 12], ['mackerel', 10], ['porgy', 4], ['flounder', 3]];
+const LEGACY_TOTAL = LEGACY_CATCH.reduce((n, [, w]) => n + w, 0);
+
 export class Inventory {
   constructor() { this.slots = new Map(); }
 
@@ -132,6 +164,16 @@ export class Inventory {
   static fromJSON(o) {
     const inv = new Inventory();
     for (const k in o) if (ITEMS[k]) inv.slots.set(k, o[k]);
+    // Saves from before fish were told apart carry one count of "fish". They
+    // were real catches, only never written down, so they come back as the
+    // hand-sized fish a spear or a bare hook takes, in about the proportions
+    // those are about the reef.
+    const old = Math.floor(o?.fish || 0);
+    for (let i = 0; i < old; i++) {
+      let r = Math.random() * LEGACY_TOTAL;
+      const [key] = LEGACY_CATCH.find(([, w]) => (r -= w) < 0) || LEGACY_CATCH[0];
+      inv.add(fishItem(key));
+    }
     return inv;
   }
 }

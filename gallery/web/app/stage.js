@@ -86,6 +86,7 @@ export class Stage {
     this.scene.fog = world ? this.fog : null;
     this.scene.background = world ? null : new THREE.Color(0x2a2e33);
     this.sky.setMinutes(minutes);
+    this.haze();
     // Sunk for the underwater look — unless the asset already sits at its
     // real height in the world, like a chunk of sea bed.
     this.root.position.y = kind === 'underwater' && !this.asset?.keepHeight ? -DEPTH : 0;
@@ -161,13 +162,29 @@ export class Stage {
     this.key.target.position.copy(center);
     // The game's sun follows a focus point; give it this one. (Studio has no
     // fog for the sky to colour, and does not use the sky.)
-    if (this.backdrop !== 'studio') this.sky.update(0, center);
+    if (this.backdrop !== 'studio') { this.sky.update(0, center); this.haze(); }
+  }
+
+  /**
+   * The game's haze is set for a view from the raft, where the far coast is
+   * a kilometre off. An asset framed from much further — the whole
+   * continent, from several — would be a flat pale shape through it, so it
+   * can ask (`distant`) for the haze to be thinned to whatever leaves it
+   * looking hazy but clear at the distance the camera is now: about a third
+   * of the way to the fog colour at its centre, however far you zoom. The
+   * sky sets the density afresh on every update, so this runs after each.
+   */
+  haze() {
+    if (!this.asset?.distant || !this.scene.fog || !this.camera) return;
+    const d = this.camera.position.distanceTo(this.bounds.center);
+    this.scene.fog.density = Math.min(this.scene.fog.density, 0.65 / Math.max(d, 1));
   }
 
   set showGrid(v) { this.gridOn = v; this.grid.visible = v && this.floor.visible; }
   set showFigure(v) { this.figureOn = v; this.figure.visible = v && this.floor.visible; }
 
   tick(dt, time, camera) {
+    this.camera = camera;
     this.asset?.update?.(dt, time, camera, this);
     setReefTime(time);
     if (this.backdrop === 'studio') {
@@ -176,6 +193,7 @@ export class Stage {
       return;
     }
     this.sky.update(dt, this.bounds.center);
+    this.haze();
     this.ocean.update(time, camera.position);
     const eye = camera.position;
     const submerged = eye.y < waveHeight(eye.x, eye.z, time);

@@ -86,7 +86,7 @@ code and models, runs on this machine only, and has its own
 | `C` / `B` | crafting / take out the hammer |
 | wheel, `[` `]` | with the hammer out: pick a build piece |
 | Right-click | throw what is in hand — the spear, or the hook |
-| `Q` | eat — a coconut if you have one, otherwise raw fish |
+| `Q` | eat — a coconut if you have one, otherwise a fish (the one in hand, else the one you have most of) |
 | `X` | salvage the piece under the crosshair — materials come back |
 | `F` | step off into the water |
 | `Z` / `Space` | swim down / swim up — `Space` climbs out when the deck is in reach |
@@ -102,9 +102,9 @@ instead of a key per tool:
 |---|---|
 | Hammer | build mode is on; click places the piece (wheel or `[` `]` picks it) |
 | Hook | throw it at debris and reel the debris in |
-| Coconut, Raw fish | eat it |
+| Coconut, any fish | eat it |
 | Spear | a thrust that skewers the fish on the crosshair; **right-click throws it** — pull it back out with `E` |
-| Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a raw fish on the hook as bait (right-click again takes it back off) |
+| Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
 | Material, or nothing | nothing |
 
 Build mode is no longer a toggle: it is simply *holding the hammer*. Take out
@@ -204,6 +204,7 @@ pause screen starts over.
 | `gallery/` | The asset gallery: a separate app and server that shows every asset in a 3D viewer. See its README. |
 | `tools/build_great_white.py` | Converts a third-party great white (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, fin tags from its bones, its teeth joined in, a dark eye, textures downsized. |
 | `tools/build_whale.py` | Converts a third-party humpback whale (CC BY 4.0, see CREDITS.md) for the game: centred and scaled to 12.5 m, flipper and fluke tags from its shape, dark eyes, its normal map flipped to glTF's convention. |
+| `tools/build_coconut.py` | Converts a third-party photoscanned coconut (CC BY 4.0, see CREDITS.md) for the game: a smooth 3,072-triangle shell fitted to the 199,500-triangle scan, pores up, ~17 cm, with the scan's colour and relief baked onto it at 1024² (23 MB down to 270 KB). Held in hand, and afloat as flotsam at 2.4 times the size. |
 | `tools/build_shark.py` | Converts a third-party blacktip reef shark (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, one mesh and one texture atlas, fin tags for the swim shader, a normal map. |
 | `tools/simulate_fight.mjs` | Plays the rod's fight thousands of times per species with five kinds of player, for tuning `fight.js` by numbers rather than feel. |
 | `tools/build_tools.py` | Puts the three third-party tool models in the frame the hand holds them by, colours the spear, and shrinks their textures. |
@@ -552,8 +553,18 @@ to your mouth.
 
 Materials have bodies too, so a slot holding one shows what it is: an armful of
 split wood, a sawn plank, a coil of cord, a palm frond, a bent sheet of rusted
-scrap. And **raw fish** is the fish you caught — the last catch's own species,
-face and colours, held up by the tail (a plain stand-in until your first).
+scrap.
+
+**Every fish is its own item.** What you catch goes in the bag as that species —
+a red snapper stays a red snapper, a blue tang a blue tang — so the pack lists
+each kind with its own count, and one you take out is the one you caught: its
+own body, face and colours, held up by the tail. Fish share one hotbar slot
+rather than filling all five: a catch goes into the fish slot (the one in hand
+if you are holding a fish), so what you just caught is what you hold next, and
+when you eat or bait the last of one kind the slot moves on to another you
+carry. Register a particular species to a slot from the pack (`I`) to keep it
+there. Saves from before this carried one count of "raw fish"; those come back
+as the small reef fish they most likely were.
 
 The spear is carried **low at the right, point forward** — along the right-hand
 side of the view, not across it — and right-click throws it. `src/spear.js` takes
@@ -566,7 +577,7 @@ the schools — the segment, not the point, because at 20 m/s it moves further
 in a frame than a chromis is long. A fish it passes through is taken out of the
 water and hung on the shaft through its flanks, and the spear carries on,
 slower; a throw through a tight shoal can come back with more than one. Pull
-the spear out with `E` and the fish come with it as **Raw fish**. A thrust does the
+the spear out with `E` and the fish come with it, each as its own species. A thrust does the
 same at arm's length — the fish shows on the point of the spear in your hand
 for a moment, then goes in the bag.
 
@@ -683,11 +694,11 @@ all this is under **Caught**, above.
 | Past the drop-off | silversides, mackerel, red snapper | yellowfin tuna, mahi-mahi, mackerel, blacktip |
 | Near the raft | — | mahi-mahi, on top of whichever of the above |
 
-Right-click with the rod to bait the hook: it takes one raw fish. A predator
+Right-click with the rod to bait the hook: it takes one fish, the smallest you have. A predator
 does not peck at a bait the way a small fish nibbles a bare hook — there are
 fewer nibbles, and you wait longer, because big fish are rarer. Miss the bite
 and it usually steals the bait. Whatever takes it, the bait is gone. What a
-catch is worth in raw fish goes with the size of it: one for a reef fish, two
+catch is worth — how many of that fish go in the bag — goes with the size of it: one for a reef fish, two
 for a snapper, porgy or flounder, three for a mackerel, up to eight for a
 tuna. A big catch cannot be swung up on the rod, so it is hauled over the
 side onto the deck beside you. A rod fish comes up from water you cannot see
@@ -891,9 +902,9 @@ Each of these has a deliberate hook already in place:
   `Wildlife` already tracks health for its own kills; a hit test against it in
   `ThrownSpears.fly()`, like the one against fish, is most of the work.
 - **Cooking** — the campfire is built and lit but has no interaction, and there
-  is now something to cook: raw fish (`FOOD` in `items.js` has it costing a
+  is now something to cook: fish (`FOOD` in `items.js` has it costing a
   little water). Give the fire an input slot and a cooked fish better than
-  either raw fish or a coconut.
+  either a raw fish or a coconut.
 - **Marine animals** — a shark that circles the raft and punishes swimming is
   the cheapest way to make the water feel dangerous, and would close off the
   "swim away from anything" escape. `Wildlife` already has the targeting.

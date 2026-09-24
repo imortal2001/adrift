@@ -159,20 +159,21 @@ export class Fishing {
 
   /**
    * Put a fish on the hook, or take it back off. Only between casts.
-   * @param have  whether there is a raw fish to use
+   * @param have  whether there is a fish to use
+   * @param name  which fish it is, for the log ("chromis")
    * @returns +1 if a fish went on (take one from the inventory), -1 if it came
    *          back off (give it back), 0 if nothing changed
    */
-  toggleBait(have) {
+  toggleBait(have, name = 'fish') {
     if (this.state !== 'idle') return 0;
     if (this.bait) {
       this.bait = false;
-      this.say('You take the bait fish off the hook.');
+      this.say(`You take the ${name} off the hook.`);
       return -1;
     }
-    if (!have) { this.say('You need a raw fish to bait the hook with.', 'bad'); return 0; }
+    if (!have) { this.say('You need a fish to bait the hook with.', 'bad'); return 0; }
     this.bait = true;
-    this.say('You bait the hook with a whole fish. Something bigger might take it.', 'good');
+    this.say(`You bait the hook with a whole ${name}. Something bigger might take it.`, 'good');
     return 1;
   }
 
