@@ -13,6 +13,7 @@ const SPAWN_DIST = 98;      // metres upstream
 const KILL_DIST = 112;      // metres downstream before recycling
 const BAND = 14;            // lateral spread of the current
 const SPEED = 1.35;
+const COCONUT_SCALE = 2.4;  // the scanned nut is hand-sized, ~17 cm; afloat it is shown at 40, as the old one was
 
 const CURRENT = new THREE.Vector2(0.60, 0.80).normalize();
 const SIDE = new THREE.Vector2(-CURRENT.y, CURRENT.x);
@@ -89,6 +90,8 @@ function shapes() {
       }
       return g;
     },
+    // The stand-in until the scanned nut (assets/models/coconut.glb) loads;
+    // see DebrisField.dress().
     coconut() {
       const g = new THREE.Group();
       const s = new THREE.SphereGeometry(0.21, 10, 8);
@@ -117,13 +120,37 @@ export class DebrisField {
         x: 0, z: 0, y: 0,
         yaw: Math.random() * 7,
         spin: (Math.random() - 0.5) * 0.35,
-        buoy: kind === 'coconut' ? -0.06 : kind === 'palm' ? 0.01 : -0.04,
+        // A coconut rides high, a third of it out of the water.
+        buoy: kind === 'coconut' ? 0.02 : kind === 'palm' ? 0.01 : -0.04,
         held: false,          // hooked and being reeled in
       };
       this.items.push(it);
       // Seed the first batch spread along the whole corridor so the ocean
       // isn't empty for the first two minutes.
       this.respawn(it, Math.random() * (SPAWN_DIST + KILL_DIST) - SPAWN_DIST);
+    }
+  }
+
+  /**
+   * Swap the procedural coconuts for the scanned one once it has loaded —
+   * the same file the one in your hand uses, from the same library, so it is
+   * fetched once. Well over twice the size of the nut in hand: at 20 m a real
+   * one is a speck, and most of a floating nut is under the water. Lying on its side, the way a round nut floats. Best-effort; the
+   * stand-ins stay if there is no file.
+   */
+  async dress(library) {
+    const entry = await library.get('coconut');
+    let nut = null;
+    entry?.scene.traverse(o => { if (o.isMesh && !nut) nut = o; });
+    if (!nut) return;
+    for (const it of this.items) {
+      if (it.kind !== 'coconut') continue;
+      const m = nut.clone();
+      m.scale.setScalar(COCONUT_SCALE);
+      m.rotation.set(1.3 + Math.random() * 0.5, Math.random() * 7, 0);
+      m.castShadow = true;
+      it.obj.clear();
+      it.obj.add(m);
     }
   }
 

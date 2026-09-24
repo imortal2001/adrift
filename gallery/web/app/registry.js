@@ -337,10 +337,10 @@ export async function loadRegistry() {
       group: id === 'coconut' || id === 'fish' ? 'Food' : ITEMS[id]?.action ? 'Tools' : 'Crafting materials',
       kind: hasModel ? 'glTF model' : 'built in code',
       files: pose.model ? [`${pose.model}.glb`] : [],
-      source: hasModel ? `assets/models/${pose.model}.glb · tools/build_tools.py · CREDITS.md`
+      source: hasModel ? `assets/models/${pose.model}.glb · tools/${pose.model === 'coconut' ? 'build_coconut' : 'build_tools'}.py · CREDITS.md`
                        : `src/viewmodel.js · BODIES.${id}()`,
       facts: [['In hand', ITEMS[id]?.hint || 'nothing to do with it — a material, carried'],
-              ...(id === 'fish' ? [['In play', 'you hold the species you caught last; this is the stand-in until then']] : []),
+              ...(id === 'fish' ? [['In play', 'every fish is its own item and is held as its own species; this is the stand-in for one the schools cannot draw']] : []),
               ['Frame', 'stands along +Y, origin at the grip']],
       variants: hasModel ? [{ id: 'model', label: 'glTF model' }, { id: 'fallback', label: 'Built-in fallback' }] : null,
       async build(variant) {
@@ -462,10 +462,13 @@ export async function loadRegistry() {
 
   add({
     id: 'continent', name: 'The whole continent', category: 'terrain', group: 'Land',
-    // Studio: from far enough away to see all of it, the daylight haze is solid.
-    kind: 'built in code', backdrop: 'studio', source: 'src/terrain.js · Terrain.buildFar()',
+    // In daylight, in its own sea: seen from kilometres off, the game's haze
+    // would leave only a pale silhouette, so it asks for less (`distant`).
+    kind: 'built in code', backdrop: 'world', source: 'src/terrain.js · Terrain.buildFar()',
     facts: [['What', 'the far land: every hill, the range and the forest canopy, coarse, as seen from the raft'],
             ['Size', `about ${Math.round((WORLD.radius + 300) * 2 / 100) / 10} km across; peaks near 400 m`],
+            ['Sea', 'a flat stand-in, for the coastline: the game’s ocean only reaches 450 m from the camera'],
+            ['Raft', 'the red post, where the game starts you'],
             ['In play', 'drawn wherever the detailed chunks do not reach']],
     async build() {
       const g = new THREE.Group();
@@ -473,7 +476,21 @@ export async function loadRegistry() {
       g.position.set(-WORLD.cx, 0, -WORLD.cz);
       const holder = new THREE.Group();
       holder.add(g);
-      return { object: holder, ground: false, keepHeight: true, ownsWater: true,
+      // A sea round it, so the coast reads as a coast rather than the edge
+      // of a floating slab. The far land is only drawn above y 0.2, so this
+      // takes over at the waterline.
+      const sea = new THREE.Mesh(new THREE.CircleGeometry(40000, 96),
+        new THREE.MeshStandardMaterial({ color: 0x1f5570, roughness: 0.75, metalness: 0 }));
+      sea.rotation.x = -Math.PI / 2;
+      sea.position.y = 0.05;
+      holder.add(sea);
+      // Where the raft is (the world origin), so you can see how far the
+      // swim to the beach is: a post big enough to read from kilometres up.
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 120, 16),
+        new THREE.MeshStandardMaterial({ color: 0xd8483a, roughness: 0.6 }));
+      post.position.set(-WORLD.cx, 60, -WORLD.cz);
+      holder.add(post);
+      return { object: holder, ground: false, keepHeight: true, distant: true,
                frame: { center: V(0, 60, 0), size: V(2200, 300, 2200) }, view: { yaw: 0.5, pitch: 0.6 } };
     },
   });
@@ -501,13 +518,24 @@ export async function loadRegistry() {
   const debris = await flotsam();
   for (const [kind, info] of Object.entries(DEBRIS_KINDS)) {
     if (!debris[kind]) continue;
+    // The coconut wears the scanned nut once it loads (DebrisField.dress()).
+    const scanned = kind === 'coconut' && manifest.has('coconut');
     add({
       id: `debris-${kind}`, name: info.label, category: 'objects', group: 'Flotsam',
-      kind: 'built in code', source: `src/debris.js · shapes().${kind}`,
+      kind: scanned ? 'glTF model' : 'built in code',
+      files: scanned ? ['coconut.glb'] : [],
+      source: scanned ? 'assets/models/coconut.glb · tools/build_coconut.py · DebrisField.dress() · CREDITS.md'
+                      : `src/debris.js · shapes().${kind}`,
       facts: [['Gives', Object.entries(info.yield).map(([k, n]) => `${n} ${k}`).join(', ')],
-              ['How common', pct(info.weight / Object.values(DEBRIS_KINDS).reduce((s, d) => s + d.weight, 0))]],
-      async build() {
-        const o = debris[kind].clone(true);
+              ['How common', pct(info.weight / Object.values(DEBRIS_KINDS).reduce((s, d) => s + d.weight, 0))],
+              ...(scanned ? [['Size', 'the nut in hand at 2.4 times the size (40 cm), so it reads at 20 m']] : [])],
+      variants: scanned ? [{ id: 'model', label: 'glTF model' }, { id: 'fallback', label: 'Built-in fallback' }] : null,
+      async build(variant) {
+        let o = debris[kind].clone(true);
+        if (scanned && variant !== 'fallback') {
+          const field = { items: [{ kind, obj: o }] };
+          await DebrisField.prototype.dress.call(field, lib);
+        }
         o.position.set(0, 0, 0); o.rotation.set(0, 0, 0);
         return { object: rest(shadows(o)) };
       },

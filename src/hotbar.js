@@ -7,7 +7,7 @@
 // item: eat your last coconut and the slot stays bound, greyed out, ready for
 // the next one.
 
-import { ITEMS, isUsable } from './items.js';
+import { ITEMS, isUsable, fishOf } from './items.js';
 
 export const SLOTS = 5;
 
@@ -67,6 +67,39 @@ export class Hotbar {
     if (free === -1) return -1;
     this.slots[free] = id;
     return free;
+  }
+
+  /**
+   * A fish just caught. Each species is its own item, but they share a slot
+   * rather than each claiming one of the five: the catch goes into the fish
+   * slot in hand, or the first fish slot, or failing both a free one — so
+   * what you just caught is what you are holding when you go to that slot.
+   * A species already in a slot of its own stays where it is.
+   * @returns the slot index it is in, or -1
+   */
+  takeFish(id) {
+    if (!ITEMS[id]) return -1;
+    const at = this.slots.indexOf(id);
+    if (at !== -1) return at;
+    let i = fishOf(this.held) ? this.selected : this.slots.findIndex(s => fishOf(s));
+    if (i === -1) i = this.slots.indexOf(null);
+    if (i === -1) return -1;
+    this.slots[i] = id;
+    return i;
+  }
+
+  /**
+   * After a fish is eaten or put on the hook: a fish slot whose species has
+   * run out moves on to another fish you are carrying, rather than sitting
+   * greyed out with a bag of others beside it.
+   */
+  refillFish(inv) {
+    for (let i = 0; i < SLOTS; i++) {
+      const id = this.slots[i];
+      if (!fishOf(id) || inv.has(id)) continue;
+      const next = [...inv.slots.keys()].find(k => fishOf(k) && inv.has(k) && !this.slots.includes(k));
+      if (next) this.slots[i] = next;
+    }
   }
 
   /** Point the selection at an item already in the bar. */

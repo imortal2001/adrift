@@ -19,7 +19,7 @@ import { Player } from './player.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { BuildMode } from './build.js';
-import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, FOOD } from './items.js';
+import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, fishItem, fishOf, foodOf } from './items.js';
 import { Hotbar, SLOTS } from './hotbar.js';
 
 const SAVE_KEY = 'adrift.save.v2';
@@ -95,10 +95,20 @@ class Game {
     this.underwater = new Underwater(this.scene, this.ocean);
     this.hook = new Hook(this.scene);
     this.viewmodel = new Viewmodel(this.renderer, this.camera, this.sky);
+    this.debris.dress(this.viewmodel.library);     // the scanned coconut, afloat too
     // Thrown spears wear the same body the hand holds, glTF or procedural.
     this.spears = new ThrownSpears(this.scene, this.terrain, this.raft, this.fish,
                                    () => this.viewmodel.cloneBody('spear'));
     this.fishing = new Fishing(this.scene, this.raft, this.fish, this.viewmodel);
+    // A fish in hand is the species it is: a still, hand-sized copy — a big
+    // one scaled down, or a tuna held at arm's length would fill the view.
+    this.viewmodel.fishBody = key => {
+      const sp = this.fish.species(key);
+      const mesh = sp && this.fish.displayBody(key, Math.min(sp.big ? 0.36 : 0.40, sp.length[1]));
+      if (mesh) this.fish.lively.delete(mesh);   // held still, not struggling
+      return mesh;
+    };
+    this.baitId = null;                          // which fish is on the hook as bait
     this.hud = new HUD();
     this.input = new Input(this.renderer.domElement);
     this.build = new BuildMode(this.raft, this.inv, this.hud);
@@ -300,8 +310,9 @@ class Game {
   }
 
   eat(id = 'coconut') {
-    const food = FOOD[id];
+    const food = foodOf(id);
     if (!food || !this.inv.remove(id, 1)) return;
+    this.hotbar.refillFish(this.inv);
     this.player.hunger = THREE.MathUtils.clamp(this.player.hunger + food.hunger, 0, 100);
     this.player.thirst = THREE.MathUtils.clamp(this.player.thirst + food.thirst, 0, 100);
     this.hud.log(food.text, 'good');
@@ -402,9 +413,7 @@ class Game {
                   ground: 'You pull the spear out of the ground' };
     let text = how[where] || 'You take the spear back';
     if (fish.length) {
-      this.inv.add('fish', fish.length);
-      this.hotbar.autoAssign('fish');
-      this.holdCatch(fish[fish.length - 1].key);
+      for (const f of fish) this.addCatch(f.key);
       text += ` — ${this.describeCatch(fish)} on it`;
     }
     this.hud.log(`${text}.`, 'good');
@@ -426,27 +435,38 @@ class Game {
     }
     this.fish.take(f);
     this.viewmodel.skewer(this.fish.bodyFor(f));
-    this.inv.add('fish', 1);
-    this.hotbar.autoAssign('fish');
-    this.holdCatch(f.sp.key);
+    this.addCatch(f.sp.key);
     this.hud.log(`You spear a ${f.sp.name}.`, 'good');
     this.hud.refreshInventory(this.inv);
   }
 
-  /** "a blue tang", "2 chromis and a snapper" — for the log. */
   /**
-   * The raw fish in hand is the last one you caught: a still copy of that
-   * species, a hand-sized one — the real catch has gone into the bag.
+   * A caught fish into the bag as its own species — a red snapper stays a red
+   * snapper — and into the fish slot, so it is the one you hold next.
    */
-  holdCatch(key) {
-    const sp = this.fish.species(key);
-    if (!sp || sp.big) return;
-    const mesh = this.fish.displayBody(key, Math.min(0.45, sp.length[1]));
-    if (!mesh) return;
-    this.fish.lively.delete(mesh);           // held still, not struggling
-    this.viewmodel.holdFish(mesh);
+  addCatch(key, n = 1) {
+    const id = fishItem(key);
+    if (!ITEMS[id]) return;
+    this.inv.add(id, n);
+    this.hotbar.takeFish(id);
   }
 
+  /** The fish you would reach for: the one in hand, else the one you have most of. */
+  anyFish() {
+    const held = this.hotbar.held;
+    if (fishOf(held) && this.inv.has(held)) return held;
+    let best = null;
+    for (const [id, n] of this.inv.slots) if (fishOf(id) && n > 0 && (!best || n > this.inv.count(best))) best = id;
+    return best;
+  }
+
+  /** A fish to bait the hook with: the smallest you have, the way you would. */
+  baitFish() {
+    for (const [key] of CATCHES) if (this.inv.has(fishItem(key))) return fishItem(key);
+    return null;
+  }
+
+  /** "a blue tang", "2 chromis and a snapper" — for the log. */
   describeCatch(fish) {
     const counts = new Map();
     for (const f of fish) counts.set(f.name, (counts.get(f.name) || 0) + 1);
@@ -626,7 +646,7 @@ class Game {
     // Q eats whatever there is, coconut first — it does not cost you water.
     if (!panelOpen && input.pressed('KeyQ')) {
       if (this.inv.count('coconut') > 0) this.eat('coconut');
-      else if (this.inv.count('fish') > 0) this.eat('fish');
+      else if (this.anyFish()) this.eat(this.anyFish());
     }
 
     // Hotbar: the number keys are the slots, and the wheel cycles them unless
@@ -716,9 +736,10 @@ class Game {
       if (input.clicked(2)) {
         const held = this.hotbar.held;
         if (held === 'rod' && this.inv.has('rod')) {
-          const d = this.fishing.toggleBait(this.inv.has('fish'));
-          if (d > 0) this.inv.remove('fish', 1);
-          else if (d < 0) this.inv.add('fish', 1);
+          const bait = this.fishing.bait ? this.baitId : this.baitFish();
+          const d = this.fishing.toggleBait(!!bait, bait && ITEMS[bait].name.toLowerCase());
+          if (d > 0) { this.inv.remove(bait, 1); this.baitId = bait; this.hotbar.refillFish(this.inv); }
+          else if (d < 0 && bait) { this.inv.add(bait, 1); this.baitId = null; }
           if (d) this.hud.refreshInventory(this.inv);
           if (!d && this.fishing.busy) this.hud.log('Reel in first to change the bait.', 'bad');
         } else if (held === 'spear') this.throwSpear(eye, dir);
@@ -755,9 +776,7 @@ class Game {
     this.fishing.update(dt, this.time, this.player, held === 'rod' && this.inv.has('rod'));
     for (const e of this.fishing.events.splice(0)) {
       if (e.catch) {
-        this.inv.add('fish', e.count);
-        this.hotbar.autoAssign('fish');
-        this.holdCatch(e.catch);
+        this.addCatch(e.catch, e.count);
         this.hud.refreshInventory(this.inv);
       }
       if (e.text) this.hud.log(e.text, e.kind);
@@ -783,6 +802,7 @@ class Game {
       this.hud.log(`Loaded ${ITEMS[id].name.toLowerCase()} model.`, 'good');
     }
     for (const u of this.fish.upgraded.splice(0)) {
+      this.viewmodel.dropFishBodies();      // a fish in hand was the stand-in body
       this.hud.log(`Loaded sea life models (${u.meshes} bodies).`, 'good');
     }
     for (const k of this.wildlife.kills.splice(0)) {
@@ -844,16 +864,17 @@ class Game {
   save() {
     if (this.wiped) return;
     try {
+      // Thrown spears are not saved where they lie; count them as carried,
+      // so reloading never costs you one — and the fish on them, and a fish
+      // on the hook as bait, as fish in the bag, each its own species.
+      const inv = this.inv.toJSON();
+      const bag = (id, n = 1) => { if (ITEMS[id]) inv[id] = (inv[id] || 0) + n; };
+      if (this.spears.count) bag('spear', this.spears.count);
+      for (const s of this.spears.list) for (const f of s.catch) bag(fishItem(f.key));
+      if (this.fishing.bait && this.baitId) bag(this.baitId);
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         raft: this.raft.toJSON(),
-        // Thrown spears are not saved where they lie; count them as carried,
-        // so reloading never costs you one.
-        inv: { ...this.inv.toJSON(),
-               ...(this.spears.count ? { spear: this.inv.count('spear') + this.spears.count } : {}),
-               // ...and a fish on the hook as bait is a fish in the bag.
-               ...(this.spears.fishCount || this.fishing.bait
-                 ? { fish: this.inv.count('fish') + this.spears.fishCount + (this.fishing.bait ? 1 : 0) }
-                 : {}) },
+        inv,
         hotbar: this.hotbar.toJSON(),
         player: this.player.toJSON(),
         time: this.sky.time,
@@ -870,6 +891,13 @@ class Game {
     this.raft.load(d.raft);
     this.inv = Inventory.fromJSON(d.inv || {});
     this.hotbar = Hotbar.fromJSON(d.hotbar);
+    // A save from before fish were told apart: its "raw fish" slot goes to
+    // the fish it has most of (Inventory.fromJSON has already sorted them).
+    const oldFish = d.hotbar?.slots?.indexOf?.('fish') ?? -1;
+    if (oldFish !== -1 && !this.hotbar.slots[oldFish]) {
+      const most = [...this.inv.slots].filter(([id]) => fishOf(id)).sort((a, b) => b[1] - a[1])[0];
+      if (most) this.hotbar.slots[oldFish] = most[0];
+    }
     this.build.inv = this.inv;
     this.player.load(d.player);
     this.player.respawnOnRaft();

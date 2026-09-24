@@ -37,6 +37,9 @@ export const MODELS = {
   tool_hammer: { file: 'tool_hammer.glb', yaw: 0 },
   tool_spear:  { file: 'tool_spear.glb',  yaw: 0 },
   tool_rod:    { file: 'tool_rod.glb',    yaw: 0 },
+  // A photoscanned coconut, pores up, ~17 cm (CREDITS.md): in hand, and on
+  // the water as flotsam. Prepared by tools/build_coconut.py.
+  coconut:     { file: 'coconut.glb',     yaw: 0 },
 };
 
 // Clip names in the wild are a mess: "Walk", "walk", "Armature|Run",

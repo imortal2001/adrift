@@ -183,3 +183,27 @@ NoAI tag.
 The shape, colours and the rest of its textures are the author's, unchanged.
 
 Everything else in `assets/models/reef_fish.glb` is original (see above).
+
+### Food
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/coconut.glb` | Coconut | VaultPhil | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/coconut-c3e4142b02074544b8e065bf29fd90eb) |
+
+This work is based on "Coconut"
+(https://sketchfab.com/3d-models/coconut-c3e4142b02074544b8e065bf29fd90eb)
+by VaultPhil (https://sketchfab.com/philiptheaker), licensed under CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/). The Sketchfab page carries no
+NoAI tag.
+
+**Changes made.** It is the coconut you hold and the one that floats past as
+flotsam, put through `tools/build_coconut.py`, which:
+
+- drops the loose wisps of fibre from the scan and keeps the nut;
+- stands it with its three pores up, and scales it to about 17 cm;
+- replaces its 199,500-triangle scanned surface with a smooth 3,072-triangle
+  shell fitted to it, and bakes the scan's colour and relief (its geometry and
+  normal map together) onto that shell, at 1024²;
+- encodes both textures as JPEG.
+
+The colours and surface detail are the author's, carried over by the bake.

@@ -16,12 +16,14 @@
 // Bodies: tools/build_tools.py prepares three glTF tools in a common frame —
 // standing along +Y, working end up, origin at the grip. Everything held has
 // a procedural body in that same frame, which is what you see until the .glb
-// arrives, forever if it never does, and always for the hook and coconut.
+// arrives, forever if it never does, and always for the hook. The coconut is
+// a scan (tools/build_coconut.py), stood with its pores up like its stand-in.
 
 import * as THREE from 'three';
 import { ModelLibrary } from './models.js';
 import { logTexture, woodTexture, metalTexture } from './textures.js';
 import { leafAtlas, CELL, ATLAS_SIZE } from './flora.js';
+import { fishOf } from './items.js';
 
 // Where each item sits in camera space (the camera looks down -Z, +X is
 // right) and how it is turned there. `model` names the glTF body in
@@ -50,7 +52,8 @@ export const POSES = {
   spear:   { model: 'tool_spear',  pos: [0.24, -0.30, -0.18], rot: [-1.28, 0.0, -0.10] },
   rod:     { model: 'tool_rod',    pos: [0.27, -0.38, -0.34], rot: [-0.95, 0.0, 0.22] },
   hook:    { model: null,          pos: [0.19, -0.17, -0.52], rot: [0.12, 0.0, 0.20], scale: 1.3 },
-  coconut: { model: null,          pos: [0.17, -0.22, -0.60], rot: [0.30, 0.40, 0.0] },
+  // Tipped toward you, so its three pores — the face of a coconut — show.
+  coconut: { model: 'coconut',     pos: [0.17, -0.22, -0.60], rot: [0.75, 0.40, 0.0] },
   // Raw materials: nothing to do with them in hand, but you should see what
   // you are holding. Low at the right, the way you carry a thing you are not
   // using.
@@ -59,10 +62,14 @@ export const POSES = {
   rope:    { model: null,          pos: [0.20, -0.26, -0.56], rot: [0.55, 0.3, 0.25] },
   leaf:    { model: null,          pos: [0.22, -0.30, -0.56], rot: [-0.45, 0.4, 0.45] },
   scrap:   { model: null,          pos: [0.19, -0.25, -0.56], rot: [0.5, 0.6, 0.3] },
-  // Held by the tail, head up — the body is the species you caught last
-  // (holdFish), a generic one until then.
+  // Held by the tail, head up. Every fish item wears this pose, and each
+  // wears its own species' body (see body()); this `fish` body is only the
+  // stand-in for one the schools cannot draw.
   fish:    { model: null,          pos: [0.24, -0.33, -0.60], rot: [0.15, 0.9, 0.25] },
 };
+
+/** The pose an item is held in: its own, or the one all fish share. */
+const poseOf = id => POSES[id] || (fishOf(id) ? POSES.fish : null);
 
 // What a click looks like, per action: seconds, and a curve from progress
 // 0..1 to a pose offset. Each is a wind-up, a fast stroke and a slow return,
@@ -244,7 +251,7 @@ const BODIES = {
     g.add(sheet, strap, bolt);
     return g;
   },
-  // A fish, until you have caught one to hold: a silver body and a tail.
+  // A fish the schools cannot draw: a silver body and a tail.
   fish() {
     const g = new THREE.Group();
     const body = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), mat(0x9aa4a8, 0.45, { metalness: 0.2 }));
@@ -376,6 +383,16 @@ export class Viewmodel {
 
   body(id) {
     if (this.bodies.has(id)) return this.bodies.get(id);
+    // A fish is the species it is: a still copy from the schools, through
+    // `fishBody` (main.js wires it to FishSchools), standing on its tail.
+    const key = fishOf(id);
+    if (key) {
+      const mesh = this.fishBody?.(key);
+      const obj = mesh ? this.standFish(mesh) : BODIES.fish();
+      this.prepare(obj);
+      this.bodies.set(id, obj);
+      return obj;
+    }
     const make = BODIES[id];
     const obj = make ? make() : null;
     if (obj) this.prepare(obj);
@@ -493,7 +510,7 @@ export class Viewmodel {
    */
   update(dt, { held, owned, hidden = false, playing = true }) {
     this.time += dt;
-    const want = playing && owned && POSES[held] ? held : null;
+    const want = playing && owned && poseOf(held) ? held : null;
     this.visible = playing;
 
     // ── swapping: lower what is there, change it at the bottom, raise ──
@@ -566,25 +583,33 @@ export class Viewmodel {
   }
 
   /**
-   * Hold this fish — a still body of the species just caught, from
-   * FishSchools.displayBody() — as the raw fish in hand. It stands on its
-   * tail in the item frame, head up.
+   * A still fish from FishSchools.displayBody(), stood on its tail in the item
+   * frame, head up, gripped just above the tail.
    */
-  holdFish(mesh) {
-    if (!mesh) return;
+  standFish(mesh) {
     const g = new THREE.Group();
     mesh.rotation.set(-Math.PI / 2, 0, 0);          // nose (+Z) up the item frame
     const box = new THREE.Box3().setFromObject(mesh);
-    mesh.position.y = -box.min.y - 0.04;             // gripped just above the tail
+    mesh.position.y = -box.min.y - 0.04;
     g.add(mesh);
-    this.prepare(g);
-    const old = this.bodies.get('fish');
-    this.bodies.set('fish', g);
-    if (old && old.parent) {
-      old.parent.remove(old);
-      this.hand.add(g);
+    return g;
+  }
+
+  /**
+   * Forget the fish bodies made so far — the schools' real models have just
+   * arrived, and those were built from the stand-in. One in hand is swapped
+   * for its new body where it is.
+   */
+  dropFishBodies() {
+    for (const [id, old] of [...this.bodies]) {
+      if (!fishOf(id)) continue;
+      this.bodies.delete(id);
+      if (old?.parent) {
+        old.parent.remove(old);
+        this.hand.add(this.body(id));
+      }
+      old?.traverse(o => { if (o.isMesh && o.userData.fish) { o.geometry.dispose(); o.material.dispose(); } });
     }
-    old?.traverse(o => { if (o.isMesh && o.userData.fish) { o.geometry.dispose(); o.material.dispose(); } });
   }
 
   setBody(id) {
@@ -610,7 +635,7 @@ export class Viewmodel {
   }
 
   pose(dt) {
-    const p = POSES[this.current];
+    const p = poseOf(this.current);
     if (!p) return;
     const h = this.hand;
 

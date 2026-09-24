@@ -213,8 +213,8 @@ export class HUD {
       const n = inv.count(id);
       const out = n === 0 ? ' out' : '';
       const qty = it.tool ? (n ? 'ready' : 'none') : `×${n}`;
-      return `<div class="hs${it.tool ? ' tool' : ''}${sel}${out}" data-slot="${i}">
-        <span class="k">${i + 1}</span><div class="n">${it.name}</div>
+      return `<div class="hs${it.tool ? ' tool' : ''}${sel}${out}" data-slot="${i}" title="${it.name}">
+        <span class="k">${i + 1}</span><div class="n">${it.short || it.name}</div>
         <div class="q">${qty}</div></div>`;
     }).join('');
 
