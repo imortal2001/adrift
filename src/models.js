@@ -179,8 +179,104 @@ export class ModelLibrary {
       }
     }
 
-    return { group, root, mixer, actions, stand, model: true, current: null };
+    if (actions.death) {
+      actions.death.setLoop(THREE.LoopOnce, 1);
+      actions.death.clampWhenFinished = true;
+    }
+
+    const rig = { group, root, mixer, actions, stand, model: true, current: null, scale,
+                  size: scaled.getSize(new THREE.Vector3()) };
+    if (mixer) rig.gait = measureGaits(entry, rig);
+    return rig;
   }
+}
+
+// ── gaits ────────────────────────────────────────────────────────────────────
+// A walk or run clip is authored in place: the feet sweep back under a body
+// that stays put. Played at a fixed rate on an animal moving at some other
+// speed, the feet skate — which is most of what makes an animal look wrong.
+// So each clip is measured once: how fast a planted foot travels back, which
+// is how fast the clip means the body to go. Playback is then matched to the
+// animal's real speed (see driveGait).
+
+const _v = new THREE.Vector3();
+
+/**
+ * Measure a rig's walk and run: natural speed in m/s at this rig's size, and
+ * each limb bone's average pose through the cycle (the stride is lengthened
+ * about that, not about the bind pose). Cached per model and scaled, since
+ * every animal of a species uses the same clips at nearly the same size.
+ */
+function measureGaits(entry, rig) {
+  const bones = {};
+  rig.root.traverse(o => { if (o.isBone) bones[o.name] = o; });
+  const all = Object.values(bones);
+  const find = re => all.filter(b => re.test(b.name));
+  const feet = find(/^bip_(foot|hand)_[lr]/i);
+  // The bones that swing a leg from its root: hips, and shoulders on the ones
+  // that walk on four.
+  const hips = find(/^bip_hip_[lr]/i), arms = find(/^bip_upperarm_[lr]/i);
+  if (!entry.gaits) {
+    entry.gaits = {};
+    for (const kind of ['walk', 'run']) {
+      const act = rig.actions[kind];
+      if (!act) continue;
+      rig.mixer.stopAllAction();
+      act.reset().play();
+      const T = act.getClip().duration, N = 96;
+      const P = [], Q = [];
+      for (let k = 0; k <= N; k++) {
+        rig.mixer.setTime((k / N) * T);
+        rig.root.updateMatrixWorld(true);
+        P.push(feet.map(f => f.getWorldPosition(new THREE.Vector3())));
+        Q.push([...hips, ...arms].map(b => b.quaternion.clone()));
+      }
+      // Only limbs that reach the ground count: a biped's hands never do.
+      const lows = feet.map((_, i) => Math.min(...P.map(p => p[i].y)));
+      const highs = feet.map((_, i) => Math.max(...P.map(p => p[i].y)));
+      const floor = Math.min(...lows), tall = rig.size.y || 1;
+      let sum = 0, n = 0, sweep = 0;
+      const planted = [];
+      feet.forEach((f, i) => {
+        if (lows[i] > floor + tall * 0.08) return;
+        planted.push(f.name);
+        const zs = P.map(p => p[i].z);
+        sweep = Math.max(sweep, Math.max(...zs) - Math.min(...zs));
+        for (let k = 0; k < N; k++) {
+          if (P[k][i].y > lows[i] + (highs[i] - lows[i]) * 0.12) continue;
+          sum += -(P[k + 1][i].z - P[k][i].z) / (T / N);
+          n++;
+        }
+      });
+      // Some clips barely sweep a planted foot back at all — they lift and
+      // set it down, stepping nearly in place. Then the foot's whole swing,
+      // twice a cycle, is the better guide to how far the body should go.
+      const bySweep = (sweep * 2) / T * 0.5;
+      let natural = n ? sum / n : 0;
+      if (natural < bySweep * 0.3) natural = bySweep;
+      const means = [...hips, ...arms].map((b, j) => {
+        const m = new THREE.Quaternion(0, 0, 0, 0);
+        for (const q of Q) {
+          const s = m.dot(q[j]) < 0 ? -1 : 1;
+          m.x += q[j].x * s; m.y += q[j].y * s; m.z += q[j].z * s; m.w += q[j].w * s;
+        }
+        return { name: b.name, q: m.normalize() };
+      });
+      // Per unit of scale, so an animal a little bigger or smaller reads it right.
+      entry.gaits[kind] = { perScale: Math.max(0.05, natural) / rig.scale, means, planted };
+    }
+    rig.mixer.stopAllAction();
+  }
+  const gait = { limbs: [], bones };
+  for (const kind of ['walk', 'run']) {
+    const g = entry.gaits[kind];
+    if (!g) continue;
+    gait[kind] = g.perScale * rig.scale;
+    gait[`${kind}Means`] = g.means.map(m => ({ bone: bones[m.name], q: m.q }));
+    // Four-legged if the front feet were planted in the walk.
+    if (kind === 'walk') gait.quadruped = g.planted.some(n => /hand/i.test(n));
+  }
+  return gait;
 }
 
 /** Crossfade a model rig to the action that suits what it is doing. */
@@ -188,7 +284,73 @@ export function playState(rig, kind, fade = 0.25) {
   if (!rig.mixer) return;
   const next = rig.actions[kind] || rig.actions.idle;
   if (!next || next === rig.current) return;
-  next.reset().fadeIn(fade).play();
-  if (rig.current) rig.current.fadeOut(fade);
+  const prev = rig.current;
+  next.reset();
+  // Walk into run and back: carry the step across, so the legs do not jump
+  // to a different point in their stride.
+  if (prev && (prev === rig.actions.walk || prev === rig.actions.run) &&
+      (next === rig.actions.walk || next === rig.actions.run)) {
+    next.time = (prev.time / prev.getClip().duration) * next.getClip().duration;
+  }
+  next.fadeIn(fade).play();
+  if (prev) prev.fadeOut(fade);
   rig.current = next;
+}
+
+const _dq = new THREE.Quaternion(), _axis = new THREE.Vector3();
+
+/**
+ * Play a model rig at the speed its body is really going: walk or run by
+ * speed, the clip's rate matched to it, and — where the clip's natural stride
+ * is shorter than the animal needs — the stride lengthened, swinging the
+ * hips (and shoulders, on four legs) further about their average pose. Both
+ * together, so a sprint reads as long strides at a quick cadence, not a
+ * frantic shuffle or a skate.
+ *
+ * @param speed  ground speed, m/s
+ * @param alert  1 when it is hunting or fleeing: it runs sooner
+ */
+export function driveGait(rig, speed, dt, { alert = 0, attack = false, idle = 'idle' } = {}) {
+  const g = rig.gait;
+  if (!g || !g.walk) {
+    playState(rig, attack ? 'attack' : speed > 0.15 ? 'walk' : idle);
+    if (rig.mixer) rig.mixer.update(dt);
+    return;
+  }
+  const s = Math.abs(speed);
+  // Hysteresis, so an animal at the boundary does not flicker between gaits.
+  const toRun = g.walk * (alert ? 1.5 : 2.1), toWalk = toRun * 0.8;
+  let kind = attack ? 'attack' : s < 0.12 ? idle : rig.gaitKind === 'run' ? (s > toWalk ? 'run' : 'walk') : (s > toRun ? 'run' : 'walk');
+  if (kind === 'run' && !rig.actions.run) kind = 'walk';
+  rig.gaitKind = kind;
+  playState(rig, kind, kind === 'attack' ? 0.15 : 0.35);
+
+  let stride = 1;
+  if (kind === 'walk' || kind === 'run') {
+    const natural = g[kind];
+    const ratio = s / natural;
+    // Split the difference between cadence and stride length.
+    const maxStride = kind === 'run' ? 1.3 : 1.12;
+    stride = THREE.MathUtils.clamp(Math.sqrt(ratio), 1, maxStride);
+    const rate = THREE.MathUtils.clamp(ratio / stride, 0.45, 2.3);
+    rig.actions[kind].setEffectiveTimeScale(rate);
+  }
+  rig.mixer.update(dt);
+
+  // Lengthen the stride: after the clip has posed the limbs.
+  rig.stride = (rig.stride ?? 1) + (stride - (rig.stride ?? 1)) * Math.min(1, dt * 3);
+  if (rig.stride > 1.01 && (kind === 'walk' || kind === 'run')) {
+    const means = g[`${kind}Means`];
+    for (const { bone, q } of means) {
+      if (!g.quadruped && /upperarm/i.test(bone.name)) continue;
+      // delta = mean⁻¹ · current, scaled in angle, put back.
+      _dq.copy(q).invert().multiply(bone.quaternion);
+      if (_dq.w < 0) { _dq.x = -_dq.x; _dq.y = -_dq.y; _dq.z = -_dq.z; _dq.w = -_dq.w; }
+      const angle = 2 * Math.acos(Math.min(1, _dq.w));
+      if (angle < 1e-4) continue;
+      _axis.set(_dq.x, _dq.y, _dq.z).normalize();
+      _dq.setFromAxisAngle(_axis, angle * rig.stride);
+      bone.quaternion.copy(q).multiply(_dq);
+    }
+  }
 }

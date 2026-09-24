@@ -64,7 +64,7 @@ these and the gallery picks it up with no change here:
 | dinosaur species | `SPECIES` in `src/wildlife.js` (plus its `.glb`, if it has one) | Dinosaurs |
 | fish species | `SPECIES` in `src/fish.js` | Living animals |
 | coral, sponge or reef plant | `REEF` in `src/reef.js` | Corals & reefs (`rock` goes to Land & terrain) |
-| tree or plant | `FLORA` in `src/terrain.js` | Trees & vegetation, once the terrain plants one |
+| tree, plant, deadfall or rock | `SPECIES` in `src/flora.js` | Trees & vegetation (rocks go to Land & terrain) |
 | kind of flotsam | `DEBRIS_KINDS` in `src/items.js` | Other world objects |
 | raft piece | `BUILDABLES` in `src/items.js` | Other world objects |
 | held item | `POSES` in `src/viewmodel.js` | Equipment |

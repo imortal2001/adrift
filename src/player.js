@@ -203,6 +203,11 @@ export class Player {
     if (collide) this.raft.resolve(this._p2, RADIUS);
     this.pos.x = this._p2.x;
     this.pos.z = this._p2.y;
+    // Trunks and rocks on land: slide round them. (Anything low enough to
+    // step onto is let through — the ground function is still the floor.)
+    if (collide && this.terrain && this.pos.y > -0.3 && isLand(this.pos.x, this.pos.z)) {
+      this.terrain.collideReef(this.pos, RADIUS, EYE);
+    }
   }
 
   // ── on the deck ────────────────────────────────────────────────────────────
