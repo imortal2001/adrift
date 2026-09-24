@@ -24,9 +24,11 @@ animation — the game moves the bones itself (src/body.js). What this does:
   them ("LeftUpLeg_60" → "LeftUpLeg"), so body.js finds them by name.
 * **Dressed as cave people are drawn** (see "the cave outfit" below): a
   leopard-spotted hide over the right shoulder, the left bare, a ragged,
-  jagged hem at mid thigh, a leather belt, bare arms and legs, leather wraps
-  on the feet. The woman's dress is repainted and cut — her body is modelled
-  beneath it, so the hem and the bare shoulder are alpha cut-outs. The man is
+  jagged hem at mid thigh, a leather belt, bare arms and legs. The woman's
+  dress is repainted and cut — her body is modelled beneath it, so the hem
+  and the bare shoulder are alpha cut-outs — and she goes barefoot: her
+  shoes, and the half-made feet inside them, are replaced by bare feet built
+  here (barefoot()). The man keeps leather wraps on his feet. The man is
   one mesh on one atlas in a T-shirt and jeans, with no body under them: his
   clothes are found by the bones that move them, his top repainted, his jeans
   and sleeves reshaped into bare legs and arms — a leg's profile of thigh,
@@ -76,7 +78,7 @@ REGION_OF = [("Foot", "feet"), ("Toe", "feet"), ("UpLeg", "legs"), ("Leg", "legs
 # is cut from just above it) and whether the bare parts are cut away (her
 # body is modelled under the dress) or painted as skin (his is not).
 STYLE = {
-    "woman": {"hem": 0.80, "cut": True, "clothes": ["Wolf3D_Outfit_Top"], "feet": ["Wolf3D_Outfit_Footwear"]},
+    "woman": {"hem": 0.80, "cut": True, "clothes": ["Wolf3D_Outfit_Top"], "feet": [], "barefoot": True},
     "man": {"hem": 0.74, "cut": False, "clothes": ["Wolf3D_Avatar"], "feet": [], "skirt": True},
 }
 
@@ -448,6 +450,125 @@ def skirt(arm, meshes, top, hem):
     print(f"  skirt: {len(me.polygons)} faces, belt {top:.2f} m to hem {hem:.2f} m")
 
 
+# A bare foot, heel (0) to toe tip (1): width and height in metres, for a
+# woman's foot about 23.5 cm long; the sole is flat on the ground.
+FOOT_LEN = 0.235
+# From the heel up over the ankle the foot is as tall as the ankle and as
+# wide as the leg there, so the leg — cut just above the ankle bone — stands
+# down inside it and the two meet without a step.
+FOOT = [(0.00, 0.054, 0.075), (0.07, 0.064, 0.100), (0.14, 0.068, 0.104), (0.26, 0.068, 0.098),
+        (0.40, 0.074, 0.072), (0.58, 0.086, 0.052), (0.72, 0.094, 0.042), (0.84, 0.092, 0.034),
+        (0.93, 0.082, 0.026), (1.00, 0.040, 0.014)]
+ANKLE = 0.075                         # a bare ankle's height off the ground
+
+
+def barefoot(arm, meshes):
+    """
+    Take her shoes off. The shoes go, and so does the body below the ankle —
+    only the tops of her feet were modelled, set on tiptoe for a heel, with
+    nothing where a sole would be. In their place each leg gets a bare foot
+    built here: flat sole, heel, arch, the ball of the foot and rounded toes,
+    the leg standing down into it at the ankle, in her own skin, bound
+    to the foot and toe bones. The heels had raised her; the whole character
+    comes down to stand on the new soles — after she is dressed, since the
+    outfit's heights (the hem) are measured on her as she stood in heels.
+    """
+    shoes = [o for o in meshes if o.data.materials and o.data.materials[0].name == "Wolf3D_Outfit_Footwear"]
+    for o in shoes:
+        meshes.remove(o)
+        bpy.data.objects.remove(o, do_unlink=True)
+    body = next(o for o in meshes if o.data.materials[0].name == "Wolf3D_Body")
+    bone = lambda n: (np.array(arm.matrix_world @ arm.data.bones[n].head_local),
+                      np.array(arm.matrix_world @ arm.data.bones[n].tail_local))
+    ankle_z = bone("LeftFoot")[0][2]
+    cut = ankle_z + 0.012
+    # The body below the cut, gone.
+    bm = bmesh.new(); bm.from_mesh(body.data)
+    mw = body.matrix_world
+    doomed = [v for v in bm.verts if (mw @ v.co).z < cut]
+    bmesh.ops.delete(bm, geom=doomed, context="VERTS")
+    bm.to_mesh(body.data); bm.free()
+    V = np.array([tuple(mw @ v.co) for v in body.data.vertices])
+    sole = ankle_z - ANKLE
+    skin = next((n.image for n in body.data.materials[0].node_tree.nodes
+                 if n.type == "TEX_IMAGE" and n.image and "normal" not in n.image.name.lower()), None)
+    colour = np.array(skin.pixels[:]).reshape(-1, 4)[:, :3].mean(0) if skin else np.array([0.65, 0.31, 0.2])
+    mat = bpy.data.materials.new("player_bare_feet")
+    mat.use_nodes = True
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    # The body's colour texture is stored sRGB; a material colour is linear.
+    lin = np.where(colour <= 0.04045, colour / 12.92, ((colour + 0.055) / 1.055) ** 2.4)
+    bsdf.inputs["Base Color"].default_value = (*lin, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.7
+    for side, sx in (("Left", -1), ("Right", 1)):
+        a_head, a_tail = bone(f"{side}Foot")
+        # Where the leg stands: the shin bone's line, at the cut.
+        l_head, l_tail = bone(f"{side}Leg")
+        k = (cut - l_head[2]) / (l_tail[2] - l_head[2])
+        centre = (l_head + (l_tail - l_head) * k)[:2]
+        fwd = np.array([a_tail[0] - a_head[0], a_tail[1] - a_head[1], 0.0])
+        fwd /= np.linalg.norm(fwd)
+        toe_out = np.radians(7) * sx                     # a little splayed, as feet stand
+        c, s_ = np.cos(toe_out), np.sin(toe_out)
+        fwd = np.array([fwd[0] * c - fwd[1] * s_, fwd[0] * s_ + fwd[1] * c, 0.0])
+        right = np.array([fwd[1], -fwd[0], 0.0])
+        heel = np.array([centre[0], centre[1], sole]) - fwd * (0.24 * FOOT_LEN)
+        bm = bmesh.new()
+        M = 30
+        rows = []
+        for t, w, h in FOOT:
+            row = []
+            for k in range(M):
+                ang = k / M * 2 * np.pi
+                sa, ca = np.sin(ang), np.cos(ang)
+                zz = sole + h / 2 * (1 + sa) if sa >= 0 else sole + h / 2 * (1 + sa) ** 1.8
+                ww = w / 2 * ca * (1.06 if sa < 0 else 1.0)
+                p = heel + fwd * (t * FOOT_LEN) + right * ww
+                p[2] = zz
+                # The big toe side is the higher: a foot is not symmetrical.
+                if t > 0.7:
+                    p[2] += 0.006 * (1 - ca * sx) * (sa > 0)
+                # Five toes: shallow grooves between them along the top of the
+                # front of the foot.
+                if t > 0.8 and sa > 0:
+                    p[2] -= 0.0045 * (0.5 - 0.5 * np.cos(ca * np.pi * 4.6)) * sa
+                row.append(bm.verts.new(tuple(p)))
+            rows.append(row)
+        for r in range(len(rows) - 1):
+            for k in range(M):
+                bm.faces.new((rows[r][k], rows[r][(k + 1) % M], rows[r + 1][(k + 1) % M], rows[r + 1][k]))
+        bm.faces.new(rows[0][::-1]); bm.faces.new(rows[-1])
+        me = bpy.data.meshes.new(f"player_foot_{side.lower()}")
+        bm.to_mesh(me); bm.free()
+        me.shade_smooth() if hasattr(me, "shade_smooth") else None
+        me.materials.append(mat)
+        ob = bpy.data.objects.new(me.name, me)
+        bpy.context.scene.collection.objects.link(ob)
+        g_foot = ob.vertex_groups.new(name=f"{side}Foot")
+        g_toe = ob.vertex_groups.new(name=f"{side}ToeBase")
+        g_leg = ob.vertex_groups.new(name=f"{side}Leg")
+        for v in me.vertices:
+            along = np.dot(np.array(v.co) - heel, fwd) / FOOT_LEN
+            toe = np.clip((along - 0.7) / 0.15, 0, 1)
+            up = np.clip((v.co.z - (sole + 0.07)) / 0.03, 0, 1) * (along < 0.4)
+            g_foot.add([v.index], (1 - toe) * (1 - up), "REPLACE")
+            if toe > 0: g_toe.add([v.index], toe * (1 - up), "REPLACE")
+            if up > 0: g_leg.add([v.index], up, "REPLACE")
+        ob.parent = arm
+        mod = ob.modifiers.new("Armature", "ARMATURE"); mod.object = arm
+        meshes.append(ob)
+    # Down onto the new soles.
+    bpy.context.view_layer.update()
+    arm.matrix_world = mathutils.Matrix.Translation((0, 0, -sole)) @ arm.matrix_world
+    bpy.ops.object.select_all(action="DESELECT")
+    arm.select_set(True)
+    for o in meshes:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    print(f"  barefoot: shoes off, feet built, {sole * 100:.1f} cm lower")
+
+
 def clip(mat, node):
     """Make a material alpha-clipped on its colour texture (glTF: alphaMode MASK)."""
     nt = mat.node_tree
@@ -572,6 +693,8 @@ def build(who, src, preview=None):
     orient(arm, meshes)
     clean_names(arm)
     restyle(who, arm, meshes)
+    if STYLE[who].get("barefoot"):
+        barefoot(arm, meshes)
     shrink(meshes)
     arm.name = f"player_{who}"
     if preview:
