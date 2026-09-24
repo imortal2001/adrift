@@ -213,28 +213,40 @@ The colours and surface detail are the author's, carried over by the bake.
 | File | Model | Author | Licence | Source |
 |---|---|---|---|---|
 | `assets/models/player_woman.glb` | Ready Player Me female character | Ready Player Me | [CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/ready-player-me-female-character-2caf5781d3ef422d8d7270fe615bff68) |
+| `assets/models/player_man.glb` | Ready Player Me male avatar \| VRChat/Game Ready | Ready Player Me | [CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/ready-player-me-male-avatar-vrchatgame-ready-8a1a34d7012d48639e42ee3763680392) |
 
 This work is based on "Ready Player Me female character"
 (https://sketchfab.com/3d-models/ready-player-me-female-character-2caf5781d3ef422d8d7270fe615bff68)
 by Ready Player Me (https://sketchfab.com/readyplayerme), licensed under
-CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/). The
-Sketchfab page carries no NoAI tag.
+CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+This work is based on "Ready Player Me male avatar | VRChat/Game Ready"
+(https://sketchfab.com/3d-models/ready-player-me-male-avatar-vrchatgame-ready-8a1a34d7012d48639e42ee3763680392)
+by Ready Player Me (https://sketchfab.com/readyplayerme), licensed under
+CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+Neither Sketchfab page carries a NoAI tag.
 
 > ⚠️ **Non-commercial, share-alike.** Unlike everything else credited here,
 > this licence forbids commercial use, and requires that changed versions are
-> shared under the same licence. `player_woman.glb` (and `player_man.glb`, when
-> it is added) are therefore CC BY-NC-SA 4.0 — whatever licence the rest of the
+> shared under the same licence. `player_woman.glb` and `player_man.glb` are
+> therefore CC BY-NC-SA 4.0 — whatever licence the rest of the
 > game carries. Fine for a free, personal prototype; if the game is ever sold,
 > these two files have to be replaced.
 
-**Changes made.** Put through `tools/build_player.py`, which:
+**Changes made.** Both put through `tools/build_player.py`, which:
 
-- drops a stray icosphere from the file, keeping the armature and its meshes;
-- turns it to face the game's forward, with its feet at the origin;
+- keeps the armature and its meshes, and makes the pose they are shown in
+  the skeleton's rest pose (the man's rests lying along the ground);
+- turns them to face the game's forward, feet at the origin, in metres (the
+  man's file is in centimetres);
 - strips the numeric suffixes from the bone names;
-- repaints the shoes as dark leather;
+- repaints the woman's shoes as dark leather; repaints the man's T-shirt in
+  the striped animal skin of the woman's dress (a patch of her texture, tiled
+  over his shirt under its own folds), his jeans as dark hide leggings and his
+  trainers as leather wraps;
 - scales the textures down (colour to 1024², normal maps to 512²) as JPEG.
 
-It is rigged but was never animated; the game moves its bones itself
+They are rigged but were never animated; the game moves its bones itself
 (`src/body.js`). The mesh, rig and the rest of its textures are the
 author's.

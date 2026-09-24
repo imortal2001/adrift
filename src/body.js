@@ -145,7 +145,8 @@ function rigged(scene) {
     const f = new THREE.Vector3().setFromMatrixPosition(_m.multiplyMatrices(inv, bones[`${side}ForeArm`].matrixWorld));
     return Math.atan2(Math.abs(f.x - a.x), a.y - f.y);
   };
-  return { root, bones, rest, splay: { l: out('Left'), r: out('Right') },
+  return { root, bones, rest, handRest: bones.RightHand.quaternion.clone(),
+           splay: { l: out('Left'), r: out('Right') },
            hands: { l: hand(bones, 'Left', inv), r: hand(bones, 'Right', inv) } };
 }
 
@@ -194,24 +195,43 @@ function curl(h, k) {
 
 const _d = new THREE.Quaternion(), _e = new THREE.Euler(0, 0, 0, 'XYZ');
 function drive(r, name, x, z = 0, y = 0) {
-  const b = r.bones[name], s = r.rest[name];
   _d.setFromEuler(_e.set(x, y, z));
-  b.quaternion.copy(s.Ki).multiply(_d).multiply(s.K).multiply(s.q0);
+  turnBone(r, name, _d);
+}
+function turnBone(r, name, d) {
+  const b = r.bones[name], s = r.rest[name];
+  b.quaternion.copy(s.Ki).multiply(d).multiply(s.K).multiply(s.q0);
+}
+
+// An elbow bends in the frame of the arm as it is *lowered*, not as it rests:
+// the arm's turn is Rx(swing)·Rz(lower), so the forearm's is Rz(lower)⁻¹ ·
+// Rx(bend) · Rz(lower) — lowered, bent, then carried by the arm's swing. A
+// T-pose forearm points straight out sideways at rest, and a bend about the
+// rest frame's x would not move it at all.
+const _zq = new THREE.Quaternion(), _zi = new THREE.Quaternion(), _b = new THREE.Quaternion(), _Z = new THREE.Vector3(0, 0, 1);
+function elbow(r, name, lower, bend, twist = 0) {
+  _zq.setFromAxisAngle(_Z, lower);
+  _zi.copy(_zq).invert();
+  _b.setFromEuler(_e.set(bend, twist, 0));
+  turnBone(r, name, _zi.multiply(_b).multiply(_zq));
 }
 
 function applyRig(r, a) {
+  r.bones.RightHand.quaternion.copy(r.handRest);     // rollHand() turns it from here
   drive(r, 'LeftUpLeg', a.thighL, -a.spread * 0.5);
   drive(r, 'RightUpLeg', a.thighR, a.spread * 0.5);
   drive(r, 'LeftLeg', a.kneeL);
   drive(r, 'RightLeg', a.kneeR);
   // The left arm is on the body's -x side: bringing it in from the A-pose
   // is a +z turn, opening it out a -z one; the right arm the mirror.
-  drive(r, 'LeftArm', a.armL, r.splay.l - 0.1 - a.spread);
-  drive(r, 'RightArm', a.armR, -r.splay.r + 0.1 + a.spread + (a.openR || 0));
-  drive(r, 'LeftForeArm', a.elbowL);
-  // Turned in toward the midline as it comes up: the A-pose leaves the
-  // forearm angled out, and a tool carried out at the side is not carried.
-  drive(r, 'RightForeArm', a.elbowR, 0, a.foreInR || 0);
+  const lowerL = r.splay.l - 0.1 - a.spread;
+  const lowerR = -r.splay.r + 0.1 + a.spread + (a.openR || 0);
+  drive(r, 'LeftArm', a.armL, lowerL);
+  drive(r, 'RightArm', a.armR, lowerR);
+  elbow(r, 'LeftForeArm', lowerL, a.elbowL);
+  // Turned in a little toward the midline as it comes up: a tool carried
+  // out at the side is not carried.
+  elbow(r, 'RightForeArm', lowerR, a.elbowR, a.foreInR || 0);
   // Hands loosely closed at rest — a flat hand looks like a mannequin's —
   // and the right one a fist round whatever it holds.
   curl(r.hands.l, 0.3);
@@ -244,7 +264,7 @@ const GESTURES = {
       // The body leans into it and the free arm swings back against it, the
       // way you balance a push — low, not raised.
       const drive = Math.max(0, lean) / 0.24;
-      return { armR: arm, elbowR: elbow, foreInR: 0.25, chest: (a.chest || 0) + lean,
+      return { armR: arm, elbowR: elbow, foreInR: 0.1, chest: (a.chest || 0) + lean,
                armL: 0.05 - 0.35 * drive, elbowL: 0.25 + 0.15 * drive };
     } },
   // A javelin throw at head height: the hand drawn back beside the head, the
@@ -262,12 +282,12 @@ const GESTURES = {
     else if (u < 0.45) { arm = 1.6 - 0.1 * k; elbow = 2.4 - 2.2 * k; open = 0.5 - 0.4 * k; lean = -0.12 + 0.37 * k; }
     else { arm = 1.5 - 0.9 * f; elbow = 0.2 + 0.4 * f; open = 0.1 * (1 - f); lean = 0.25 * (1 - f); }
     const point = u < 0.45 ? 1 - k : 0;
-    return { armR: arm, elbowR: elbow, openR: open, foreInR: 0.2, chest: lean,
+    return { armR: arm, elbowR: elbow, openR: open, foreInR: 0.05, chest: lean,
              armL: 0.1 + 1.3 * point, elbowL: 0.15 };
   } },
   eat: { time: 0.7, pose: u => {
     const k = Math.sin(Math.PI * u);
-    return { armR: 0.3 + 0.7 * k, elbowR: 1.1 + 1.25 * k, foreInR: 0.5 + 0.4 * k, neck: -0.15 * k };
+    return { armR: 0.3 + 0.7 * k, elbowR: 1.1 + 1.25 * k, foreInR: 0.15 + 0.35 * k, neck: -0.15 * k };
   } },
   toss: { time: 0.45, pose: u => {
     const back = ease(u / 0.35), fwd = ease((u - 0.35) / 0.3);
@@ -413,7 +433,10 @@ export class PlayerBody {
     this.aimDir.set(-Math.sin(p.yaw) * cp, Math.sin(p.pitch), -Math.cos(p.yaw) * cp);
     const a = this.pose(dt, p);
     if (this.rig) applyRig(this.rig, a); else applyMannequin(this.stand, a);
-    if (this.rig && this.held) this.placeHeld();
+    if (this.rig && this.held) {
+      if (this.heldTool) this.rollHand(p);
+      this.placeHeld();
+    }
   }
 
   /** This frame's joint angles, from what the player is doing. */
@@ -462,7 +485,7 @@ export class PlayerBody {
     if (this.held && !swimming) {
       a.armR = 0.3 + a.armR * 0.3;
       a.elbowR = 1.1;
-      a.foreInR = 0.5;
+      a.foreInR = 0.15;
     }
     // A fist round a tool, cupped round anything else.
     a.grip = this.held ? (this.heldTool ? 1 : 0.6) : 0.3;
@@ -478,6 +501,45 @@ export class PlayerBody {
     if (this.skewered && (this.skewered.t += dt) > 1.7) this.clearSkewer();
     if (!swimming) a.neck = THREE.MathUtils.clamp(p.pitch, -0.9, 0.7) * 0.8;
     return a;
+  }
+
+  /**
+   * Turn the fist about the forearm — the twist a forearm has, not a bent
+   * wrist — so what it grips lines up with the way it should point: carried
+   * upright and a little forward, or mid-thrust and mid-throw where you look.
+   * Characters differ in how their hands sit at rest (the woman's rig rests
+   * in an A-pose, palms in; the man's in a T-pose, palms down), and without
+   * this the same pose would carry a spear upright in one and slantwise
+   * across the body in the other.
+   */
+  rollHand(p) {
+    const b = this.rig.bones;
+    this.rig.root.updateMatrixWorld(true);
+    const fore = b.RightForeArm.getWorldPosition(new THREE.Vector3());
+    const hand = b.RightHand.getWorldPosition(new THREE.Vector3());
+    const axis = hand.clone().sub(fore).normalize();
+    const index = b.RightHandIndex1.getWorldPosition(new THREE.Vector3());
+    const pinky = b.RightHandPinky1.getWorldPosition(new THREE.Vector3());
+    const fist = index.sub(pinky).normalize();
+    const fwd = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
+    const want = new THREE.Vector3(0, 1, 0).addScaledVector(fwd, 0.3).normalize()
+      .lerp(this.aimDir, this.aimK).normalize();
+    // Both onto the plane square to the forearm: the roll is the angle
+    // between them there. Nothing to do if what it should point along is the
+    // forearm itself.
+    const a = fist.addScaledVector(axis, -fist.dot(axis));
+    const w = want.addScaledVector(axis, -want.dot(axis));
+    if (a.lengthSq() < 1e-4 || w.lengthSq() < 0.04) return;
+    a.normalize(); w.normalize();
+    let ang = Math.acos(THREE.MathUtils.clamp(a.dot(w), -1, 1));
+    if (new THREE.Vector3().crossVectors(a, w).dot(axis) < 0) ang = -ang;
+    ang = THREE.MathUtils.clamp(ang, -1.7, 1.7);
+    // A world-space turn about the forearm, put into the hand bone's frame.
+    const turn = new THREE.Quaternion().setFromAxisAngle(axis, ang);
+    const parentQ = b.RightHand.parent.getWorldQuaternion(new THREE.Quaternion());
+    const handQ = b.RightHand.getWorldQuaternion(new THREE.Quaternion());
+    b.RightHand.quaternion.copy(parentQ.invert().multiply(turn).multiply(handQ));
+    b.RightHand.updateMatrixWorld(true);
   }
 
   /**
