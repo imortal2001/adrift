@@ -22,13 +22,19 @@ animation — the game moves the bones itself (src/body.js). What this does:
   yaw 0 (a source in centimetres is scaled down).
 * **Bone names cleaned** of the numeric suffixes the Sketchfab export gave
   them ("LeftUpLeg_60" → "LeftUpLeg"), so body.js finds them by name.
-* **Dressed for the Stone Age**, by repainting, not remodelling: the woman's
-  striped dress already reads as hide, so only her shoes go to worn leather
-  (OUTFITS, by material); the man is one mesh on one atlas, so his T-shirt,
-  jeans and trainers are found by the bones that move them and repainted: the
-  shirt in the woman's own striped animal skin, as a hide tunic, the jeans as
-  dark hide leggings, the trainers as leather wraps (ATLAS).
-* **Textures as JPEG**, colour at 1024² at most and normal maps at 512².
+* **Dressed as cave people are drawn** (see "the cave outfit" below): a
+  leopard-spotted hide over the right shoulder, the left bare, a ragged,
+  jagged hem at mid thigh, a leather belt, bare arms and legs, leather wraps
+  on the feet. The woman's dress is repainted and cut — her body is modelled
+  beneath it, so the hem and the bare shoulder are alpha cut-outs. The man is
+  one mesh on one atlas in a T-shirt and jeans, with no body under them: his
+  clothes are found by the bones that move them, his top repainted, his jeans
+  and sleeves reshaped into bare legs and arms — a leg's profile of thigh,
+  knee, calf and ankle, in his own skin, the creases flattened out of the
+  normal map — and a hide skirt added as a mesh of its own, bound to his hips
+  and thighs.
+* **Textures as WebP** (small, and it keeps the alpha a cut-out needs),
+  colour at 1024² at most and normal maps at 512².
 """
 import json
 import os
@@ -36,6 +42,7 @@ import re
 import sys
 
 import bpy
+import bmesh
 import mathutils
 import numpy as np
 
@@ -46,35 +53,32 @@ SOURCES = {
 }
 TEX = 1024
 
-# How each outfit material is repainted: a tint over the texture's own
-# light and shade, so the folds and seams survive. (r, g, b) in 0..1, linear.
+# How a plain material is repainted: a tint over the texture's own light and
+# shade, so the folds and seams survive. (r, g, b) in 0..1, as stored.
 LEATHER = (0.23, 0.13, 0.07)
-OUTFITS = {
-    "woman": {"Wolf3D_Outfit_Footwear": ("tint", LEATHER)},
-}
-# The man is one mesh on one texture atlas — his clothes are not materials
-# of their own — so his are repainted by region: each triangle is classed by
-# the bone that moves it (feet → shoes, legs → leggings, torso and upper arms
-# → tunic), that is drawn into the atlas, and only those pixels change —
-# never skin-coloured ones, which are his arms and neck.
-#
-# His tunic is the woman's own animal skin — the striped hide of her dress,
-# a clean patch of it from below her belt, tiled mirror-wise across his
-# shirt at her scale — so the two are dressed alike; his shirt's folds and
-# shading are kept on top of it. Both are Ready Player Me, CC BY-NC-SA, so
-# taking from one for the other stays within the licence the output carries.
-DRESS = "~/Downloads/ready_player_me_female_character/textures/Wolf3D_Outfit_Top_baseColor.jpeg"
-ATLAS = {
-    "man": {
-        "tunic": ("pattern", {"from": DRESS, "rect": (0.10, 0.04, 0.65, 0.33), "scale": 0.5}),
-        "leggings": ("tint", (0.22, 0.13, 0.07)),
-        "shoes": ("tint", LEATHER),
-    },
-}
-REGION_OF = [("Foot", "shoes"), ("Toe", "shoes"), ("UpLeg", "leggings"), ("Leg", "leggings"),
-             ("Hips", "waist"), ("Spine", "tunic"), ("Shoulder", "tunic"), ("ForeArm", None),
-             ("Arm", "tunic"), ("Hand", None), ("Neck", None), ("Head", None), ("Eye", None)]
 
+# ── the cave outfit ──────────────────────────────────────────────────────────
+# Both are dressed as cave people are drawn: a leopard-spotted hide worn over
+# the right shoulder with the left one bare, a ragged, jagged hem at mid
+# thigh, a leather belt, bare arms and legs, and hide wrapped round the feet.
+# Everything is placed on the body in metres — the hem's height, the line of
+# the bare shoulder, the spots — by giving every texel the 3D point of the
+# model it colours, so the spots run on across UV seams and the hem is level
+# all the way round.
+HIDE = (0.86, 0.60, 0.21)           # ochre, as stored (sRGB)
+SPOT = (0.34, 0.19, 0.07)           # dark brown
+BELT = (0.30, 0.18, 0.09)           # leather
+SPOT_CELL = 0.1                     # metres between spots
+REGION_OF = [("Foot", "feet"), ("Toe", "feet"), ("UpLeg", "legs"), ("Leg", "legs"),
+             ("Hips", "body"), ("Spine", "body"), ("Shoulder", "body"), ("ForeArm", "arms"),
+             ("Arm", "arms"), ("Hand", None), ("Neck", None), ("Head", None), ("Eye", None)]
+# Per character: the hem's height (the woman's dress ends at 0.73 m, so hers
+# is cut from just above it) and whether the bare parts are cut away (her
+# body is modelled under the dress) or painted as skin (his is not).
+STYLE = {
+    "woman": {"hem": 0.80, "cut": True, "clothes": ["Wolf3D_Outfit_Top"], "feet": ["Wolf3D_Outfit_Footwear"]},
+    "man": {"hem": 0.74, "cut": False, "clothes": ["Wolf3D_Avatar"], "feet": [], "skirt": True},
+}
 
 def load(src):
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -166,135 +170,383 @@ def pixels(img):
     return np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4)
 
 
-def repaint(meshes, outfit):
-    for o in meshes:
-        for m in o.data.materials:
-            if m.name not in outfit:
-                continue
-            how, colour = outfit[m.name]
-            node = next((n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image
-                         and "normal" not in n.image.name.lower()
-                         and "metallic" not in n.image.name.lower()), None)
-            if node is None:
-                continue
-            px = pixels(node.image)
-            lum = px[..., :3] @ np.array([0.3, 0.59, 0.11])
-            # Keep the texture's shading, normalised round mid grey, as the
-            # light and dark of the new colour.
-            shade = np.clip(lum / max(np.median(lum), 1e-3), 0.25, 1.8)[..., None]
-            out = np.array(colour)[None, None, :] * shade
-            if how == "hide":
-                # Hide: blotched and mottled, not a dyed cloth.
-                h, w = lum.shape
-                yy, xx = np.mgrid[0:h, 0:w] / max(h, w)
-                blot = (np.sin(xx * 23 + np.sin(yy * 17) * 2) * np.sin(yy * 19 + np.sin(xx * 13) * 2))
-                out *= (0.85 + 0.2 * blot)[..., None]
-            px[..., :3] = np.clip(out, 0, 1)
-            node.image.pixels.foreach_set(px.ravel())
-            node.image.update()
-            print(f"  {m.name}: repainted ({how})")
-
-
-_PATTERNS = {}
-
-
-def pattern(spec, h, w):
-    """A source texture's patch, tiled mirror-wise over an h x w image."""
-    path = os.path.expanduser(spec["from"])
-    if path not in _PATTERNS:
-        img = bpy.data.images.load(path)
-        _PATTERNS[path] = pixels(img)[..., :3].copy()
-        bpy.data.images.remove(img)
-    src = _PATTERNS[path]
-    sh, sw = src.shape[:2]
-    u0, v0, u1, v1 = spec["rect"]
-    x0, x1, y0, y1 = int(u0 * sw), int(u1 * sw), int(v0 * sh), int(v1 * sh)
-    pw, ph = x1 - x0, y1 - y0
-    k = spec.get("scale", 1.0)
-    def fold(t, n):                                   # mirror-repeat: no seams
-        t = t % (2 * n)
-        return np.where(t < n, t, 2 * n - 1 - t)
-    ys = (np.arange(h) * k).astype(int)
-    xs = (np.arange(w) * k).astype(int)
-    return src[y0 + fold(ys, ph)][:, x0 + fold(xs, pw)]
-
-
-def recolour(px, mask, how, colour):
+def tint(px, mask, colour):
     """Repaint the masked pixels in `colour`, keeping their light and shade."""
     lum = px[..., :3] @ np.array([0.3, 0.59, 0.11])
     shade = np.clip(lum / max(np.median(lum[mask]), 1e-3), 0.25, 1.8)[..., None]
-    if how == "pattern":
-        # The pattern's own colour, lit by this texture's folds and shading.
-        out = pattern(colour, *lum.shape) * np.clip(shade, 0.5, 1.4)
-        px[..., :3] = np.where(mask[..., None], np.clip(out, 0, 1), px[..., :3])
-        return
     out = np.array(colour)[None, None, :] * shade
-    if how == "hide":
-        h, w = lum.shape
-        yy, xx = np.mgrid[0:h, 0:w] / max(h, w)
-        blot = (np.sin(xx * 23 + np.sin(yy * 17) * 2) * np.sin(yy * 19 + np.sin(xx * 13) * 2))
-        out *= (0.85 + 0.2 * blot)[..., None]
     px[..., :3] = np.where(mask[..., None], np.clip(out, 0, 1), px[..., :3])
 
 
-def repaint_atlas(arm, meshes, plan):
-    """Repaint regions of a single-atlas character by the bones that move them."""
+def raster(o, W, H):
+    """
+    For each texel of the mesh's texture: the 3D point of the model it
+    colours (rest pose, metres) and the region of the body its face moves
+    with (see REGION_OF). Faces are drawn into UV space with barycentric
+    weights; texels no face covers are left unfilled.
+    """
+    me = o.data
+    names = {g.index: g.name for g in o.vertex_groups}
+    V = np.array([tuple(o.matrix_world @ v.co) for v in me.vertices])
+    region = []
+    for v in me.vertices:
+        best = max(v.groups, key=lambda g: g.weight, default=None)
+        bone = names.get(best.group, "") if best else ""
+        region.append(next((r for key, r in REGION_OF if key in bone), None))
+    kinds = [None, "body", "legs", "feet", "arms"]
+    pos = np.zeros((H, W, 3), np.float32)
+    cls = np.zeros((H, W), np.uint8)
+    filled = np.zeros((H, W), bool)
+    uv = me.uv_layers.active.data
+    for poly in me.polygons:
+        votes = [region[i] for i in poly.vertices]
+        r = kinds.index(max(set(votes), key=votes.count))
+        pts = np.array([tuple(uv[li].uv) for li in poly.loop_indices]) * (W, H)
+        P = V[list(poly.vertices)]
+        x0, y0 = np.floor(pts.min(0)).astype(int); x1, y1 = np.ceil(pts.max(0)).astype(int)
+        x0, y0 = max(x0 - 1, 0), max(y0 - 1, 0); x1, y1 = min(x1 + 2, W), min(y1 + 2, H)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        yy, xx = np.mgrid[y0:y1, x0:x1] + 0.5
+        for k in range(1, len(pts) - 1):                  # fan into triangles
+            a, b, c = pts[0], pts[k], pts[k + 1]
+            d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
+            if abs(d) < 1e-9:
+                continue
+            l1 = ((b[1] - c[1]) * (xx - c[0]) + (c[0] - b[0]) * (yy - c[1])) / d
+            l2 = ((c[1] - a[1]) * (xx - c[0]) + (a[0] - c[0]) * (yy - c[1])) / d
+            l3 = 1 - l1 - l2
+            inside = (l1 >= -0.03) & (l2 >= -0.03) & (l3 >= -0.03)
+            if not inside.any():
+                continue
+            p3 = (l1[..., None] * P[0] + l2[..., None] * P[k] + l3[..., None] * P[k + 1])
+            sub = pos[y0:y1, x0:x1]; sub[inside] = p3[inside]
+            subc = cls[y0:y1, x0:x1]; subc[inside] = r
+            subf = filled[y0:y1, x0:x1]; subf[inside] = True
+    return pos, cls, filled, kinds, V, region
+
+
+def _hash(ix, iy, iz, k):
+    h = (ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791) ^ (k * 2654435761)
+    return ((h & 0xFFFFFF) / float(0xFFFFFF))
+
+
+def leopard(P):
+    """
+    Leopard hide at 3D points P (N x 3, metres): ochre, mottled, with dark
+    irregular spots — the nearest of a jittered lattice of spot centres,
+    each its own size, its edge wobbling round it.
+    """
+    c = P / SPOT_CELL
+    base = np.floor(c).astype(np.int64)
+    best = np.full(len(P), 9.0)
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                cell = base + (dx, dy, dz)
+                jit = np.stack([_hash(cell[:, 0], cell[:, 1], cell[:, 2], k) for k in range(4)], -1)
+                centre = cell + 0.15 + 0.7 * jit[:, :3]
+                size = 0.34 + 0.16 * jit[:, 3]
+                off = c - centre
+                d = np.linalg.norm(off, axis=1)
+                wob = 1 + 0.22 * np.sin(np.arctan2(off[:, 1], off[:, 0]) * 3 + jit[:, 0] * 6)
+                best = np.minimum(best, d / (size * wob))
+    spot = np.clip((1.0 - best) * 6, 0, 1)[:, None]                 # soft edge
+    mott = 0.92 + 0.08 * np.sin(P[:, 0] * 23 + np.sin(P[:, 2] * 17) * 2)[:, None] * np.sin(P[:, 1] * 19)[:, None]
+    return np.array(HIDE) * mott * (1 - spot) + np.array(SPOT) * spot
+
+
+TEETH, TOOTH = 9, 0.07              # round the hem, and how deep each
+
+def tooth(ang):
+    """0..1 round the body: a ragged saw, nine teeth, no two quite alike."""
+    t = (ang / (2 * np.pi) * TEETH) % 1.0
+    return np.abs(t - 0.5) * 2 * (0.8 + 0.2 * np.sin(ang * 5.0 + 0.7))
+
+
+def hem_at(P, base):
+    """The hem's height round the body: jagged, and a little uneven."""
+    ang = np.arctan2(P[:, 1], P[:, 0])
+    return base - TOOTH * tooth(ang) + 0.012 * np.sin(ang * 3.0 + 1.3)
+
+
+def blur(img, r):
+    """Box-blur a 2D array twice (about a gaussian of radius r)."""
+    out = img.astype(np.float32)
+    for _ in range(2):
+        for ax in (0, 1):
+            pad = [(r + 1, r) if a == ax else (0, 0) for a in (0, 1)]
+            cs = np.cumsum(np.pad(out, pad, mode="edge"), axis=ax)
+            n = out.shape[ax]
+            out = (np.take(cs, range(2 * r + 1, 2 * r + 1 + n), axis=ax)
+                   - np.take(cs, range(0, n), axis=ax)) / (2 * r + 1)
+    return out
+
+
+def bare_shoulder(P, H):
+    """Above the line from the left armpit to over the right shoulder: bare."""
+    x, z = P[:, 0], P[:, 2]
+    t = np.clip((x + 0.17) / 0.31, 0, 1)
+    line = H * (0.70 + 0.14 * t) + 0.012 * np.sin(x * 60)
+    return (z > line) & (x < 0.14)
+
+
+def restyle(who, arm, meshes):
+    st = STYLE[who]
+    H = max((o.matrix_world @ v.co).z for o in meshes for v in o.data.vertices)
+    hips = next(b for b in arm.data.bones if b.name == "Hips")
+    belt_z = (arm.matrix_world @ hips.head_local).z + 0.07
     for o in meshes:
-        me = o.data
-        node = next((n for m in me.materials for n in m.node_tree.nodes if n.type == "TEX_IMAGE"
-                     and n.image and "normal" not in n.image.name.lower()), None)
+        mat = o.data.materials[0]
+        node = next((n for n in mat.node_tree.nodes if n.type == "TEX_IMAGE" and n.image
+                     and "normal" not in n.image.name.lower()
+                     and "metallic" not in n.image.name.lower()), None)
         if node is None:
             continue
+        if mat.name in st["feet"]:
+            px = pixels(node.image)
+            tint(px, px[..., :3].sum(-1) > 0.01, LEATHER)
+            node.image.pixels.foreach_set(px.ravel()); node.image.update()
+            print(f"  {mat.name}: leather foot wraps")
+            continue
+        if mat.name not in st["clothes"]:
+            continue
         px = pixels(node.image)
-        H, W = px.shape[:2]
-        names = {g.index: g.name for g in o.vertex_groups}
-        # Each vertex's strongest bone, and so its region.
-        region = []
-        for v in me.vertices:
-            best = max(v.groups, key=lambda g: g.weight, default=None)
-            bone = names.get(best.group, "") if best else ""
-            region.append(next((r for key, r in REGION_OF if key in bone), None))
-        classes = {r: i + 1 for i, r in enumerate(["tunic", "leggings", "shoes", "waist"])}
-        cmap = np.zeros((H, W), np.uint8)
-        uv = me.uv_layers.active.data
-        for poly in me.polygons:
-            votes = [region[i] for i in poly.vertices]
-            r = max(set(votes), key=votes.count)
-            if r is None:
-                continue
-            pts = np.array([tuple(uv[li].uv) for li in poly.loop_indices]) * (W, H)
-            x0, y0 = np.floor(pts.min(0)).astype(int); x1, y1 = np.ceil(pts.max(0)).astype(int)
-            x0, y0 = max(x0 - 1, 0), max(y0 - 1, 0); x1, y1 = min(x1 + 2, W), min(y1 + 2, H)
-            if x1 <= x0 or y1 <= y0:
-                continue
-            yy, xx = np.mgrid[y0:y1, x0:x1] + 0.5
-            inside = np.ones(xx.shape, bool)
-            for k in range(1, len(pts) - 1):            # fan the polygon into triangles
-                a, b, c = pts[0], pts[k], pts[k + 1]
-                d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1])
-                if abs(d) < 1e-9:
-                    continue
-                l1 = ((b[1] - c[1]) * (xx - c[0]) + (c[0] - b[0]) * (yy - c[1])) / d
-                l2 = ((c[1] - a[1]) * (xx - c[0]) + (a[0] - c[0]) * (yy - c[1])) / d
-                tri = (l1 >= -0.02) & (l2 >= -0.02) & (1 - l1 - l2 >= -0.02)
-                inside = tri if k == 1 else (inside | tri)
-            cmap[y0:y1, x0:x1][inside] = classes[r]
-        # Never skin: warm, saturated pixels stay as they are.
+        Hh, Ww = px.shape[:2]
+        pos, cls, filled, kinds, V, region = raster(o, Ww, Hh)
         rgb = px[..., :3]
         mx, mn = rgb.max(-1), rgb.min(-1)
-        skin = ((mx - mn) / np.maximum(mx, 1e-3) > 0.3) & (rgb[..., 0] > rgb[..., 2])
-        lum = rgb @ np.array([0.3, 0.59, 0.11])
-        # The waist is where tunic meets leggings: the pale part is tunic.
-        waist = cmap == classes["waist"]
-        cmap[waist & (lum > 0.08)] = classes["tunic"]
-        cmap[waist & (lum <= 0.08)] = classes["leggings"]
-        for name, (how, colour) in plan.items():
-            mask = (cmap == classes[name]) & ~skin
-            if mask.any():
-                recolour(px, mask, how, colour)
-                print(f"  {name}: repainted ({how}), {mask.mean() * 100:.1f}% of the atlas")
+        skin_px = ((mx - mn) / np.maximum(mx, 1e-3) > 0.3) & (rgb[..., 0] > rgb[..., 2]) & (rgb[..., 0] > 0.15)
+        body, legs, feet, arms_ = (cls == kinds.index(k) for k in ("body", "legs", "feet", "arms"))
+        # What is clothing, of all this texture: on the man, not his skin, head
+        # or hands; on the woman, all of her dress.
+        cloth = filled & (body | legs | feet | arms_) & (~skin_px if not st["cut"] else True)
+        P = pos.reshape(-1, 3)
+        hide = cloth & ~feet & ~arms_
+        bare = bare_shoulder(P, H).reshape(Hh, Ww)
+        if st.get("skirt"):
+            # The skirt (a mesh of its own, see skirt()) hangs from the belt;
+            # what it covers is painted the same hide, so wherever the body
+            # shows through it — a hip, as the leg swings — it is not skin.
+            # On the legs it stops above the skirt's notches, so it can never
+            # show below the hem as shorts.
+            hide &= ~bare & ((~legs & (pos[..., 2] > belt_z - 0.12)) | (legs & (pos[..., 2] > st["hem"] + 0.02)))
+        else:
+            hide &= (pos[..., 2] > hem_at(P, st["hem"]).reshape(Hh, Ww)) & ~bare
+        belt = hide & (np.abs(pos[..., 2] - belt_z) < 0.022)
+        # Light and shade from the old texture, blurred: its broad folds, not
+        # its pattern — the woman's dress was striped, and those stripes must
+        # not show through the spots as dark bands.
+        lum = blur(rgb @ np.array([0.3, 0.59, 0.11]), max(4, Ww // 96))
+        shade = np.clip(lum / max(np.median(lum[hide]), 1e-3), 0.7, 1.25)[..., None]
+        coat = leopard(pos[hide])
+        px[..., :3][hide] = np.clip(coat * shade[hide], 0, 1)
+        px[..., :3][belt] = np.clip(np.array(BELT) * shade[belt] * 0.9, 0, 1)
+        # A darker line along the hem and the bare shoulder's edge: the cut
+        # edge of a hide, which is what makes it read as one.
+        edge = hide & ((pos[..., 2] - hem_at(P, st["hem"]).reshape(Hh, Ww)) < 0.012)
+        px[..., :3][edge] *= 0.7
+        rest = cloth & ~hide
+        if st["cut"]:
+            # Cut away: her body is modelled beneath. The texture takes an
+            # alpha channel, and the material clips on it.
+            px[..., 3] = np.where(rest, 0.0, 1.0)
+            clip(mat, node)
+            print(f"  {mat.name}: leopard hide, jagged hem and bare shoulder cut out")
+        else:
+            # Painted: his own skin over what were clothes — the jeans, the
+            # sleeves, the bare shoulder — flat, in the colour of his arms and
+            # ankles, not lit by the cloth's creases; the creases taken out of
+            # the normal map too; and the jeans and sleeves reshaped as legs
+            # and arms (limbs()).
+            own = rgb[skin_px & filled & (arms_ | legs)]
+            tone = np.median(own, axis=0) if len(own) else np.array([0.45, 0.25, 0.15])
+            skin = rest & ~feet
+            px[..., :3][skin] = np.clip(tone * (0.97 + 0.06 * blur(np.random.default_rng(3).random((Hh, Ww)), 6)[skin][:, None]), 0, 1)
+            smooth_normals(mat, skin)
+            tint(px, cloth & feet, LEATHER)
+            limbs(o, arm, V, region, belt_z)
+            print(f"  {mat.name}: leopard hide, jagged hem, bare arms and legs painted, leather feet")
         node.image.pixels.foreach_set(px.ravel())
         node.image.update()
+    if st.get("skirt"):
+        skirt(arm, meshes, belt_z, st["hem"])
+
+
+def skirt(arm, meshes, top, hem):
+    """
+    A hide skirt from the belt to mid thigh, its hem cut ragged: the tunic's
+    lower half, for a character whose clothes below the waist are trousers.
+    Fitted round the body at each height, textured with the same leopard
+    hide, and bound to the hips and — toward the hem — the thigh on its side,
+    so it swings with the stride.
+    """
+    V = np.array([tuple(o.matrix_world @ v.co) for o in meshes for v in o.data.vertices])
+    def girth(z, band=0.04, pad=0.03):
+        near = V[np.abs(V[:, 2] - z) < band]
+        near = near[np.abs(near[:, 0]) < 0.3]
+        return np.abs(near[:, 0]).max() + pad, np.abs(near[:, 1]).max() + pad, near[:, 1].mean()
+    N, rings = 44, [top, (top + hem) / 2, hem]
+    fits = [girth(top, pad=0.03), girth(rings[1], pad=0.065), girth(hem, pad=0.07)]
+    bm = bmesh.new()
+    uvl = bm.loops.layers.uv.new()
+    verts = []
+    for ri, z in enumerate(rings):
+        rx, ry, cy = fits[ri]
+        row = []
+        for i in range(N + 1):
+            ang = i / N * 2 * np.pi
+            x, y = np.cos(ang) * rx, cy + np.sin(ang) * ry
+            zz = z - (TOOTH * float(tooth(np.array([np.arctan2(y, x)]))[0]) if ri == 2 else 0)
+            row.append(bm.verts.new((x, y, zz)))
+        verts.append(row)
+    for ri in range(len(rings) - 1):
+        for i in range(N):
+            f = bm.faces.new((verts[ri][i], verts[ri][i + 1], verts[ri + 1][i + 1], verts[ri + 1][i]))
+            for loop, (u, v) in zip(f.loops, ((i / N, ri / 2), ((i + 1) / N, ri / 2), ((i + 1) / N, (ri + 1) / 2), (i / N, (ri + 1) / 2))):
+                loop[uvl].uv = (u, v)
+    me = bpy.data.meshes.new("player_skirt")
+    bm.to_mesh(me); bm.free()
+    me.shade_smooth() if hasattr(me, "shade_smooth") else None
+    ob = bpy.data.objects.new("player_skirt", me)
+    bpy.context.scene.collection.objects.link(ob)
+    # Its texture: the leopard hide, texel by texel at the point it covers.
+    S = 512
+    img = bpy.data.images.new("player_skirt_hide", S, S // 2, alpha=False)
+    uu, vv = np.meshgrid((np.arange(S) + 0.5) / S, (np.arange(S // 2) + 0.5) / (S // 2))
+    ang = uu * 2 * np.pi
+    zc = np.interp(vv, [0, 0.5, 1], rings)
+    rx = np.interp(vv, [0, 0.5, 1], [f[0] for f in fits]); ry = np.interp(vv, [0, 0.5, 1], [f[1] for f in fits])
+    cyv = np.interp(vv, [0, 0.5, 1], [f[2] for f in fits])
+    P = np.stack([np.cos(ang) * rx, cyv + np.sin(ang) * ry, zc], -1).reshape(-1, 3)
+    col = leopard(P).reshape(S // 2, S, 3)
+    col *= (1 - 0.3 * np.clip((vv - 0.85) / 0.15, 0, 1))[..., None]      # darker at the cut edge
+    img.pixels.foreach_set(np.concatenate([col, np.ones((S // 2, S, 1))], -1).astype(np.float32).ravel())
+    img.file_format = "JPEG"
+    img.pack()
+    mat = bpy.data.materials.new("player_skirt")
+    mat.use_nodes = True
+    mat.use_backface_culling = False                 # seen from inside, too
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+    bsdf.inputs["Roughness"].default_value = 0.9
+    tex = mat.node_tree.nodes.new("ShaderNodeTexImage"); tex.image = img
+    mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    me.materials.append(mat)
+    # Bound to the hips, and toward the hem to the thigh on its side.
+    hips = ob.vertex_groups.new(name="Hips")
+    legL = ob.vertex_groups.new(name="LeftUpLeg"); legR = ob.vertex_groups.new(name="RightUpLeg")
+    for v in me.vertices:
+        k = np.clip((top - v.co.z) / max(top - hem, 1e-3), 0, 1) * 0.6
+        side = np.clip(0.5 + v.co.x / 0.2, 0, 1)          # 0 left .. 1 right
+        hips.add([v.index], 1 - k, "REPLACE")
+        if k > 0:
+            legR.add([v.index], k * side, "REPLACE")
+            legL.add([v.index], k * (1 - side), "REPLACE")
+    ob.parent = arm
+    m = ob.modifiers.new("Armature", "ARMATURE"); m.object = arm
+    meshes.append(ob)
+    print(f"  skirt: {len(me.polygons)} faces, belt {top:.2f} m to hem {hem:.2f} m")
+
+
+def clip(mat, node):
+    """Make a material alpha-clipped on its colour texture (glTF: alphaMode MASK)."""
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    rnd = nt.nodes.new("ShaderNodeMath")
+    rnd.operation = "ROUND"
+    nt.links.new(node.outputs["Alpha"], rnd.inputs[0])
+    nt.links.new(rnd.outputs[0], bsdf.inputs["Alpha"])
+    node.image.alpha_mode = "STRAIGHT"
+    node.image["cutout"] = True
+
+
+def smooth_normals(mat, mask):
+    """Flatten a material's normal map where `mask` is: bare skin has no creases."""
+    node = next((n for n in mat.node_tree.nodes if n.type == "TEX_IMAGE" and n.image
+                 and "normal" in n.image.name.lower()), None)
+    if node is None:
+        return
+    px = pixels(node.image)
+    h, w = px.shape[:2]
+    mh, mw = mask.shape
+    m = mask[(np.arange(h) * mh // h)[:, None], (np.arange(w) * mw // w)[None, :]]
+    px[..., :3][m] = (0.5, 0.5, 1.0)
+    node.image.pixels.foreach_set(px.ravel())
+    node.image.update()
+
+
+# Radius of a bare leg along it, hip (0) to ankle (1), in metres for a man of
+# about 1.85 m: full at the top of the thigh, in above the knee, the knee, the
+# calf swelling a third of the way down the shin, slim at the ankle.
+LEG = [(0.0, 0.086), (0.25, 0.074), (0.45, 0.058), (0.52, 0.052), (0.66, 0.057),
+       (0.85, 0.043), (1.0, 0.036)]
+ARM = [(0.0, 0.052), (0.5, 0.046), (1.0, 0.040)]           # shoulder to elbow
+
+
+def limbs(o, arm, V, region, top):
+    """
+    Reshape clothes into the limbs they covered. Each leg vertex is put at
+    the leg's own radius from the bone at that point along it — the calf
+    fuller behind, the knee a little proud in front — and a sleeve is drawn
+    in to the upper arm (never pushed out: the arm below it is his own).
+    """
+    bones = {b.name: (np.array(arm.matrix_world @ b.head_local), np.array(arm.matrix_world @ b.tail_local))
+             for b in arm.data.bones}
+    def chain(names):
+        segs = [bones[n] for n in names if n in bones]
+        lens = [np.linalg.norm(b - a) for a, b in segs]
+        return segs, lens, sum(lens)
+    legs = {s: chain((f"{s}UpLeg", f"{s}Leg")) for s in ("Left", "Right")}
+    arms = {s: chain((f"{s}Arm",)) for s in ("Left", "Right")}
+    fwd = np.array([0.0, 1.0, 0.0])                      # he faces +Y here
+    me = o.data
+    moved = 0
+    for i, v in enumerate(me.vertices):
+        w = V[i]
+        kind = region[i]
+        if kind == "legs" and w[2] < top - 0.02:
+            side = "Right" if w[0] > 0 else "Left"
+            segs, lens, total = legs[side]
+            prof = LEG
+        elif kind == "arms":
+            side = "Right" if w[0] > 0 else "Left"
+            segs, lens, total = arms[side]
+            prof = ARM
+        else:
+            continue
+        # Nearest point on the chain, and how far along it that is.
+        best = None
+        run = 0.0
+        for (a, b), L in zip(segs, lens):
+            ab = b - a
+            t = np.clip(np.dot(w - a, ab) / max(L * L, 1e-9), 0, 1)
+            q = a + ab * t
+            d = np.linalg.norm(w - q)
+            if best is None or d < best[0]:
+                best = (d, q, (run + t * L) / total, ab / max(L, 1e-9))
+            run += L
+        d, q, t, axis = best
+        if kind == "arms" and t > 0.98:
+            continue                                     # the elbow and below are his own
+        radial = w - q
+        radial -= axis * np.dot(radial, axis)
+        rn = np.linalg.norm(radial)
+        if rn < 1e-5:
+            continue
+        dirn = radial / rn
+        r = np.interp(t, [p for p, _ in prof], [x for _, x in prof])
+        if kind == "legs":
+            back = -np.dot(dirn, fwd)
+            r *= 1 + 0.14 * max(0.0, back) * np.exp(-((t - 0.66) / 0.12) ** 2)     # the calf
+            r *= 1 + 0.06 * max(0.0, -back) * np.exp(-((t - 0.52) / 0.05) ** 2)   # the knee
+            r *= 0.94 + 0.06 * abs(np.dot(dirn, np.array([1.0, 0, 0])))            # a leg is not round
+        else:
+            r = min(r, rn)
+        new = q + dirn * r
+        v.co = o.matrix_world.inverted() @ mathutils.Vector(new)
+        moved += 1
+    me.update()
+    print(f"  reshaped {moved} vertices of jeans and sleeves into legs and arms")
 
 
 def shrink(meshes):
@@ -309,7 +561,8 @@ def shrink(meshes):
                     cap = TEX // 2 if "normal" in n.image.name.lower() else TEX
                     if max(w, h) > cap:
                         n.image.scale(cap, cap)
-                    n.image.file_format = "JPEG" if "metallic" not in n.image.name.lower() else "PNG"
+                    keep_alpha = n.image.get("cutout") or "metallic" in n.image.name.lower()
+                    n.image.file_format = "PNG" if keep_alpha else "JPEG"
                     n.image.pack()
 
 
@@ -318,9 +571,7 @@ def build(who, src, preview=None):
     arm, meshes = load(src)
     orient(arm, meshes)
     clean_names(arm)
-    repaint(meshes, OUTFITS.get(who, {}))
-    if who in ATLAS:
-        repaint_atlas(arm, meshes, ATLAS[who])
+    restyle(who, arm, meshes)
     shrink(meshes)
     arm.name = f"player_{who}"
     if preview:
@@ -332,7 +583,7 @@ def build(who, src, preview=None):
         o.select_set(True)
     desired = dict(filepath=out, export_format="GLB", use_selection=True, export_apply=False,
                    export_yup=True, export_animations=False, export_skins=True,
-                   export_image_format="JPEG", export_jpeg_quality=85,
+                   export_image_format="WEBP", export_jpeg_quality=85, export_image_quality=85,
                    export_cameras=False, export_lights=False, export_extras=False,
                    export_morph=False)
     known = set(bpy.ops.export_scene.gltf.get_rna_type().properties.keys())

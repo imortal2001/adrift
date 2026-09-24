@@ -241,11 +241,14 @@ Neither Sketchfab page carries a NoAI tag.
 - turns them to face the game's forward, feet at the origin, in metres (the
   man's file is in centimetres);
 - strips the numeric suffixes from the bone names;
-- repaints the woman's shoes as dark leather; repaints the man's T-shirt in
-  the striped animal skin of the woman's dress (a patch of her texture, tiled
-  over his shirt under its own folds), his jeans as dark hide leggings and his
-  trainers as leather wraps;
-- scales the textures down (colour to 1024², normal maps to 512²) as JPEG.
+- dresses both as cave people: a leopard-spotted hide (generated, not taken
+  from either model) worn over one shoulder with a jagged hem, a leather
+  belt and leather foot wraps. The woman's dress is repainted and cut to that
+  shape (alpha cut-outs); on the man, the T-shirt is repainted, his jeans and
+  sleeves are reshaped into bare legs and upper arms (thigh, knee, calf and
+  ankle, in his own skin tone, their creases taken out of the normal map), and
+  a hide skirt is added as a new mesh bound to his hips and thighs;
+- scales the textures down (colour to 1024², normal maps to 512²) as WebP.
 
 They are rigged but were never animated; the game moves its bones itself
 (`src/body.js`). The mesh, rig and the rest of its textures are the

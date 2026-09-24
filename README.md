@@ -744,7 +744,9 @@ relative to it. So nothing about playing changes with the view — only what
 you see. Underwater colour follows the camera, since that is what is seen.
 
 You are a **woman or a man** (the splash screen's *Play as*): Ready Player
-Me characters, rigged but never animated. `src/body.js` animates them itself —
+Me characters, dressed as cave people are drawn — leopard hide over one
+shoulder, a ragged hem, bare arms and legs, leather wraps on the feet — and
+rigged but never animated. `src/body.js` animates them itself —
 a stride that lengthens and quickens with speed, a lean into a run, knees up
 in a jump, treading water upright and a crawl, prone, when swimming
 somewhere, the head following where you look — and each use of what is in
