@@ -207,3 +207,49 @@ flotsam, put through `tools/build_coconut.py`, which:
 - encodes both textures as JPEG.
 
 The colours and surface detail are the author's, carried over by the bake.
+
+### The player
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/player_woman.glb` | Ready Player Me female character | Ready Player Me | [CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/ready-player-me-female-character-2caf5781d3ef422d8d7270fe615bff68) |
+| `assets/models/player_man.glb` | Ready Player Me male avatar \| VRChat/Game Ready | Ready Player Me | [CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/ready-player-me-male-avatar-vrchatgame-ready-8a1a34d7012d48639e42ee3763680392) |
+
+This work is based on "Ready Player Me female character"
+(https://sketchfab.com/3d-models/ready-player-me-female-character-2caf5781d3ef422d8d7270fe615bff68)
+by Ready Player Me (https://sketchfab.com/readyplayerme), licensed under
+CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+This work is based on "Ready Player Me male avatar | VRChat/Game Ready"
+(https://sketchfab.com/3d-models/ready-player-me-male-avatar-vrchatgame-ready-8a1a34d7012d48639e42ee3763680392)
+by Ready Player Me (https://sketchfab.com/readyplayerme), licensed under
+CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+Neither Sketchfab page carries a NoAI tag.
+
+> ⚠️ **Non-commercial, share-alike.** Unlike everything else credited here,
+> this licence forbids commercial use, and requires that changed versions are
+> shared under the same licence. `player_woman.glb` and `player_man.glb` are
+> therefore CC BY-NC-SA 4.0 — whatever licence the rest of the
+> game carries. Fine for a free, personal prototype; if the game is ever sold,
+> these two files have to be replaced.
+
+**Changes made.** Both put through `tools/build_player.py`, which:
+
+- keeps the armature and its meshes, and makes the pose they are shown in
+  the skeleton's rest pose (the man's rests lying along the ground);
+- turns them to face the game's forward, feet at the origin, in metres (the
+  man's file is in centimetres);
+- strips the numeric suffixes from the bone names;
+- dresses both as cave people: a leopard-spotted hide (generated, not taken
+  from either model) worn over one shoulder with a jagged hem, a leather
+  belt and leather foot wraps. The woman's dress is repainted and cut to that
+  shape (alpha cut-outs); on the man, the T-shirt is repainted, his jeans and
+  sleeves are reshaped into bare legs and upper arms (thigh, knee, calf and
+  ankle, in his own skin tone, their creases taken out of the normal map), and
+  a hide skirt is added as a new mesh bound to his hips and thighs;
+- scales the textures down (colour to 1024², normal maps to 512²) as WebP.
+
+They are rigged but were never animated; the game moves its bones itself
+(`src/body.js`). The mesh, rig and the rest of its textures are the
+author's.

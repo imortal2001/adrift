@@ -35,9 +35,9 @@ somewhere in the trees.
 
 Food comes from the sea two ways: a **spear** you throw or thrust, and a **rod**
 you cast from the deck and strike with when the float goes under. Bait the
-hook with a fish you have caught and the big ones come for it. Shipwrecks,
-weather and cooking are deliberately left out — see *Where to go next* for
-where each one plugs in.
+hook with a fish you have caught and the big ones come for it. Cook it over a
+campfire you light yourself, with a bow drill. Shipwrecks and weather are
+deliberately left out — see *Where to go next* for where each one plugs in.
 
 ## Running it
 
@@ -78,7 +78,8 @@ code and models, runs on this machine only, and has its own
 | `Esc` | pause |
 | Arrow keys | also turn the view |
 | `Space` | jump — and climb aboard when you are in the water |
-| `E` | gather the debris you are looking at, drink from a collector, take back a thrown spear |
+| `V` | change the view: first person → third (behind you) → second (facing you) |
+| `E` | gather the debris you are looking at, drink from a collector, take back a thrown spear; at a campfire, cook the raw fish in hand, take fish that are done, or feed it wood |
 | `1`–`5`, wheel | pick a hotbar slot |
 | Left-click | use whatever is in your hands |
 | `I` | pack — register tools and items into the five slots |
@@ -102,7 +103,8 @@ instead of a key per tool:
 |---|---|
 | Hammer | build mode is on; click places the piece (wheel or `[` `]` picks it) |
 | Hook | throw it at debris and reel the debris in |
-| Coconut, any fish | eat it |
+| Coconut, any fish | eat it (raw or cooked) |
+| Bow drill | **hold** at an unlit campfire to saw up an ember — it takes 1 Palm for tinder |
 | Spear | a thrust that skewers the fish on the crosshair; **right-click throws it** — pull it back out with `E` |
 | Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
 | Material, or nothing | nothing |
@@ -188,6 +190,9 @@ pause screen starts over.
 | `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. |
 | `src/sky.js` | Sun, sky dome, stars and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry. |
+| `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
+| `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
+| `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
 | `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current. |
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
@@ -205,6 +210,7 @@ pause screen starts over.
 | `tools/build_great_white.py` | Converts a third-party great white (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, fin tags from its bones, its teeth joined in, a dark eye, textures downsized. |
 | `tools/build_whale.py` | Converts a third-party humpback whale (CC BY 4.0, see CREDITS.md) for the game: centred and scaled to 12.5 m, flipper and fluke tags from its shape, dark eyes, its normal map flipped to glTF's convention. |
 | `tools/build_coconut.py` | Converts a third-party photoscanned coconut (CC BY 4.0, see CREDITS.md) for the game: a smooth 3,072-triangle shell fitted to the 199,500-triangle scan, pores up, ~17 cm, with the scan's colour and relief baked onto it at 1024² (23 MB down to 270 KB). Held in hand, and afloat as flotsam at 2.4 times the size. |
+| `tools/build_player.py` | Converts the Ready Player Me woman and man (CC BY-NC-SA 4.0, see CREDITS.md) into the player's body: pose made the rest pose, facing the game's forward in metres, bone names cleaned, dressed for the Stone Age by repainting (the man's atlas by the bones that move each part), textures shrunk. |
 | `tools/build_shark.py` | Converts a third-party blacktip reef shark (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, one mesh and one texture atlas, fin tags for the swim shader, a normal map. |
 | `tools/simulate_fight.mjs` | Plays the rod's fight thousands of times per species with five kinds of player, for tuning `fight.js` by numbers rather than feel. |
 | `tools/build_tools.py` | Puts the three third-party tool models in the frame the hand holds them by, colours the spear, and shrinks their textures. |
@@ -723,6 +729,84 @@ and humpback whale ([CRRU](https://crru.org.uk/education/species/humpback-whale)
 The game compresses all of it — real fights last longer and real tuna do not
 come this close to a reef — but the order of things is theirs.
 
+### Seeing yourself
+
+`V` changes the view. **First person** is as it always was. **Third person**
+puts the camera behind you and over your right shoulder, looking where you
+look; **second person** puts it in front of you, looking back at your face.
+Outside first person the camera is pulled in short of walls, the roof, the
+ground and the sea bed, so it never shows the inside of a plank.
+
+Play works from your eyes, not the camera: the player moves an invisible
+*eye* (`this.eye` in `main.js`), and reach, aim, spear throws and what the
+fish notice all work from it, while `src/camera.js` puts the camera somewhere
+relative to it. So nothing about playing changes with the view — only what
+you see. Underwater colour follows the camera, since that is what is seen.
+
+You are a **woman or a man** (the splash screen's *Play as*): Ready Player
+Me characters, dressed as cave people are drawn — leopard hide over one
+shoulder, a ragged hem, bare arms and legs, leather wraps on the feet — and
+rigged but never animated. `src/body.js` animates them itself —
+a stride that lengthens and quickens with speed, a lean into a run, knees up
+in a jump, treading water upright and a crawl, prone, when swimming
+somewhere, the head following where you look — and each use of what is in
+hand its own motion. A **thrust** lowers the spear to point where you look,
+draws the arm back to the hip and drives it forward from the chest, leaning
+into it with the free arm swinging back for balance, on the same timing as
+the first-person thrust, and a fish it catches
+shows on the point. A **throw** is a javelin throw at head height: the hand
+drawn back beside the head, the spear level and pointing where you look, the
+free arm aimed at the target; then the arm snaps out level in front and the
+spear leaves the hand there, straight ahead (0.27 s in) — from the hand you can see, aimed at what the crosshair
+is on (third person aims along the camera's line, since the crosshair is its
+centre; second person along your own). The hammer strikes overhead, eating
+brings the hand to the mouth, the hook is tossed underarm. Whatever is in hand is held in the right hand: its fingers curl into a
+fist round a tool, the shaft running through it from the little finger to the
+index the way a real grip does, and cup round anything else — a coconut, a
+fish. A rod's line hangs from the rod you can see. Without a character's file the same motion drives a
+mannequin built in code. The characters are **CC BY-NC-SA** — non-commercial
+(see `CREDITS.md`).
+
+### Fire and cooking
+
+A campfire is built with the hammer (3 Wood, 1 Scrap) and comes **unlit**,
+with its first wood laid. Fire has to be made: craft a **bow drill** (1 Plank,
+1 Rope — a bow with its cord round a spindle), hold it at the fire and hold
+the button. The bow saws back and forth, the spindle spins, and after five
+seconds of it an ember drops into a pinch of palm fibre — 1 **Palm**, the
+tinder — and the fire is lit. Stop sawing and the ember cools again.
+
+It burns its wood. What it was built with lasts five minutes; each Wood fed
+to it (`E`) adds two, up to ten; as it runs low it shrinks to embers, and
+when it is out the wood is ash and it needs wood laying and lighting again.
+Friction fire is the oldest method you could manage on a raft — wood and
+cord, both off the flotsam. Striking a spark takes flint and pyrite, which
+only the land has; that is left for later.
+
+**Cooking.** Hold a raw fish at a lit fire and press `E`: it is hung by the
+tail from a spit over the flames, three at a time, and browns as it cooks.
+After fourteen seconds it is done — `E` takes it off as a **cooked** fish of
+the same species ("Cooked red snapper"), into the fish slot. Cooked fish fills
+you up half again as much as raw (36 against 22) and, unlike raw, costs no
+water. A fire that goes out stops cooking whatever is on it, and a fish left
+on the spit when you leave goes in the bag — raw, or cooked if it was done.
+`Q` eats cooked fish before raw.
+
+**How it looks** (`src/fire.js`) is built in code, with two Sketchfab pieces
+as reference only — neither is in the game: the stones and the teepee after
+"Stylized Campfire" by AndresX (CC BY-ND, so not something to cut up and
+ship), the flame and sparks after "Fire animated" by lampyre3d. Nine rounded
+stones ring a teepee of seven tapered sticks and two split logs over a bed
+of coals. The flame is two camera-facing billboards drawn by a shader — a
+teardrop of fire eaten away from the top by rising noise, white-yellow at the
+heart through orange to red — so it licks and billows from any side, and
+sparks rise off it on short lives. The wood chars black from the heart
+outward as its fuel goes, glows orange there while it burns, and is ash when
+it is out.
+
+Saves from before fires had to be lit keep theirs burning, with a full load
+of wood. The numbers are `FIRE` in `items.js`.
+
 ### The whale
 
 One humpback (`src/whale.js`), about 12 m long, keeps to a ring 50-110 m out
@@ -863,6 +947,8 @@ would split the raft in two.
   about 8s of it. Slowing the ascent without extending the air means drowning
   on the way up.
 - Costs and yields: `RECIPES`, `BUILDABLES`, `DEBRIS_KINDS` in `items.js`.
+- Fire: `FIRE` in `items.js` — how long it burns, per Wood, how long lighting
+  and cooking take, and how many fish a spit holds.
 - Slot count: `SLOTS` in `hotbar.js` (the HUD and the number keys both read it).
 - How a tool is held: `POSES` in `viewmodel.js` — position and rotation in
   camera space. It is exported and read every frame, so it can be tuned live:
@@ -901,10 +987,10 @@ Each of these has a deliberate hook already in place:
 - **Hunting on land** — the spear skewers fish but passes through animals.
   `Wildlife` already tracks health for its own kills; a hit test against it in
   `ThrownSpears.fly()`, like the one against fish, is most of the work.
-- **Cooking** — the campfire is built and lit but has no interaction, and there
-  is now something to cook: fish (`FOOD` in `items.js` has it costing a
-  little water). Give the fire an input slot and a cooked fish better than
-  either a raw fish or a coconut.
+- **More from the fire** — torches lit from it for the night and for going
+  ashore; a water container to fill at a collector or a river; campfires on
+  land (the build grid is the raft's); a spark kit of flint and pyrite from
+  the rocks ashore, quicker than the bow drill.
 - **Marine animals** — a shark that circles the raft and punishes swimming is
   the cheapest way to make the water feel dangerous, and would close off the
   "swim away from anything" escape. `Wildlife` already has the targeting.

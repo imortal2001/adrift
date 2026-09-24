@@ -8,7 +8,8 @@
 import * as THREE from 'three';
 import { waveHeight, waveNormal } from './ocean.js';
 import { textures } from './textures.js';
-import { BUILDABLE_BY_ID } from './items.js';
+import { BUILDABLE_BY_ID, FIRE } from './items.js';
+import { buildCampfire, updateFire, tickFire } from './fire.js';
 
 export const CELL = 2;
 export const DECK_Y = 0;        // walkable surface, in raft-local space
@@ -49,14 +50,9 @@ function mats() {
     cloth: std(t.cloth, { roughness: 0.9, side: THREE.DoubleSide }),
     metal: std(t.metal, { roughness: 0.62, metalness: 0.45 }),
     stone: std(null, { color: 0x6d7175, roughness: 0.95 }),
+    ash:   std(null, { color: 0x2e2a27, roughness: 1 }),
     water: std(null, { color: 0x2f9fd0, roughness: 0.15, metalness: 0.1,
                        transparent: true, opacity: 0.85 }),
-    flame: new THREE.MeshBasicMaterial({ color: 0xff8a26, transparent: true,
-                                         opacity: 0.34, blending: THREE.AdditiveBlending,
-                                         depthWrite: false, side: THREE.DoubleSide }),
-    core:  new THREE.MeshBasicMaterial({ color: 0xffd98a, transparent: true,
-                                         opacity: 0.55, blending: THREE.AdditiveBlending,
-                                         depthWrite: false, side: THREE.DoubleSide }),
     glow:  new THREE.SpriteMaterial({ map: t.glow, color: 0xffb055, transparent: true,
                                       opacity: 0.75, blending: THREE.AdditiveBlending,
                                       depthWrite: false }),
@@ -160,60 +156,44 @@ const BUILD = {
   },
 
   campfire(t, M) {
-    const g = new THREE.Group();
     const x = t.cx * CELL, z = t.cz * CELL;
-    const stoneG = geo('stone', () => new THREE.IcosahedronGeometry(0.17, 0));
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      const s = mesh(stoneG, M('stone'), x + Math.cos(a) * 0.5, 0.07, z + Math.sin(a) * 0.5);
-      s.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
-      s.scale.setScalar(0.75 + Math.random() * 0.5);
-      g.add(s);
+    // Stones, wood, flame, sparks and light: src/fire.js.
+    const g = buildCampfire(x, z, M, M('log').map);
+    // The ash bed: what is left when the wood has burned away.
+    const ash = mesh(geo('ash', () => new THREE.CylinderGeometry(0.34, 0.38, 0.03, 12)), M('ash'), x, 0.015, z);
+    ash.name = 'ash';
+    g.add(ash);
+    // A spit to cook on: two forked uprights and a green stick across the
+    // fire, out of the flames' way. Shown while there is a fish on it.
+    const spit = new THREE.Group();
+    spit.name = 'spit';
+    spit.position.set(x, 0, z);
+    const upG = geo('spitUp', () => new THREE.CylinderGeometry(0.018, 0.022, 0.82, 6));
+    for (const sx of [-0.5, 0.5]) {
+      const u = mesh(upG, M('log'), sx, 0.41, 0);
+      u.rotation.z = -sx * 0.08;
+      spit.add(u);
     }
-    const logG = geo('firelog', () => {
-      const c = new THREE.CylinderGeometry(0.075, 0.075, 0.8, 8);
-      c.rotateZ(Math.PI / 2);
-      return c;
-    });
-    for (let i = 0; i < 3; i++) {
-      const l = mesh(logG, M('log'), x, 0.14, z);
-      l.rotation.y = (i / 3) * Math.PI;
-      l.rotation.z = 0.12;
-      g.add(l);
-    }
-    // Layered translucent cones plus a glow sprite: a single opaque cone just
-    // reads as a yellow triangle sitting on the deck.
-    const flame = new THREE.Group();
-    flame.name = 'flame';
-    flame.position.set(x, 0.2, z);
-    const cone = (n, r, h, seg, m) =>
-      new THREE.Mesh(geo(n, () => new THREE.ConeGeometry(r, h, seg, 1, true)), M(m));
-    const outer = cone('flameO', 0.30, 0.86, 8, 'flame'); outer.position.y = 0.43;
-    const mid   = cone('flameM', 0.20, 0.60, 7, 'flame'); mid.position.y = 0.30;
-    const core  = cone('flameC', 0.115, 0.36, 6, 'core'); core.position.y = 0.18;
-    flame.add(outer, mid, core);
-    const glow = new THREE.Sprite(M('glow'));
-    glow.scale.setScalar(2.6);
-    glow.position.y = 0.4;
-    flame.add(glow);
-    g.add(flame);
-    const light = new THREE.PointLight(0xff9b3d, 6, 16, 2);
-    light.position.set(x, 0.85, z);
-    light.name = 'firelight';
-    g.add(light);
+    const bar = mesh(geo('spitBar', () => new THREE.CylinderGeometry(0.012, 0.012, 1.1, 6).rotateZ(Math.PI / 2)),
+                     M('log'), 0, 0.78, 0);
+    spit.add(bar);
+    spit.visible = false;
+    g.add(spit);
     return g;
   },
 };
 
 export class Raft {
   constructor(scene) {
+    this.scene = scene;
     this.group = new THREE.Group();
     scene.add(this.group);
 
     this.cells = new Map();   // "cx,cz"   -> { cx, cz, obj }
     this.edges = new Map();   // "cx,cz,s" -> { ex, ez, es, type, obj }
     this.tops  = new Map();   // "cx,cz"   -> { cx, cz, obj }
-    this.objs  = new Map();   // "cx,cz"   -> { cx, cz, type, obj, water }
+    this.objs  = new Map();   // "cx,cz"   -> { cx, cz, type, obj, water } (+ fuel, lit, spitFish for a campfire)
+    this.wentOut = [];        // campfires that burned out this frame, for the log
     this.pickables = [];
     this.blockers = [];
     this.tilt = 0.55;         // how much of the wave normal the raft takes on
@@ -278,18 +258,27 @@ export class Raft {
     this.group.updateMatrixWorld();
 
     // Animate fires and top up collectors.
+    tickFire(time);
     for (const o of this.objs.values()) {
       if (o.type === 'campfire') {
-        const f = o.obj.getObjectByName('flame');
-        const l = o.obj.getObjectByName('firelight');
-        const w = 0.86 + Math.sin(time * 9 + o.cx) * 0.09 + Math.sin(time * 15.7 + o.cz) * 0.06;
-        if (f) {
-          f.scale.set(w, 0.9 + (w - 0.86) * 2.4, w);
-          f.rotation.y = time * 0.8 + o.cx;
-          const glow = f.children[3];
-          if (glow) glow.scale.setScalar(2.4 + (w - 0.86) * 4);
+        // Burning uses the wood up; with none left it goes out.
+        if (o.lit) {
+          o.fuel = Math.max(0, o.fuel - dt);
+          if (o.fuel <= 0) { o.lit = false; this.wentOut.push(o); }
         }
-        if (l) l.intensity = (1.6 + w * 1.6) + (3.4 + w * 1.2) * night;
+        const wood = o.obj.getObjectByName('wood');
+        if (wood) wood.visible = o.fuel > 0;
+        const ash = o.obj.getObjectByName('ash');
+        if (ash) ash.visible = o.fuel <= 0;
+        // Burning low, it is a smaller fire: full size down to a third of
+        // its wood, then shrinking to embers.
+        const size = o.lit ? 0.35 + 0.65 * Math.min(1, o.fuel / (FIRE.max / 3)) : 0;
+        const flicker = 0.9 + Math.sin(time * 9 + o.cx) * 0.06 + Math.sin(time * 15.7 + o.cz) * 0.04;
+        updateFire(o.obj, { lit: o.lit, size, flicker, night, dt,
+                            burnt: 1 - Math.min(1, o.fuel / FIRE.laid),
+                            fogDensity: this.scene?.fog?.density });
+        const spit = o.obj.getObjectByName('spit');
+        if (spit) spit.visible = o.spitFish.length > 0;
       } else if (o.type === 'collector') {
         o.water = Math.min(o.capacity, o.water + dt * o.rate);
         this.refreshCollector(o);
@@ -364,7 +353,9 @@ export class Raft {
     } else {
       rec = { cx: t.cx, cz: t.cz, type: id, obj,
               water: 0, capacity: id === 'collector' ? 5 : 0,
-              rate: id === 'collector' ? 0.085 : 0 };
+              rate: id === 'collector' ? 0.085 : 0,
+              // A campfire is built with its wood laid and not lit.
+              fuel: id === 'campfire' ? FIRE.laid : 0, lit: false, spitFish: [] };
       this.objs.set(key(t.cx, t.cz), rec);
       if (id === 'collector') this.refreshCollector(rec);
     }
@@ -423,6 +414,8 @@ export class Raft {
     const refund = {};
     const add = cost => { for (const k in cost) refund[k] = (refund[k] || 0) + cost[k]; };
     const drop = obj => this.group.remove(obj);   // geometry/material are shared caches
+    // Fish on a campfire's spit come back with it — cooked if they were done.
+    const spit = o => { for (const f of o?.spitFish || []) add({ [f.t >= FIRE.cook ? f.done : f.raw]: 1 }); };
 
     if (piece.kind === 'cell') {
       const { cx, cz } = piece.rec;
@@ -431,7 +424,7 @@ export class Raft {
       const top = this.tops.get(key(cx, cz));
       if (top) { drop(top.obj); this.tops.delete(key(cx, cz)); add(BUILDABLE_BY_ID.roof.cost); }
       const o = this.objs.get(key(cx, cz));
-      if (o) { drop(o.obj); this.objs.delete(key(cx, cz)); add(BUILDABLE_BY_ID[o.type].cost); }
+      if (o) { spit(o); drop(o.obj); this.objs.delete(key(cx, cz)); add(BUILDABLE_BY_ID[o.type].cost); }
 
       this.cells.delete(key(cx, cz));
       // Edges that were only held up by this cell come away with it.
@@ -456,6 +449,7 @@ export class Raft {
       add(BUILDABLE_BY_ID.roof.cost);
     } else {
       const { cx, cz, type } = piece.rec;
+      spit(piece.rec);
       this.objs.delete(key(cx, cz));
       drop(piece.rec.obj);
       add(BUILDABLE_BY_ID[type].cost);
@@ -527,7 +521,9 @@ export class Raft {
       cells: [...this.cells.values()].map(c => [c.cx, c.cz]),
       edges: [...this.edges.values()].map(e => [e.ex, e.ez, e.es, e.type]),
       tops:  [...this.tops.values()].map(t => [t.cx, t.cz]),
-      objs:  [...this.objs.values()].map(o => [o.cx, o.cz, o.type, +o.water.toFixed(2)]),
+      objs:  [...this.objs.values()].map(o => o.type === 'campfire'
+        ? [o.cx, o.cz, o.type, 0, Math.round(o.fuel), o.lit ? 1 : 0]
+        : [o.cx, o.cz, o.type, +o.water.toFixed(2)]),
     };
   }
 
@@ -535,10 +531,16 @@ export class Raft {
     for (const [cx, cz] of data.cells || []) this.place('foundation', { cx, cz, force: true });
     for (const [ex, ez, es, type] of data.edges || []) this.place(type, { ex, ez, es });
     for (const [cx, cz] of data.tops || []) this.place('roof', { cx, cz });
-    for (const [cx, cz, type, water] of data.objs || []) {
+    for (const [cx, cz, type, water, fuel, lit] of data.objs || []) {
       this.place(type, { cx, cz });
       const o = this.objs.get(key(cx, cz));
       if (o && water) { o.water = water; this.refreshCollector(o); }
+      if (o?.type === 'campfire') {
+        // A save from before fires had to be lit: those were burning, and
+        // stay burning, with a full load of wood.
+        if (fuel === undefined) { o.fuel = FIRE.max; o.lit = true; }
+        else { o.fuel = fuel; o.lit = !!lit && fuel > 0; }
+      }
     }
     if (!this.cells.size) this.startingRaft();
   }

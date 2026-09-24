@@ -13,6 +13,8 @@
     "shark_blacktip",
     "shark_greatwhite",
     "whale_humpback",
-    "coconut"
+    "coconut",
+    "player_woman",
+    "player_man"
   ]
 }

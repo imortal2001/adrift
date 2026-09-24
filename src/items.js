@@ -21,6 +21,22 @@ export const ITEMS = {
              hint: 'Right-click to throw it — then E to pull it back out' },
   rod:     { name: 'Rod',     tool: true, action: 'rod',
              hint: 'Click to cast — click again the moment the float goes under. Right-click baits the hook with a fish' },
+  // A bow with its cord round a spindle: sawing the bow spins the spindle in
+  // a notch in a board, and the friction makes an ember. The oldest way to
+  // make fire from what floats past a raft — wood and cord.
+  bowdrill: { name: 'Bow drill', tool: true, action: 'drill',
+             hint: 'Hold click at an unlit campfire to drill an ember — it takes 1 Palm for tinder' },
+};
+
+// A campfire, in seconds of burning. It is built with its first wood laid,
+// then has to be lit; it burns down and goes out, and takes more wood.
+export const FIRE = {
+  laid: 300,          // the 3 Wood it is built with
+  perWood: 120,       // each Wood fed to it
+  max: 600,           // as much as it will hold
+  light: 5,           // seconds of sawing the bow drill to raise an ember
+  cook: 14,           // seconds on the spit until a fish is done
+  spit: 3,            // fish it can cook at once
 };
 
 // Every fish you can catch is an item of its own, so what you caught is what
@@ -43,20 +59,28 @@ export const fishItem = key => `fish_${key}`;
 /** The species of a fish item, or null for anything else. */
 export const fishOf = id => ITEMS[id]?.fish ?? null;
 
+/** The item a fish of this species becomes, cooked. */
+export const cookedItem = key => `cooked_${key}`;
+/** Whether an item is a cooked fish. */
+export const isCooked = id => !!ITEMS[id]?.cooked;
+
 for (const [key, name, short] of CATCHES) {
   ITEMS[fishItem(key)] = { name, short, tool: false, action: 'eat', fish: key,
-    hint: 'Click to eat — raw, so it does less for you than it could' };
+    hint: 'Click to eat — raw, so it does less for you than it could. Cook it at a lit campfire' };
+  // Cooked, it keeps its species: a cooked red snapper, not "cooked fish".
+  ITEMS[cookedItem(key)] = { name: `Cooked ${name.toLowerCase()}`, short: short || name, tool: false,
+    action: 'eat', fish: key, cooked: true, hint: 'Click to eat — hot off the fire' };
 }
 
 /** What eating an item does, fish by fish or otherwise. */
-export const foodOf = id => FOOD[id] ?? (fishOf(id) ? FOOD.fish : null);
+export const foodOf = id => FOOD[id] ?? (isCooked(id) ? FOOD.cooked : fishOf(id) ? FOOD.fish : null);
 
 // What eating each food does. Raw fish fills you up but is salty, so it costs
-// a little water; cooking it is the obvious next step once the campfire does
-// something.
+// a little water; cooked, it goes further and costs none.
 export const FOOD = {
   coconut: { hunger: 26, thirst: 11,  text: 'You crack the coconut open. Milk and flesh.' },
   fish:    { hunger: 22, thirst: -3,  text: 'You eat the fish raw. Salty, but it keeps you going.' },
+  cooked:  { hunger: 36, thirst: 0,   text: 'Hot fish off the fire. That is a meal.' },
 };
 
 /** Items worth a hotbar slot: the ones that actually do something in hand. */
@@ -75,6 +99,8 @@ export const RECIPES = [
     desc: 'For spearfishing once you dare leave the raft.' },
   { id: 'rod',    out: ['rod', 1],    cost: { plank: 2, rope: 2 },
     desc: 'Cast a line from the deck.' },
+  { id: 'bowdrill', out: ['bowdrill', 1], cost: { plank: 1, rope: 1 },
+    desc: 'Friction fire: saw the bow at a campfire to light it.' },
 ];
 
 // kind: how the piece attaches to the raft grid.
@@ -94,7 +120,7 @@ export const BUILDABLES = [
   { id: 'collector',  name: 'Collector',  kind: 'object', cost: { plank: 2, rope: 2 },
     desc: 'Catches rain and dew. Use it to drink.' },
   { id: 'campfire',   name: 'Campfire',   kind: 'object', cost: { wood: 3, scrap: 1 },
-    desc: 'Light through the night. Cooking comes later.' },
+    desc: 'Built unlit. Light it with a bow drill, feed it wood, cook fish on it.' },
 ];
 
 export const BUILDABLE_BY_ID = Object.fromEntries(BUILDABLES.map(b => [b.id, b]));

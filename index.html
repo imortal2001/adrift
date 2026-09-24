@@ -31,6 +31,9 @@
     padding:7px 13px;white-space:nowrap;font-size:13px;letter-spacing:.2px;opacity:0;transition:opacity .12s}
   #prompt.show{opacity:1}
   #prompt b{color:var(--warn);font-weight:700}
+  #prompt .meter{display:inline-block;width:92px;height:7px;margin-left:9px;border-radius:4px;overflow:hidden;
+    vertical-align:middle;background:rgba(255,255,255,.18)}
+  #prompt .meter i{display:block;height:100%;background:var(--warn)}
 
   /* ---------- vitals ---------- */
   #vitals{position:absolute;left:18px;bottom:18px;width:210px;padding:11px 12px 9px}
@@ -62,6 +65,8 @@
     box-shadow:0 0 0 1px rgba(255,207,107,.35)}
   .hs.empty .n{opacity:.3;font-style:italic}
   .hs.empty .q{opacity:0}
+  .hs.cooked .q{white-space:nowrap;overflow:hidden}
+  .hs.cooked .q::after{content:' cooked';font-size:9px;font-weight:500;opacity:.8}
   .hs.out .n,.hs.out .q{opacity:.34}
 
   /* ---------- material strip ---------- */
@@ -236,6 +241,11 @@
     border:1px solid rgba(160,220,240,.45);background:rgba(105,198,242,.14);color:#fff;
     font:600 13px/1 inherit;letter-spacing:.2em;text-transform:uppercase;transition:.15s}
   #go:hover{background:rgba(105,198,242,.28);transform:translateY(-1px)}
+  #who{pointer-events:auto;margin:-10px 0 20px;font-size:12px;letter-spacing:.8px;opacity:.85}
+  #who button{margin-left:8px;padding:6px 14px;border-radius:16px;cursor:pointer;font:inherit;color:inherit;
+    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.22)}
+  #who button.on{background:rgba(105,198,242,.28);border-color:rgba(105,198,242,.7)}
+  body.view-second #reticle{opacity:0 !important}
   #keys{display:grid;grid-template-columns:auto auto;gap:5px 16px;font-size:12.5px;opacity:.78;
     max-width:520px;text-align:left}
   #keys b{font-weight:600;color:var(--warn);font-size:11.5px}
@@ -328,6 +338,7 @@
   <h1>Adrift</h1>
   <div class="tagline">Ocean Raft Survival &mdash; Prototype</div>
   <button id="go">Wake up</button>
+  <div id="who">Play as <button data-who="woman" class="on">Woman</button><button data-who="man">Man</button></div>
   <div id="keys">
     <span><b>W A S D</b> move &nbsp; <b>Shift</b> sprint &nbsp; <b>Space</b> jump / climb aboard</span>
     <span><b>Mouse</b> look &nbsp; <b>Esc</b> pause &nbsp; <b>Arrow keys</b> also turn the view</span>
@@ -335,6 +346,7 @@
       preview, say), free look is used instead &mdash; move the mouse as normal, and push it
       to the edge of the window to keep turning.</span>
     <span><b>E</b> gather floating debris, drink from a collector</span>
+    <span><b>V</b> change the view &mdash; first person, third (behind you), second (facing you)</span>
     <span><b>1</b>&ndash;<b>5</b> pick a hotbar slot &nbsp; <b>Click</b> use what you are holding</span>
     <span><b>I</b> pack &mdash; register tools and items into the five slots</span>
     <span>Hold the <b>hammer</b> to build: the <b>wheel</b> or <b>[ ]</b> picks the piece,

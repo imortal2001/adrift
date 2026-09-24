@@ -23,7 +23,7 @@ import * as THREE from 'three';
 import { ModelLibrary } from './models.js';
 import { logTexture, woodTexture, metalTexture } from './textures.js';
 import { leafAtlas, CELL, ATLAS_SIZE } from './flora.js';
-import { fishOf } from './items.js';
+import { ITEMS, fishOf } from './items.js';
 
 // Where each item sits in camera space (the camera looks down -Z, +X is
 // right) and how it is turned there. `model` names the glTF body in
@@ -52,6 +52,10 @@ export const POSES = {
   spear:   { model: 'tool_spear',  pos: [0.24, -0.30, -0.18], rot: [-1.28, 0.0, -0.10] },
   rod:     { model: 'tool_rod',    pos: [0.27, -0.38, -0.34], rot: [-0.95, 0.0, 0.22] },
   hook:    { model: null,          pos: [0.19, -0.17, -0.52], rot: [0.12, 0.0, 0.20], scale: 1.3 },
+  // Held out in front of you, right of centre and clear of the hotbar, the
+  // bow across the view and spindle down — the way you would hold it over a
+  // hearth board — turned a little so the bow reads as a curve.
+  bowdrill: { model: null,         pos: [0.14, -0.19, -0.50], rot: [0.45, -0.25, 0.0] },
   // Tipped toward you, so its three pores — the face of a coconut — show.
   coconut: { model: 'coconut',     pos: [0.17, -0.22, -0.60], rot: [0.75, 0.40, 0.0] },
   // Raw materials: nothing to do with them in hand, but you should see what
@@ -67,6 +71,9 @@ export const POSES = {
   // stand-in for one the schools cannot draw.
   fish:    { model: null,          pos: [0.24, -0.33, -0.60], rot: [0.15, 0.9, 0.25] },
 };
+
+/** What a fish's skin is multiplied by, cooked. Shared with main.js's spit. */
+export const COOKED = new THREE.Color(0.62, 0.42, 0.27);
 
 /** The pose an item is held in: its own, or the one all fish share. */
 const poseOf = id => POSES[id] || (fishOf(id) ? POSES.fish : null);
@@ -175,6 +182,29 @@ function cyl(r0, r1, y0, y1, m, seg = 8) {
 const tex = (t, rx = 1, ry = 1) => { t.repeat.set(rx, ry); return t; };
 
 const BODIES = {
+  // A bow drill, in its own frame (held, not a +Y tool): the bow a bent
+  // stick across the view with its cord looped once round an upright
+  // spindle, and the socket block you press down on over the spindle's top.
+  bowdrill() {
+    const g = new THREE.Group();
+    const wood = mat(0x6e5234, 0.9), cord = mat(0xb39360, 0.95);
+    const bow = new THREE.QuadraticBezierCurve3(
+      new THREE.Vector3(-0.24, 0, 0), new THREE.Vector3(0, 0, -0.14), new THREE.Vector3(0.24, 0, 0));
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(bow, 16, 0.011, 6), wood));
+    // The cord: from each tip to the spindle, where it takes its turn.
+    const turn = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-0.235, 0, 0), new THREE.Vector3(-0.02, 0, -0.035),
+      new THREE.Vector3(0, 0, -0.058), new THREE.Vector3(0.02, 0, -0.035), new THREE.Vector3(0.235, 0, 0)]);
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(turn, 24, 0.0028, 5), cord));
+    const spindle = cyl(0.012, 0.012, -0.17, 0.07, wood, 8);
+    spindle.name = 'spindle';
+    spindle.position.z = -0.04;
+    g.add(spindle);
+    const block = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.03, 0.05), mat(0x5c4a38, 0.95));
+    block.position.set(0, 0.085, -0.04);
+    g.add(block);
+    return g;
+  },
   // An armful of split wood: three short lengths, bark on, pale ends.
   wood() {
     const g = new THREE.Group();
@@ -366,6 +396,9 @@ export class Viewmodel {
     this.windup = 0;
     this._windup = 0;
     this.windupRate = 6;
+    // Sawing the bow drill at a fire, set by main.js while the button is held.
+    this.drilling = false;
+    this._drill = 0;
 
     this.bobPhase = 0;
     this.bobAmp = 0;
@@ -388,6 +421,8 @@ export class Viewmodel {
     const key = fishOf(id);
     if (key) {
       const mesh = this.fishBody?.(key);
+      // Cooked, the same fish browned: its skin darkened toward roast.
+      if (mesh && ITEMS[id]?.cooked) mesh.material.color.multiply(COOKED);
       const obj = mesh ? this.standFish(mesh) : BODIES.fish();
       this.prepare(obj);
       this.bodies.set(id, obj);
@@ -432,6 +467,10 @@ export class Viewmodel {
    * from — or null if that tool is not the one in hand.
    */
   tipWorld(id, out) {
+    // Outside first person the tool shown is the one in the body's hand
+    // (main.js sets this); the line hangs from that.
+    const outside = this.tipOutside?.(id, out);
+    if (outside) return outside;
     const b = this.bodies.get(id);
     if (!b || this.current !== id || !b.parent) return null;
     b.updateWorldMatrix(true, false);
@@ -659,6 +698,18 @@ export class Viewmodel {
             rx: (o.rx || 0) - 0.34 * k + Math.sin(this.time * 23) * 0.035 * k,
             rz: (o.rz || 0) + Math.sin(this.time * 17 + 1.3) * 0.025 * k,
             pz: (o.pz || 0) - 0.05 * k };
+    }
+
+    // Sawing the bow drill: the bow runs back and forth along itself, pressed
+    // down toward the hearth, and the spindle spins in the cord — one way on
+    // the push, back on the pull.
+    this._drill += ((this.drilling && this.current === 'bowdrill' ? 1 : 0) - this._drill) * Math.min(1, dt * 8);
+    if (this._drill > 0.01) {
+      const k = this._drill;
+      o = { ...o, px: (o.px || 0) + Math.sin(this.time * 15) * 0.07 * k,
+                  py: (o.py || 0) - 0.05 * k, rx: (o.rx || 0) + 0.25 * k };
+      const sp = this.bodies.get('bowdrill')?.getObjectByName('spindle');
+      if (sp) sp.rotation.y += Math.cos(this.time * 15) * dt * 70 * k;
     }
 
     // A walk is two steps per stride, so the vertical bob runs at twice the
