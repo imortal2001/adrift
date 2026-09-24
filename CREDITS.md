@@ -243,8 +243,10 @@ Neither Sketchfab page carries a NoAI tag.
 - strips the numeric suffixes from the bone names;
 - dresses both as cave people: a leopard-spotted hide (generated, not taken
   from either model) worn over one shoulder with a jagged hem, a leather
-  belt and leather foot wraps. The woman's dress is repainted and cut to that
-  shape (alpha cut-outs); on the man, the T-shirt is repainted, his jeans and
+  belt, bare feet for her and leather foot wraps for him. The woman's dress is
+  repainted and cut to that shape (alpha cut-outs), her shoes removed with
+  the half-modelled feet inside them, and new bare feet built in her skin
+  (she stands 5 cm lower without the heels); on the man, the T-shirt is repainted, his jeans and
   sleeves are reshaped into bare legs and upper arms (thigh, knee, calf and
   ankle, in his own skin tone, their creases taken out of the normal map), and
   a hide skirt is added as a new mesh bound to his hips and thighs;
