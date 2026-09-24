@@ -27,7 +27,16 @@ const DOWN_TIME = [55, 95];          // seconds under between surfacings
 const BLOWS = [3, 5];                // breaths per surfacing
 const BLOW_GAP = [9, 14];            // seconds between them
 const SOUND_TIME = 9;                // the dive, flukes and all
-const ROUTE = [48, 95];              // metres from the raft it keeps to
+const ROUTE = [48, 110];             // metres from the raft it keeps to
+// Water it will swim in: a sea bed at least this deep. The back rides at 9m
+// and the body is ~3m deep, so shallower than this and it would be shoved up
+// the beach by the floor — out of the water, or on the sand. The land is only
+// ~80m from the raft on one side, so a plain ring round the raft runs aground
+// on a quarter of its length; it has to know where the deep water is.
+const DEEP = -15;                    // a goal, or a place to start from
+const SHOAL = -12.5;                 // ahead of it: turn away from anything shallower
+const LOOK = [14, 28, 42];           // metres ahead it checks the depth at
+const TURN = 0.12, TURN_HARD = 0.24; // rad/s: cruising, and swinging off a shoal
 const SPOUT = 160;                   // particles in the blow
 const SPOUT_BURST = 0.45;            // seconds the blow lasts at the blowhole
 
@@ -87,20 +96,97 @@ export class Whale {
     this._m = new THREE.Object3D();
     this._m.rotation.order = 'YXZ';
 
+    // Start out on the ring, in deep water.
     const r = this.raft.group.position;
-    const a = Math.random() * Math.PI * 2;
-    this.pos.set(r.x + Math.cos(a) * ROUTE[1], CRUISE_DEPTH, r.z + Math.sin(a) * ROUTE[1]);
+    const start = this.deepSpot(Math.random() * Math.PI * 2, ROUTE[1]);
+    this.pos.set(start.x, CRUISE_DEPTH, start.z);
+    this.yaw = Math.atan2(r.x - start.x, r.z - start.z) + Math.PI / 2;
     this.pickGoal();
     this.ready = true;
   }
 
-  /** The next place to swim to: somewhere else on the ring round the raft. */
+  /** Height of the sea bed, coral heads and all. */
+  floor(x, z) {
+    return this.terrain ? this.terrain.clearanceAt(x, z) : -30;
+  }
+
+  /** The shallowest the bed gets on a straight swim from here to (x, z). */
+  shallowest(x0, z0, x1, z1) {
+    const n = Math.max(2, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 8));
+    let top = -Infinity;
+    for (let i = 1; i <= n; i++) {
+      const t = i / n;
+      top = Math.max(top, this.floor(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t));
+    }
+    return top;
+  }
+
+  /**
+   * A point in deep water near bearing `a` from the raft: tries the ring
+   * either side of the bearing, then further out, and settles for the deepest
+   * it found if the raft is somewhere with no deep water close by at all.
+   */
+  deepSpot(a, d) {
+    const r = this.raft.group.position;
+    let best = null, bestFloor = Infinity;
+    for (const reach of [d, d * 1.4, d * 2]) {
+      for (let k = 0; k < 16; k++) {
+        const b = a + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.35;
+        const x = r.x + Math.cos(b) * reach, z = r.z + Math.sin(b) * reach;
+        const f = this.floor(x, z);
+        if (f <= DEEP) return { x, z };
+        if (f < bestFloor) { bestFloor = f; best = { x, z }; }
+      }
+    }
+    return best;
+  }
+
+  /**
+   * The next place to swim to: somewhere else on the ring round the raft,
+   * in deep water and with deep water all the way there. Failing that, any
+   * deep spot on the ring; the steering keeps it off the shoals between.
+   */
   pickGoal() {
     const r = this.raft.group.position;
     const here = Math.atan2(this.pos.z - r.z, this.pos.x - r.x);
-    const a = here + rand(0.6, 1.4) * (Math.random() < 0.8 ? 1 : -1);
-    const d = rand(...ROUTE);
-    this.goal.set(r.x + Math.cos(a) * d, 0, r.z + Math.sin(a) * d);
+    for (let tries = 0; tries < 24; tries++) {
+      const a = here + rand(0.6, 1.4) * (Math.random() < 0.8 ? 1 : -1);
+      const d = rand(...ROUTE);
+      const x = r.x + Math.cos(a) * d, z = r.z + Math.sin(a) * d;
+      if (this.floor(x, z) > DEEP) continue;
+      if (tries < 16 && this.shallowest(this.pos.x, this.pos.z, x, z) > SHOAL) continue;
+      this.goal.set(x, 0, z);
+      return;
+    }
+    const spot = this.deepSpot(here + Math.PI, ROUTE[0]);
+    this.goal.set(spot.x, 0, spot.z);
+  }
+
+  /**
+   * Which way to swim: at the goal, unless there is a shoal ahead, in which
+   * case the heading nearest the goal with deep water in front of it. Looks
+   * a good way ahead because a humpback turns wide — at cruising speed it
+   * needs 25m or so to come round a quarter turn.
+   */
+  heading(want) {
+    const clear = yaw => {
+      let top = -Infinity;
+      for (const d of LOOK) {
+        top = Math.max(top, this.floor(this.pos.x + Math.sin(yaw) * d, this.pos.z + Math.cos(yaw) * d));
+      }
+      return top;
+    };
+    if (clear(want) <= SHOAL && clear(this.yaw) <= SHOAL) return { yaw: want, hard: false };
+    // Fan out from the current heading, toward the goal side first.
+    const side = Math.sign(Math.atan2(Math.sin(want - this.yaw), Math.cos(want - this.yaw))) || 1;
+    let best = null, bestTop = Infinity;
+    for (let k = 1; k <= 12; k++) {
+      const yaw = this.yaw + side * (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.4;
+      const top = clear(yaw);
+      if (top <= SHOAL) return { yaw, hard: true };
+      if (top < bestTop) { bestTop = top; best = yaw; }
+    }
+    return { yaw: best, hard: true };
   }
 
   makeSpout() {
@@ -163,17 +249,33 @@ export class Whale {
 
     const sea = waveHeight(this.pos.x, this.pos.z, time);
     // Its back, not its belly, rides at the depth, and never through a
-    // coral head: over the reef it goes up and over.
-    const floor = this.terrain ? this.terrain.clearanceAt(this.pos.x, this.pos.z) : -30;
-    const lowest = floor + 2.2;
+    // coral head: over the reef it goes up and over. Taken under the head and
+    // the tail as well as the middle — it is 12m long, and a nose driven into
+    // a rising bed is as wrong as a belly.
+    const fx = Math.sin(this.yaw) * LENGTH * 0.4, fz = Math.cos(this.yaw) * LENGTH * 0.4;
+    const floor = Math.max(this.floor(this.pos.x, this.pos.z),
+      this.floor(this.pos.x + fx, this.pos.z + fz), this.floor(this.pos.x - fx, this.pos.z - fz));
+    // Never lifted clear of the water, whatever is under it: the steering
+    // keeps it off the shoals, and if the raft ever drifts it into them it
+    // lies low and swims out rather than riding up the beach.
+    const lowest = Math.min(floor + 2.2, sea - 0.9);
 
-    // Head for the goal; pick another when it gets there.
+    // Head for the goal, around any shoal on the way; pick another when it
+    // gets there, or when a shoal has turned it well off its line.
     const dx = this.goal.x - this.pos.x, dz = this.goal.z - this.pos.z;
     if (Math.hypot(dx, dz) < 8) this.pickGoal();
     const want = Math.atan2(dx, dz);
-    let turn = want - this.yaw;
+    this.steerIn = (this.steerIn ?? 0) - dt;
+    if (this.steerIn <= 0) {
+      this.steerIn = 0.25;
+      this.course = this.heading(want);
+      if (this.course.hard && Math.abs(Math.atan2(Math.sin(want - this.course.yaw),
+          Math.cos(want - this.course.yaw))) > 1.2) this.pickGoal();
+    }
+    let turn = this.course.yaw - this.yaw;
     turn = Math.atan2(Math.sin(turn), Math.cos(turn));
-    this.yaw += THREE.MathUtils.clamp(turn, -0.12 * dt, 0.12 * dt);   // wide, slow turns
+    const rate = this.course.hard ? TURN_HARD : TURN;                  // wide, slow turns
+    this.yaw += THREE.MathUtils.clamp(turn, -rate * dt, rate * dt);
 
     let targetY, speed = CRUISE_SPEED, pitch = 0;
     this.timer -= dt;

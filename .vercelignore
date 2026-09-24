@@ -1,0 +1,14 @@
+# What Vercel does not publish. The game is index.html, src/, vendor/ and
+# assets/ served as they are; everything below is for working on it locally.
+
+# The asset gallery is a local-only tool, never part of the game.
+gallery/
+
+# Model build scripts and Blender sources.
+tools/
+blender/
+
+# The development server.
+serve.py
+
+.claude/
