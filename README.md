@@ -21,8 +21,13 @@ up. Swim far enough out and the shelf falls away into a basin deeper than one
 breath will take you.
 
 And roughly **80 metres off the bow there is land** — a continent, not an
-island. Swim for it and you come ashore on a beach that climbs through conifer
-forest to a bare mountain ridge. It is inhabited: sauropods and stegosaurs
+island, two and a half kilometres across. Swim for it and you come ashore on a
+beach under a wall of giant redwoods, fifty metres tall and three across at
+the foot, hung with vines, with tree ferns, cycads and ferns under them. Past
+the forest are open plains of waist-high grass, a river cutting down to the
+sea, stepped sandstone escarpments, sea cliffs with stacks standing off them,
+and in the middle a range of jagged peaks, snow on the tops, that you can see
+from the raft. It is inhabited: sauropods and stegosaurs
 browse the slopes, parasaur herds bolt at the first sign of trouble, raptors
 hunt in the treeline and a pair of tyrannosaurs work the high ground. They hunt
 *each other*, not just you — stand still long enough and you will hear a kill
@@ -188,9 +193,11 @@ pause screen starts over.
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
 | `src/whale.js` | One humpback, ambient: cruises, surfaces to blow, sounds flukes-up. Not catchable. |
-| `src/reef.js` | What grows on the sea bed: coral, sponges, anemones, seagrass and rock, plus the surge that bends the soft ones. |
-| `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Shared by the forest and the reef. |
-| `src/terrain.js` | The continent: one height function, streamed as LOD chunks around the viewer, with biome colouring and instanced forests. |
+| `src/reef.js` | What lives on the sea bed: coral, sponges, anemones, seagrass, kelp, urchins, starfish, giant clams and rock, plus the surge that bends the soft ones. |
+| `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Used by the reef. |
+| `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
+| `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
+| `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks. |
 | `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
 | `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
 | `tools/build_fish.py` | Builds all fifteen sea-life bodies in Blender — each species' own face, textured skin (via `tools/fish_textures.py`), fins with rays, gills, eyes, every vertex tagged with its part for the swim shader — and exports them as one `.glb`. |
@@ -219,17 +226,84 @@ pause screen starts over.
 ### The continent
 
 The landmass is generated from a single `heightAt(x, z)` — the same discipline
-as the ocean. A wobbling radial mask makes the coastline, layered noise makes
-the hills, and ridged noise deep inland makes a mountain spine. The mesh, the
-player's feet, the trees and every animal all read that one function, so
-nothing can hover or sink.
+as the ocean. The mesh, the player's feet, the trees and every animal all read
+that one function, so nothing can hover or sink.
+
+It is built the way land is, every part sampled through a *warped* domain so
+nothing lines up in rows:
+
+- **The coast** — a radial mask with headlands and bays swung round it by
+  bearing. The sheltered side, where the raft is, is beach; the exposed side
+  rises straight out of the sea as cliffs, 25–50 m high, with sea stacks
+  standing off them. Cliffs are kept 300 m and more from the raft, so the first
+  landing is always sand.
+- **Hills and plains** — rolling fbm hills behind the beach, flattened in
+  places into wide plains of tall grass.
+- **Escarpments** — patches of harder rock stepped into flat benches and
+  cliff risers (terracing), in sandstone.
+- **The range** — ridged multifractal noise deep inland, peaks near 400 m,
+  snow above ~250 m, bare rock above the treeline at ~190 m.
+- **Rivers** — two, each a curve in polar coordinates from a spring in the
+  range to a mouth on the coast. Their water level is surveyed once from the
+  land they cross (always a little under it, never rising downstream), and
+  near the channel the land is set to it: carved into gorges through ridges,
+  banked into a flood plain across hollows. The first reaches the sea about
+  200 m up the coast from the landing beach. The water is a ribbon at the
+  surveyed level, flowing, reflecting the sky; you wade it, about a metre deep.
 
 It is streamed in **64m chunks** around whoever is looking: fine near you,
 progressively coarser out to about 450m, rebuilt two chunks per frame so
-walking never stutters, and disposed once out of range. Chunks carry their own
-instanced forest — redwoods, conifers and cycads placed by height, slope and a
-moisture field, which is what makes forests and clearings rather than an even
-sprinkle. Roughly 2,300 trees are resident at any time for about 100 draw calls.
+walking never stutters, and disposed once out of range. Normals are sampled
+across the chunk edges and each chunk hangs a skirt, so there are no seams.
+Beyond the chunks the **far land** takes over: the whole continent at 16 m, in
+two sheets — the ground, and the forest canopy as a lumpy shell over it — each
+sunk out of sight inside the square the chunks draw for real. That is what you
+see of the far coast and the range from the raft.
+
+The ground's colour comes from what the land is — sand, straw on the plains,
+leaf litter and moss under the canopy, mud and pebbles on the river banks,
+sandstone on the escarpments, rock, scree and snow up high — and `detail.js`
+adds grain, blotches and relief in world space on top, triplanar on the
+steep faces.
+
+### The forest
+
+Everything that grows is in `flora.js`, built the way a real plant is: a
+trunk that flares into buttresses at the ground, branches, and foliage on the
+branches — not geometry but **painted cards**, cut-outs from one leaf atlas
+painted at load time (needle sprays, araucaria ropes, fern and cycad fronds,
+grass, reeds, vine strands). The species are the Mesozoic's, since the
+animals are:
+
+| | |
+|---|---|
+| Canopy | **giant redwoods** (~55 m, buttressed, crowns in the top half, some hung with vines) and **araucarias** (monkey puzzles: a tall grey trunk under a flat umbrella crown) |
+| Understorey | **tree ferns**, **cycads**, **shrubs**, stands of **giant horsetail** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
+| Ground | **ferns** thick on the forest floor; **grass** in the open, **tall grass** on the plains, **reeds** at the water |
+| Deadfall | **fallen logs** (mossy, snapped at one end, ferns growing out of them), **stumps** with their roots, **fallen branches** |
+| Rock | **boulders**, **crags** heaped on the slopes and escarpments, and **spires** — sea stacks and lone pillars on the plains |
+
+Vines also hang down the steep faces — cliffs and escarpment risers — draped
+strand by strand down the rock.
+
+Each species has a rule, `where(site)`, from what the land says the spot is:
+how wooded (moisture, shelter, the treeline, clearings), how wet, how steep,
+whether it is plain, beach, cliff or mountain, how far from the river's
+edge. Each layer (canopy, understorey, ground, grass, deadfall, rocks,
+landmarks) is a jittered grid at its own spacing, and each cell holds a
+weighted lottery among the layer's species — always over every species, so
+walking closer never changes what grows where, only how finely it is drawn.
+So the forest is dense where it is wet and sheltered, thins onto the beach,
+stops at the treeline, gives way to grass on the plains and to rock on the
+cliffs.
+
+Detail falls off with distance: grass and ferns within ~100 m (fading out
+rather than stopping), full trees within ~100 m and a cheap build of each out
+to ~220 m, the far canopy beyond; landmarks — crags and spires — to the edge
+of the chunks. Foliage sways in the wind in the vertex shader. Trunks, stumps
+and rocks are solid; you walk round them. Anything with a harvest can be
+felled, and stays felled — through a rebuild or a reload of its chunk — until
+it grows back.
 
 ### The reef
 
@@ -249,6 +323,11 @@ the colonies while the seagrass takes the sand between them, and the reef fish
 school over ground the mask likes. Species are picked by **weighted lottery**
 among everything that could live at that spot rather than first-match-wins,
 which is the difference between a reef and one coral repeated 800 times.
+
+Besides the corals there is golden **kelp**, standing four and five metres tall
+in the shallower water and swaying in the surge; **sea urchins** and **giant
+clams**, gaping to show their blue-green mantles, on the colonies; and
+**starfish** out on the sand.
 
 Two things do most of the work for how it *reads*. Water clarity is a depth
 curve in `underwater.js`, opened up so you can see 25–30m on the shelf; the
@@ -471,8 +550,13 @@ motion on click: an overhead strike for the hammer, a thrust for the spear, a
 back-swing and flick for the rod, a fling for the hook and the coconut raised
 to your mouth.
 
-The spear is carried **overhand, above head level** — the way you carry
-something you mean to throw — and right-click throws it. `src/spear.js` takes
+Materials have bodies too, so a slot holding one shows what it is: an armful of
+split wood, a sawn plank, a coil of cord, a palm frond, a bent sheet of rusted
+scrap. And **raw fish** is the fish you caught — the last catch's own species,
+face and colours, held up by the tail (a plain stand-in until your first).
+
+The spear is carried **low at the right, point forward** — along the right-hand
+side of the view, not across it — and right-click throws it. `src/spear.js` takes
 it from there: it flies as a ballistic dart, point first, and sticks in the
 beach, the sea bed, the top of a coral head, or the deck (where it rides the
 swell with the raft).
@@ -672,6 +756,40 @@ back up a minute or so later, so the island does not empty out.
 
 Raptors will not take on a sauropod — size is checked before a chase starts —
 and nothing follows you into the sea, which makes the water a genuine escape.
+A kill falls where it was made and lies there for half a minute, the hunter
+feeding at it, before the carcass is gone.
+
+### How they move
+
+Most of what made the animals look wrong was the feet. A walk or run clip is
+authored in place, the feet sweeping back under a body that stays put; played
+at a fixed rate on an animal going some other speed, the feet skate — the
+raptors' by three times over at a chase, the sauropods' treading in place.
+So `models.js` measures each clip once, when a model loads: how fast a
+planted foot travels back, which is the speed the clip means the body to go
+at this animal's size. `driveGait()` then plays the animal at the speed it is
+really going — walk or run by speed (with hysteresis, and sooner when it is
+hunting or fleeing), the clip's rate matched to it, and where the clip's own
+stride is too short, the stride lengthened by swinging the hips (and the
+shoulders, on the four-legged ones) further about their average pose. Walk
+and run hand over mid-step, the legs keeping their phase.
+
+The rest is in `wildlife.js`:
+
+- **Turning has momentum.** It builds and eases off, is wider the faster the
+  animal goes, and slows it into a sharp turn; a big animal walks round rather
+  than spinning on the spot.
+- **Speed is eased**, by how heavy the animal is: a sauropod takes seconds to
+  get going, a raptor a stride. Each animal has a pace of its own, so a herd
+  does not march in step, and a hunter closes the last few metres at a walk
+  instead of backing off.
+- **It looks ahead** a few times a second along the way it means to go and a
+  few ways either side, and takes the best: clear of trunks and rocks, off
+  ground too steep to stand on, out of the sea. Anything the look-ahead misses,
+  it is pushed out of, as you are.
+- **It stands on the ground as a body does**: pitched to the slope between its
+  fore and hind feet, rolled a little across it, at their average height.
+- **It stops**: grazers to feed, everything now and then to stand and look.
 
 Three ideas do most of the work:
 
@@ -711,10 +829,18 @@ would split the raft in two.
   feel. `SOLID_CELL` is the collision bucket size.
 - Water clarity and caustics: the fog curve and the `applyCaustics` shader in
   `underwater.js`.
-- Continent shape and distance from the raft: `WORLD` in `terrain.js`.
-- Terrain cost: `VIEW_CHUNKS`, `LOD_SEGMENTS`, `TREE_LOD`, `BUILD_BUDGET`.
-- Forest make-up: the `FLORA` table (heights, slopes, moisture, yields).
-- Animals: the `SPECIES` table in `wildlife.js` — counts, speed, sight, damage,
+- Continent shape and distance from the raft: `WORLD` in `terrain.js` (its
+  centre is solved so the raft sits over the reef, ~80 m from the beach — move
+  it along the same line if you change the size or the lobes).
+- Relief: `MOUNTAIN_HEIGHT`, `TERRACE`, `SNOWLINE`, `TREELINE`,
+  `LANDING_CLEAR` (how far from the raft the cliffs start) in `terrain.js`;
+  the rivers are the `RIVERS` table beside them.
+- Terrain cost: `VIEW_CHUNKS`, `LOD_SEGMENTS`, `TREE_RING`, `BUILD_BUDGET`.
+- Forest make-up: `SPECIES` in `flora.js` — each species' `where(site)` rule,
+  its size, how far out it is drawn (`rings`, `farFrom`) and its harvest —
+  and `LAYERS` for the spacing of each scatter grid.
+- Animals: the `SPECIES` table in `wildlife.js` — counts, `speed` (flat out),
+  `walk` (its wandering pace), `accel`, `turn`, sight, damage,
   and the body proportions each one is built from.
 - Underwater darkness: `DARK_DEPTH` in `underwater.js`.
 - Diving budget: `SWIM_DOWN`, `SWIM_UP` and the breath drain in `player.js`.
@@ -773,8 +899,8 @@ Each of these has a deliberate hook already in place:
   as attacker.
 - **Building ashore** — the raft grid is anchored to the raft. Letting
   foundations sit on terrain would turn the continent into a second base.
-- **Shipwrecks & ruins** — the chunk loader is the natural hook: give a chunk a
-  deterministic chance of carrying a landmark, built the same way as its trees.
+- **Shipwrecks & ruins** — the scatter is the natural hook: a `landmark`
+  species in `flora.js` with a rule for where it stands, as the rock spires do.
 - **Storms** — `Sky` already centralises the palette, fog and light. A storm is
   a weather state that scales wave amplitudes and darkens that palette.
 - **Larger construction** — the grid supports multiple storeys already

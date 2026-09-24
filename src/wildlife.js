@@ -9,10 +9,15 @@
 
 import * as THREE from 'three';
 import { heightAt, isLand, coastDistance } from './terrain.js';
-import { ModelLibrary, playState } from './models.js';
+import { ModelLibrary, playState, driveGait } from './models.js';
 
 const TAU = Math.PI * 2;
 const DRAW_RANGE = 240;
+const CORPSE_TIME = 35;        // seconds a kill lies where it fell
+const STEER_EVERY = 0.2;       // seconds between an animal's look-aheads
+const MAX_SLOPE = 0.5;         // steeper than this is a cliff to an animal
+const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+const approach = (v, goal, step) => v < goal ? Math.min(goal, v + step) : Math.max(goal, v - step);
 
 // How high each body stands is measured from the finished model at build time
 // (see buildBody), not guessed — otherwise changing a leg buries the animal.
@@ -25,32 +30,32 @@ const liftOf = a => (a.rig.model ? a.rig.stand : a.rig.stand * a.sp.scale);
 export const SPECIES = {
   sauropod: {
     label: 'Sauropod', count: 5, diet: 'plants', scale: 3.0,
-    speed: 1.3, turn: 0.6, sight: 40, hp: 400, flee: 26,
+    speed: 2.2, walk: 1.1, accel: 0.35, turn: 0.32, sight: 40, hp: 400, flee: 26,
     body: 0x6b7a58, belly: 0x93a279,
     build: { legs: 4, neck: 3.4, tail: 3.6, head: 0.55, plates: false, crest: false, arms: null },
   },
   stegosaur: {
     label: 'Stegosaur', count: 5, diet: 'plants', scale: 1.5,
-    speed: 1.9, turn: 1.1, sight: 34, hp: 200, flee: 22,
+    speed: 1.9, walk: 0.6, accel: 0.8, turn: 0.7, sight: 34, hp: 200, flee: 22,
     body: 0x6d5f3c, belly: 0x9a8a5e,
     build: { legs: 4, neck: 0.7, tail: 2.4, head: 0.5, plates: true, crest: false, arms: null },
   },
   parasaur: {
-    label: 'Parasaur', count: 8, diet: 'plants', scale: 1.25,
-    speed: 4.6, turn: 2.0, sight: 44, hp: 90, flee: 34,
+    label: 'Parasaur', count: 8, diet: 'plants', scale: 1.25, herd: true,
+    speed: 4.6, walk: 1.0, accel: 2.6, turn: 1.4, sight: 44, hp: 90, flee: 34,
     body: 0x8a7b52, belly: 0xc0ae7d,
     build: { legs: 4, neck: 1.2, tail: 2.2, head: 0.55, plates: false, crest: true, arms: null },
   },
   raptor: {
     label: 'Raptor', count: 6, diet: 'meat', scale: 0.95, pack: true,
-    speed: 5.2, turn: 2.8, sight: 40, hp: 70,
+    speed: 4.6, walk: 0.8, accel: 4.5, turn: 2.4, sight: 40, hp: 70,
     damage: 6, reach: 2.4, biteEvery: 1.7, giveUp: 60,
     body: 0x8a5a33, belly: 0xc2a071,
     build: { legs: 2, neck: 0.9, tail: 2.0, head: 0.7, plates: false, crest: false, arms: 'raptor', sickle: true },
   },
   tyrannosaur: {
     label: 'Tyrannosaur', count: 2, diet: 'meat', scale: 2.1,
-    speed: 4.4, turn: 1.4, sight: 52, hp: 320,
+    speed: 4.4, walk: 1.3, accel: 1.8, turn: 0.9, sight: 52, hp: 320,
     damage: 26, reach: 4.2, biteEvery: 2.6, giveUp: 90,
     body: 0x55483a, belly: 0x8a7a63,
     build: { legs: 2, neck: 1.1, tail: 2.8, head: 1.25, plates: false, crest: false, arms: 'tiny' },
@@ -286,8 +291,14 @@ function buildBody(sp) {
 
 // ── ecosystem ────────────────────────────────────────────────────────────────
 export class Wildlife {
-  constructor(scene, homeHint) {
+  /**
+   * @param terrain  the live Terrain, for the trunks and rocks animals steer
+   *                 round; without it they only know the ground.
+   */
+  constructor(scene, homeHint, terrain = null) {
     this.scene = scene;
+    this.terrain = terrain;
+    this._near = [];
     this.all = [];
     this.library = new ModelLibrary();
     this.upgraded = [];        // species that swapped to a glTF body
@@ -321,6 +332,7 @@ export class Wildlife {
             this.scene.add(rig.group);
             rig.group.visible = a.rig.group.visible;
             a.rig = rig;
+            this.measure(a);
             swapped++;
           } catch (err) {
             // One bad model must not take the species down with it.
@@ -344,8 +356,14 @@ export class Wildlife {
       stride: Math.random() * TAU, bite: 0,
       hp: sp.hp, dead: false, respawn: 0,
       target: new THREE.Vector3(), prey: null,
+      // Motion: how fast it is turning, its lean to the ground, and a pace of
+      // its own so a herd does not walk in lockstep.
+      yawVel: 0, pitch: 0, roll: 0, y: 0, pace: rnd(0.85, 1.15),
+      steerAt: Math.random() * STEER_EVERY, avoid: 0, corpse: 0,
     };
+    this.measure(a);
     this.place(a);
+    a.y = a.pos.y;
     this.all.push(a);
     return a;
   }
@@ -364,12 +382,60 @@ export class Wildlife {
     a.pos.set(this.home.x, heightAt(this.home.x, this.home.z), this.home.z);
   }
 
+  /** Body length, width and radius, from whichever body it has now. */
+  measure(a) {
+    const size = new THREE.Box3().setFromObject(a.rig.group).getSize(new THREE.Vector3());
+    a.len = Math.max(size.x, size.z) || 3;
+    a.width = Math.min(size.x, size.z) || 1;
+    a.radius = Math.max(0.5, a.width * 0.45);
+    a.tall = size.y || 2;
+  }
+
+  /** Somewhere an animal can stand: land, not too steep, not up in the range. */
+  footing(x, z) {
+    if (coastDistance(x, z) < 8) return false;
+    const h = heightAt(x, z);
+    if (h > 150 || h < 1.5) return false;
+    const e = 2;
+    const slope = Math.hypot(heightAt(x + e, z) - heightAt(x - e, z), heightAt(x, z + e) - heightAt(x, z - e)) / (2 * e);
+    return slope < MAX_SLOPE * 1.1;
+  }
+
+  /**
+   * Look ahead along the way it wants to go, and a few ways either side, and
+   * take the best: clear of trunks and rocks, off the cliffs and out of the
+   * sea, and as close to where it meant to go as that allows. Keeps to the
+   * side it chose last time unless that closes, so it does not dither.
+   */
+  steer(a, want) {
+    const reach = a.radius + 2.5 + Math.abs(a.speed) * 1.8;
+    const solids = this.terrain ? this.terrain.solidsNear(a.pos.x, a.pos.z, reach + 4, this._near) : [];
+    let best = 0, bestCost = Infinity;
+    for (const off of [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6]) {
+      const dir = want + off;
+      const dx = Math.sin(dir), dz = Math.cos(dir);
+      let cost = Math.abs(off) * 1.2 + (Math.sign(off) !== Math.sign(a.avoid) && off ? 0.4 : 0);
+      if (!this.footing(a.pos.x + dx * reach, a.pos.z + dz * reach)) cost += 20;
+      else if (!this.footing(a.pos.x + dx * reach * 0.5, a.pos.z + dz * reach * 0.5)) cost += 20;
+      for (const p of solids) {
+        // Distance from the prop's axis to the path ahead.
+        const px = p.x - a.pos.x, pz = p.z - a.pos.z;
+        const t = Math.min(reach, Math.max(0, px * dx + pz * dz));
+        const gap = Math.hypot(px - dx * t, pz - dz * t) - p.hit - a.radius;
+        if (gap < 0.6) cost += 8 * (1 - t / (reach + 1)) + 4;
+      }
+      if (cost < bestCost) { bestCost = cost; best = off; }
+    }
+    a.avoid = best;
+    a.blocked = bestCost >= 20;
+  }
+
   roam(a) {
     const ang = Math.random() * TAU;
     const r = rnd(12, 55);
     let x = a.pos.x + Math.cos(ang) * r;
     let z = a.pos.z + Math.sin(ang) * r;
-    if (coastDistance(x, z) < 10 || heightAt(x, z) > 100) {
+    if (!this.footing(x, z) || heightAt(x, z) > 100) {
       x = a.pos.x + (this.home.x - a.pos.x) * 0.4;
       z = a.pos.z + (this.home.z - a.pos.z) * 0.4;
     }
@@ -407,13 +473,25 @@ export class Wildlife {
   update(dt, time, player, playerOnLand) {
     for (const a of this.all) {
       if (a.dead) {
+        // A kill lies where it fell for a while, then is gone.
+        if (a.corpse > 0) {
+          a.corpse -= dt;
+          if (a.corpse <= 0) a.rig.group.visible = false;
+          else this.draw(a, dt, time, player);
+        }
         a.respawn -= dt;
         if (a.respawn <= 0) {
           a.dead = false;
           a.hp = a.sp.hp;
           a.state = 'wander';
+          a.corpse = 0;
+          a.sink = 0;
+          a.settled = false;
+          a.settleAt = 0;
+          a.roll = a.pitch = a.yawVel = a.speed = 0;
           a.rig.group.visible = true;
           this.place(a);
+          a.y = a.pos.y;
         }
         continue;
       }
@@ -428,7 +506,7 @@ export class Wildlife {
     a.timer -= dt;
     if (a.bite > 0) a.bite -= dt;
 
-    if (sp.diet === 'meat') {
+    if (sp.diet === 'meat' && a.state !== 'feed') {
       if (!a.prey || a.prey.dead || a.timer <= 0) {
         const found = this.findPrey(a, player, playerOnLand);
         if (found) {
@@ -459,12 +537,15 @@ export class Wildlife {
       else if (a.state === 'flee') { a.state = 'wander'; a.threat = null; }
     }
 
+    if (a.state === 'feed' && a.timer <= 0) { a.state = 'wander'; a.timer = rnd(3, 8); this.roam(a); }
     if (a.state === 'wander' && a.timer <= 0) {
-      a.state = sp.diet === 'plants' && Math.random() < 0.5 ? 'graze' : 'wander';
-      a.timer = rnd(4, 11);
+      // Grazers stop to feed; everything stops now and then to stand and look.
+      const r = Math.random();
+      a.state = sp.diet === 'plants' && r < 0.45 ? 'graze' : r < 0.6 ? 'rest' : 'wander';
+      a.timer = a.state === 'wander' ? rnd(6, 14) : rnd(4, 10);
       this.roam(a);
     }
-    if (a.state === 'graze' && a.timer <= 0) { a.state = 'wander'; a.timer = rnd(5, 12); this.roam(a); }
+    if ((a.state === 'graze' || a.state === 'rest') && a.timer <= 0) { a.state = 'wander'; a.timer = rnd(6, 14); this.roam(a); }
   }
 
   wound(hunter, victim) {
@@ -473,9 +554,14 @@ export class Wildlife {
     victim.threat = hunter;
     if (victim.hp <= 0) {
       victim.dead = true;
-      victim.rig.group.visible = false;
-      victim.respawn = rnd(50, 110);
-      hunter.state = 'wander';
+      victim.speed = 0;
+      victim.corpse = CORPSE_TIME;
+      victim.respawn = CORPSE_TIME + rnd(20, 80);
+      if (victim.rig.model) playState(victim.rig, 'death', 0.2);
+      // The hunter stays to feed.
+      hunter.state = 'feed';
+      hunter.timer = rnd(12, 22);
+      hunter.feedAt = victim.pos;
       hunter.prey = null;
       this.kills.push({ hunter: hunter.sp.label, victim: victim.sp.label, pos: victim.pos.clone() });
     }
@@ -483,7 +569,8 @@ export class Wildlife {
 
   move(a, dt) {
     const sp = a.sp;
-    let want = a.heading, drive = 0;
+    const walk = sp.walk * a.pace;
+    let want = a.heading, goal = 0;
 
     if (a.state === 'hunt') {
       const tgt = a.prey === 'player' ? this._playerPos : (a.prey && a.prey.pos);
@@ -491,53 +578,110 @@ export class Wildlife {
         const dx = tgt.x - a.pos.x, dz = tgt.z - a.pos.z;
         const d = Math.hypot(dx, dz);
         want = Math.atan2(dx, dz);
-        drive = d < sp.reach * 0.75 ? -0.5 : d < sp.reach ? 0 : 1;
+        // Close the last few metres at a walk, and stop to strike — never back off.
+        goal = d < sp.reach * 0.9 ? 0 : d < sp.reach * 3 ? THREE.MathUtils.lerp(walk, sp.speed, (d - sp.reach) / (sp.reach * 2)) : sp.speed;
       }
     } else if (a.state === 'flee' && a.threat) {
       want = Math.atan2(a.pos.x - a.threat.pos.x, a.pos.z - a.threat.pos.z);
-      drive = 1;
-    } else if (a.state === 'graze') {
-      drive = 0;
-    } else {
-      const dx = a.target.x - a.pos.x, dz = a.target.z - a.pos.z;
-      if (Math.hypot(dx, dz) < 3) this.roam(a);
+      goal = sp.speed;
+    } else if (a.state === 'feed' && a.feedAt) {
+      const dx = a.feedAt.x - a.pos.x, dz = a.feedAt.z - a.pos.z, d = Math.hypot(dx, dz);
       want = Math.atan2(dx, dz);
-      drive = 0.65;
+      goal = d > sp.reach ? walk : 0;
+    } else if (a.state === 'wander') {
+      const dx = a.target.x - a.pos.x, dz = a.target.z - a.pos.z, d = Math.hypot(dx, dz);
+      if (d < 3) this.roam(a);
+      want = Math.atan2(dx, dz);
+      goal = walk * THREE.MathUtils.smoothstep(d, 0, 6);
     }
 
-    const delta = ((want - a.heading + Math.PI * 3) % TAU) - Math.PI;
-    a.heading += THREE.MathUtils.clamp(delta, -sp.turn * dt, sp.turn * dt);
-    const goal = sp.speed * drive;
-    a.speed += (goal - a.speed) * Math.min(1, dt * 2.2);
+    // Look ahead every so often, and bend the course round what is in the way.
+    a.steerAt -= dt;
+    if (a.steerAt <= 0 && (goal > 0 || Math.abs(a.speed) > 0.1)) {
+      a.steerAt = STEER_EVERY;
+      this.steer(a, want);
+      if (a.blocked && a.state === 'wander') this.roam(a);
+    }
+    if (goal > 0) want += a.avoid;
 
-    if (Math.abs(a.speed) > 0.01) {
+    // Turning has momentum: it builds and eases off, and the faster an animal
+    // goes the wider it turns. A big animal does not spin on the spot; it
+    // walks round.
+    const delta = wrap(want - a.heading);
+    if (goal > 0 || a.state === 'hunt' || a.state === 'feed') {
+      if (Math.abs(delta) > 0.6 && goal < walk * 0.5 && a.state !== 'graze' && a.state !== 'rest') goal = walk * 0.5;
+    }
+    const moving = Math.min(1, Math.abs(a.speed) / Math.max(0.3, walk));
+    const maxTurn = sp.turn * (0.25 + 0.75 * moving) * (1 - 0.35 * Math.min(1, Math.abs(a.speed) / sp.speed));
+    const turnTo = THREE.MathUtils.clamp(delta * 1.8, -maxTurn, maxTurn);
+    a.yawVel = approach(a.yawVel, turnTo, sp.turn * 1.6 * dt);
+    a.heading = wrap(a.heading + a.yawVel * dt);
+    // Slow into a sharp turn.
+    goal *= 1 - 0.55 * Math.min(1, Math.abs(delta) / 1.4);
+    a.speed = approach(a.speed, goal, (goal > a.speed ? sp.accel : sp.accel * 1.4) * dt);
+
+    if (a.speed > 0.01) {
       const nx = a.pos.x + Math.sin(a.heading) * a.speed * dt;
       const nz = a.pos.z + Math.cos(a.heading) * a.speed * dt;
-      // Stay inland and off the cliffs.
-      if (coastDistance(nx, nz) > 6 && heightAt(nx, nz) < 105) { a.pos.x = nx; a.pos.z = nz; }
-      else { a.heading += 2.2 * dt * 3; this.roam(a); }
+      if (this.footing(nx, nz) && heightAt(nx, nz) < 105) { a.pos.x = nx; a.pos.z = nz; }
+      else { a.speed *= 0.5; a.steerAt = 0; if (a.state === 'wander') this.roam(a); }
     }
-    a.pos.y = heightAt(a.pos.x, a.pos.z);
+    // Never inside a trunk or a rock, whatever the steering missed.
+    if (this.terrain) {
+      a.pos.y = heightAt(a.pos.x, a.pos.z);
+      this.terrain.collideReef(a.pos, a.radius, a.tall);
+    }
+    this.fitGround(a, dt);
+  }
+
+  /**
+   * Stand on the ground as a body does, not as a point: pitch to the slope
+   * between the fore and hind feet, roll a little to the slope across, and
+   * ride at their average height rather than wherever the middle is.
+   */
+  fitGround(a, dt) {
+    const fx = Math.sin(a.heading), fz = Math.cos(a.heading);
+    const reach = a.len * 0.32, side = a.width * 0.45;
+    const x = a.pos.x, z = a.pos.z;
+    const hc = heightAt(x, z);
+    const hf = heightAt(x + fx * reach, z + fz * reach), hb = heightAt(x - fx * reach, z - fz * reach);
+    const hl = heightAt(x + fz * side, z - fx * side), hr = heightAt(x - fz * side, z + fx * side);
+    const pitch = THREE.MathUtils.clamp(Math.atan2(hf - hb, reach * 2), -0.45, 0.45);
+    const roll = THREE.MathUtils.clamp(Math.atan2(hl - hr, side * 2) * 0.6, -0.2, 0.2);
+    const k = Math.min(1, dt * 5);
+    a.pitch += (pitch - a.pitch) * k;
+    a.roll += (roll - a.roll) * k;
+    const y = hc * 0.5 + (hf + hb) * 0.25;
+    a.y += (y - a.y) * Math.min(1, dt * 10);
+    a.pos.y = hc;
   }
 
   draw(a, dt, time, player) {
     const dist = Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z);
     const visible = dist < DRAW_RANGE;
-    a.rig.group.visible = visible && !a.dead;
-    if (!visible) return;
+    a.rig.group.visible = visible && (!a.dead || a.corpse > 0);
+    if (!a.rig.group.visible) return;
 
     const { rig, sp } = a;
-    rig.group.position.set(a.pos.x, a.pos.y + liftOf(a), a.pos.z);
-    rig.group.rotation.y = a.heading;
+    // A dead animal on the procedural body rolls onto its side.
+    if (a.dead && !rig.model) a.roll += (1.35 - a.roll) * Math.min(1, dt * 3);
+    rig.group.position.set(a.pos.x, a.y + liftOf(a), a.pos.z);
+    rig.group.rotation.set(-a.pitch, a.heading, a.roll, 'YXZ');
 
     if (rig.model) {
-      const fast = Math.abs(a.speed) > sp.speed * 0.55;
-      const moving = Math.abs(a.speed) > 0.15;
-      playState(rig, a.bite > sp.biteEvery - 0.35 && rig.actions.attack ? 'attack'
-                   : moving ? (fast ? 'run' : 'walk') : 'idle');
-      if (rig.mixer) rig.mixer.update(dt);
+      if (a.dead) {
+        playState(rig, 'death', 0.2);
+        if (rig.mixer) rig.mixer.update(dt);
+        this.settle(a);
+        return;
+      }
+      const alert = a.state === 'hunt' || a.state === 'flee' ? 1 : 0;
+      driveGait(rig, a.speed, dt, {
+        alert, attack: !!rig.actions.attack && a.bite > sp.biteEvery - 0.5,
+      });
       return;
     }
+    if (a.dead) return;
 
     a.stride += a.speed * dt * (3.0 / Math.max(0.6, sp.scale * 0.5));
     const swing = Math.sin(a.stride);
@@ -549,11 +693,38 @@ export class Wildlife {
       // Fold the knee as the foot comes forward, straighten it on the push.
       if (knee) knee.rotation.x = knee.userData.rest - Math.max(0, phase) * gait * 0.85;
     }
-    const graze = a.state === 'graze' ? 1 : 0;
+    const graze = a.state === 'graze' || a.state === 'feed' ? 1 : 0;
     rig.neck.rotation.x = THREE.MathUtils.lerp(rig.neck.rotation.x,
       graze * 0.85 + (a.state === 'hunt' ? -0.12 : 0), Math.min(1, dt * 2));
-    rig.tail.rotation.y = Math.sin(a.stride * 0.5) * 0.3;
+    rig.tail.rotation.y = Math.sin(a.stride * 0.5) * 0.3 - a.yawVel * 0.25;
     rig.group.position.y += Math.abs(Math.sin(a.stride)) * 0.03 * sp.scale;
+  }
+
+  /**
+   * Bring a falling body down onto the ground. The death clip collapses the
+   * skeleton about its root, but the root is where the animal stood — so as
+   * the body goes down, lower the whole rig until its lowest bone is as close
+   * to the ground as the feet were when it fell.
+   */
+  settle(a) {
+    const rig = a.rig;
+    const death = rig.actions.death;
+    const falling = death && death.time < death.getClip().duration;
+    a.settleAt = (a.settleAt ?? 0) - 1;
+    // The skinned body itself, as posed — bones alone would leave the torso
+    // floating, since its skin hangs well below the spine. A few looks while
+    // it falls, and one when it has come to rest; then the drop is fixed.
+    if ((falling && a.settleAt <= 0) || (!falling && !a.settled)) {
+      a.settleAt = 12;
+      if (!falling) a.settled = true;
+      rig.group.position.y = a.y + liftOf(a);
+      rig.group.updateMatrixWorld(true);
+      const box = this._box || (this._box = new THREE.Box3());
+      box.setFromObject(rig.root, true);
+      const ground = heightAt(a.pos.x, a.pos.z);
+      a.sink = Math.max(a.sink || 0, box.min.y - ground);
+    }
+    rig.group.position.y = a.y + liftOf(a) - (a.sink || 0);
   }
 
   /** Called by the game each frame so hunters can chase the player. */

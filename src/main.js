@@ -75,7 +75,8 @@ class Game {
     document.body.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 1400);
+    // Far enough for the whole continent: its far coast is ~2 km from the raft.
+    this.camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 3200);
 
     this.ocean = new Ocean(this.scene);
     this.sky = new Sky(this.scene, this.ocean);
@@ -84,10 +85,11 @@ class Game {
     this.hotbar = new Hotbar();
     // Terrain first: the player and the fish both collide against its reef.
     this.terrain = new Terrain(this.scene);
+    this.terrain.shareSky(this.ocean.uniforms);
     this.player = new Player(this.camera, this.raft, this.terrain);
     this.debris = new DebrisField(this.scene, this.raft);
     // Seed the wildlife around a point well inland from the nearest coast.
-    this.wildlife = new Wildlife(this.scene, { x: 210, z: -150 });
+    this.wildlife = new Wildlife(this.scene, { x: 210, z: -150 }, this.terrain);
     this.fish = new FishSchools(this.scene, this.terrain, this.raft);
     this.whale = new Whale(this.scene, this.terrain, this.raft, this.fish);
     this.underwater = new Underwater(this.scene, this.ocean);
@@ -402,6 +404,7 @@ class Game {
     if (fish.length) {
       this.inv.add('fish', fish.length);
       this.hotbar.autoAssign('fish');
+      this.holdCatch(fish[fish.length - 1].key);
       text += ` — ${this.describeCatch(fish)} on it`;
     }
     this.hud.log(`${text}.`, 'good');
@@ -425,11 +428,25 @@ class Game {
     this.viewmodel.skewer(this.fish.bodyFor(f));
     this.inv.add('fish', 1);
     this.hotbar.autoAssign('fish');
+    this.holdCatch(f.sp.key);
     this.hud.log(`You spear a ${f.sp.name}.`, 'good');
     this.hud.refreshInventory(this.inv);
   }
 
   /** "a blue tang", "2 chromis and a snapper" — for the log. */
+  /**
+   * The raw fish in hand is the last one you caught: a still copy of that
+   * species, a hand-sized one — the real catch has gone into the bag.
+   */
+  holdCatch(key) {
+    const sp = this.fish.species(key);
+    if (!sp || sp.big) return;
+    const mesh = this.fish.displayBody(key, Math.min(0.45, sp.length[1]));
+    if (!mesh) return;
+    this.fish.lively.delete(mesh);           // held still, not struggling
+    this.viewmodel.holdFish(mesh);
+  }
+
   describeCatch(fish) {
     const counts = new Map();
     for (const f of fish) counts.set(f.name, (counts.get(f.name) || 0) + 1);
@@ -740,6 +757,7 @@ class Game {
       if (e.catch) {
         this.inv.add('fish', e.count);
         this.hotbar.autoAssign('fish');
+        this.holdCatch(e.catch);
         this.hud.refreshInventory(this.inv);
       }
       if (e.text) this.hud.log(e.text, e.kind);

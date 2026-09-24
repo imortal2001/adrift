@@ -13,7 +13,7 @@
 //   dinosaurs        SPECIES in src/wildlife.js
 //   fish             FishSchools' species (src/fish.js)
 //   corals           REEF in src/reef.js
-//   trees & plants   the flora the terrain actually plants (src/terrain.js)
+//   trees & plants   SPECIES in src/flora.js (and the rocks and deadfall)
 //   flotsam          DEBRIS_KINDS in src/items.js
 //   raft pieces      BUILDABLES in src/items.js
 //   held items       POSES in src/viewmodel.js
@@ -32,7 +32,8 @@ import { swimMaterial, styleFor, Swimmer, skinOf } from '/src/swim.js';
 import { Whale } from '/src/whale.js';
 import { FIGHTERS } from '/src/fight.js';
 import { REEF, reefGeometry, reefMaterial } from '/src/reef.js';
-import { Terrain, CHUNK, WORLD, heightAt, coastDistance, reefMask } from '/src/terrain.js';
+import { Terrain, CHUNK, WORLD, heightAt, coastDistance, reefMask, landAt, RIVERS, riverGeometry } from '/src/terrain.js';
+import { SPECIES as FLORA, speciesMesh, setFloraTime } from '/src/flora.js';
 import { ITEMS, DEBRIS_KINDS, BUILDABLES } from '/src/items.js';
 import { POSES, Viewmodel } from '/src/viewmodel.js';
 import { Fishing } from '/src/fishing.js';
@@ -60,13 +61,10 @@ export const CATEGORIES = [
 export const GAPS = [
   { category: 'animals', name: 'Land animals (not dinosaurs)', note: 'Nothing but dinosaurs lives on the continent.' },
   { category: 'animals', name: 'Birds and flying animals', note: 'There is nothing in the air at all — no gulls over the sea, no pterosaurs.' },
-  { category: 'water', name: 'Rivers and lakes', note: 'The only water is the sea. The land has no fresh water.' },
+  { category: 'water', name: 'Lakes and waterfalls', note: 'Two rivers run off the range to the sea; there is no standing fresh water, and nothing falls.' },
   { category: 'equipment', name: 'Survival gear', note: 'No water bottle, knife, net, torch, or armour.' },
-  { category: 'equipment', name: 'Crafting materials', note: 'Wood, planks, rope, palm and scrap have no model: they only exist as inventory counts.' },
-  { category: 'equipment', name: 'Raw fish (the item)', note: 'Carried fish have no model of their own; a caught fish is drawn with its species’ body.' },
-  { category: 'vegetation', name: 'Palms, bushes, grass and flowers', note: 'Land flora is three species: redwood, conifer and cycad. Palm fronds only exist as flotsam.' },
-  { category: 'terrain', name: 'Cliffs and caves', note: 'Terrain is one heightfield; nothing overhangs.' },
-  { category: 'reef', name: 'Kelp, clams, urchins, starfish', note: 'Six reef species plus boulders so far.' },
+  { category: 'terrain', name: 'Caves and overhangs', note: 'Terrain is one heightfield: cliffs are steep, but nothing overhangs.' },
+  { category: 'reef', name: 'Reef animals that move', note: 'Nothing on the reef moves but the fish: no octopus, turtles, rays or crabs.' },
   { category: 'objects', name: 'Shipwrecks and weather', note: 'Deliberately out of scope for the prototype (see README).' },
 ];
 
@@ -113,22 +111,6 @@ const flotsam = once(async () => {
 });
 
 const terrain = once(async () => new Terrain(scratch));
-
-/** The flora the terrain actually plants, collected from chunks of forest. */
-const flora = once(async () => {
-  const t = await terrain();
-  const found = new Map();
-  const [ci, cj] = [Math.round(WORLD.cx / CHUNK), Math.round(WORLD.cz / CHUNK)];
-  for (let r = 0; r <= 3; r++) {
-    for (let i = ci - r; i <= ci + r; i++) for (let j = cj - r; j <= cj + r; j++) {
-      if (Math.max(Math.abs(i - ci), Math.abs(j - cj)) !== r) continue;
-      const c = t.buildChunk({ i, j, segs: 4, ring: 0 });
-      for (const p of c.plants || []) if (!found.has(p.sp.name)) found.set(p.sp.name, p.sp);
-      disposeChunk(c);
-    }
-  }
-  return [...found.values()];
-});
 
 function disposeChunk(c) {
   c.group.removeFromParent();
@@ -352,12 +334,14 @@ export async function loadRegistry() {
     const hasModel = !!pose.model && manifest.has(pose.model);
     add({
       id: `held-${id}`, name: ITEMS[id]?.name || cap(id), category: 'equipment',
-      group: id === 'coconut' ? 'Food' : 'Tools',
+      group: id === 'coconut' || id === 'fish' ? 'Food' : ITEMS[id]?.action ? 'Tools' : 'Crafting materials',
       kind: hasModel ? 'glTF model' : 'built in code',
       files: pose.model ? [`${pose.model}.glb`] : [],
       source: hasModel ? `assets/models/${pose.model}.glb · tools/build_tools.py · CREDITS.md`
                        : `src/viewmodel.js · BODIES.${id}()`,
-      facts: [['In hand', ITEMS[id]?.hint || '—'], ['Frame', 'stands along +Y, origin at the grip']],
+      facts: [['In hand', ITEMS[id]?.hint || 'nothing to do with it — a material, carried'],
+              ...(id === 'fish' ? [['In play', 'you hold the species you caught last; this is the stand-in until then']] : []),
+              ['Frame', 'stands along +Y, origin at the grip']],
       variants: hasModel ? [{ id: 'model', label: 'glTF model' }, { id: 'fallback', label: 'Built-in fallback' }] : null,
       async build(variant) {
         let obj = null;
@@ -366,7 +350,7 @@ export async function loadRegistry() {
         // The game holds tools along +Y. For display they lie on the floor,
         // working end to the right, the way you would lay one out on a bench;
         // on end, a spear is a vertical hairline across a 4:3 card.
-        const long = id !== 'coconut' && id !== 'hook';
+        const long = ['hammer', 'spear', 'rod', 'plank', 'leaf', 'fish'].includes(id);
         if (long) obj.rotation.z = -Math.PI / 2;
         return { object: rest(shadows(obj)), view: long ? { yaw: 0.25, pitch: 0.55 } : undefined };
       },
@@ -395,18 +379,28 @@ export async function loadRegistry() {
     },
   });
 
-  // ── trees & vegetation ──
+  // ── trees & vegetation, rocks and deadfall ──
   const t = await terrain();
-  for (const sp of await flora()) {
+  for (const sp of FLORA) {
+    const rock = sp.material === 'rock';
+    const variants = Array.from({ length: sp.variants }, (_, v) => ({ id: String(v), label: `Variant ${v + 1}` }));
+    if (sp.farFrom !== undefined) variants.push({ id: 'far', label: 'Far (level of detail)' });
     add({
-      id: `flora-${sp.name}`, name: sp.label, category: 'vegetation', group: 'Land',
-      kind: 'built in code', backdrop: 'world', source: `src/terrain.js · ${sp.name}()`,
-      facts: [['Grows', `${sp.minH}–${sp.maxH} m above the sea, slopes under ${pct(sp.maxSlope)}`],
+      id: `flora-${sp.name}`, name: sp.label, category: rock ? 'terrain' : 'vegetation',
+      group: rock ? 'Rocks' : sp.group, kind: 'built in code', backdrop: 'world',
+      source: `src/flora.js · SPECIES.${sp.name}`,
+      variants: variants.length > 1 ? variants : null,
+      facts: [['Grows', sp.habitat],
               ['Size', `×${sp.scale[0]}–${sp.scale[1]} of this`],
-              ['Harvest', Object.entries(sp.yield).map(([k, n]) => `${n} ${k}`).join(', ')],
-              ['Regrows', `${sp.regrow} s`]],
-      async build() {
-        return { object: shadows(new THREE.Mesh(sp.make(), t.floraMaterial)) };
+              ['Drawn', `out to ${sp.rings} chunk${sp.rings > 1 ? 's' : ''} (${Math.round((sp.rings + 0.5) * CHUNK)} m)` +
+                        (sp.farFrom !== undefined ? `, the cheap build from ${Math.round((sp.farFrom - 0.5) * CHUNK)} m` : '')],
+              ...(sp.yield ? [['Harvest', Object.entries(sp.yield).map(([k, n]) => `${n} ${k}`).join(', ')],
+                              ['Regrows', `${sp.regrow} s`]] : []),
+              ...(sp.trunk || sp.solid ? [['Blocks you', 'yes']] : [])],
+      async build(variant) {
+        const far = variant === 'far';
+        const mesh = speciesMesh(sp, far ? 0 : Number(variant || 0), far ? 1 : 0);
+        return { object: shadows(mesh), update: (dt, time) => setFloraTime(time) };
       },
     });
   }
@@ -417,7 +411,7 @@ export async function loadRegistry() {
     const rock = sp.name === 'rock';
     add({
       id: `reef-${sp.name}`, name: REEF_NAMES[sp.name] || cap(sp.name),
-      category: rock ? 'terrain' : 'reef', group: rock ? 'Rocks' : sp.name === 'grass' ? 'Underwater plants' : 'Corals & sponges',
+      category: rock ? 'terrain' : 'reef', group: rock ? 'Rocks' : REEF_GROUPS[sp.name] || 'Corals & sponges',
       kind: 'built in code', backdrop: 'underwater', source: `src/reef.js · REEF.${sp.name}`,
       facts: [['Grows', `sea bed ${sp.depth[1]} to ${sp.depth[0]} m`],
               ['Where', sp.reef[0] >= 0.3 ? 'on the coral colonies' : sp.reef[1] < 0.5 ? 'on open sand between colonies' : 'anywhere on the sea bed'],
@@ -446,6 +440,14 @@ export async function loadRegistry() {
       async build() {
         const c = t.buildChunk({ i: s.i, j: s.j, segs: 64, ring: 0 });
         c.group.removeFromParent();
+        if (s.river) {
+          // The water, cut to this chunk.
+          const inside = (x, z) => Math.abs(x - s.i * CHUNK) < CHUNK / 2 + 4 && Math.abs(z - s.j * CHUNK) < CHUNK / 2 + 4;
+          for (const rv of RIVERS) {
+            const geo = riverGeometry(rv, inside);
+            if (geo) c.group.add(new THREE.Mesh(geo, t.rivers.material));
+          }
+        }
         const holder = new THREE.Group();
         holder.add(c.group);
         c.group.position.set(-s.i * CHUNK, 0, -s.j * CHUNK);
@@ -457,6 +459,24 @@ export async function loadRegistry() {
       },
     });
   }
+
+  add({
+    id: 'continent', name: 'The whole continent', category: 'terrain', group: 'Land',
+    // Studio: from far enough away to see all of it, the daylight haze is solid.
+    kind: 'built in code', backdrop: 'studio', source: 'src/terrain.js · Terrain.buildFar()',
+    facts: [['What', 'the far land: every hill, the range and the forest canopy, coarse, as seen from the raft'],
+            ['Size', `about ${Math.round((WORLD.radius + 300) * 2 / 100) / 10} km across; peaks near 400 m`],
+            ['In play', 'drawn wherever the detailed chunks do not reach']],
+    async build() {
+      const g = new THREE.Group();
+      for (const m of [t.far.ground, t.far.canopy]) g.add(new THREE.Mesh(m.geometry, m.material));
+      g.position.set(-WORLD.cx, 0, -WORLD.cz);
+      const holder = new THREE.Group();
+      holder.add(g);
+      return { object: holder, ground: false, keepHeight: true, ownsWater: true,
+               frame: { center: V(0, 60, 0), size: V(2200, 300, 2200) }, view: { yaw: 0.5, pitch: 0.6 } };
+    },
+  });
 
   // ── water ──
   add({
@@ -556,7 +576,10 @@ export async function loadRegistry() {
 }
 
 const REEF_NAMES = { brain: 'Brain coral', staghorn: 'Staghorn coral', fan: 'Sea fan',
-                     barrel: 'Barrel sponge', anemone: 'Anemone', grass: 'Seagrass', rock: 'Boulder' };
+                     barrel: 'Barrel sponge', anemone: 'Anemone', grass: 'Seagrass', rock: 'Boulder (sea bed)',
+                     kelp: 'Kelp', urchin: 'Sea urchin', starfish: 'Starfish', clam: 'Giant clam' };
+const REEF_GROUPS = { grass: 'Underwater plants', kelp: 'Underwater plants',
+                      urchin: 'Reef animals', starfish: 'Reef animals', clam: 'Reef animals' };
 
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
@@ -618,11 +641,11 @@ async function terrainSamples() {
 
   const samples = [
     pick('beach', 'Beach & coastal plain', 'terrain', 'Land', 'where the sea meets the continent',
-         'sand, the shallows, the first conifers', at(0)),
+         'sand, driftwood logs, the forest edge behind the beach', at(0)),
     pick('forest', 'Forest hills', 'terrain', 'Land', 'about 100 m inland',
-         'grass, bare earth on the banks, redwood and conifer forest, cycads', at(100)),
+         'redwood and araucaria forest, tree ferns, ferns, shrubs, fallen logs and stumps, vines', at(100)),
     pick('ridge', 'Mountain ridge', 'terrain', 'Land', 'the high spine of the continent',
-         'rock, scree, snow above ~118 m', chunkOf(...peak)),
+         'rock, scree, snow above ~250 m', chunkOf(...peak)),
     pick('shelf', 'Sea bed — sand shelf', 'terrain', 'Sea bed', 'the open sand between reef colonies, near the raft',
          'sand at ~18 m, seagrass, the odd boulder', sandIJ),
     pick('dropoff', 'The drop-off', 'terrain', 'Sea bed', 'where the shelf ends and the basin begins, past the raft',
@@ -632,6 +655,31 @@ async function terrainSamples() {
     pick('shallows', 'Shallows', 'water', 'Coast', 'the beach, seen as water',
          'the ocean over sand, from a metre deep to dry land', at(-10)),
   ];
+  // Kinds of country found by what the land says it is, not by coordinates.
+  const best = (score) => {
+    let top = null, topS = -Infinity;
+    for (let x = WORLD.cx - 1400; x <= WORLD.cx + 1400; x += 24) {
+      for (let z = WORLD.cz - 1400; z <= WORLD.cz + 1400; z += 24) {
+        const L = { ...landAt(x, z) };
+        const v = score(L, x, z);
+        if (v > topS) { topS = v; top = [x, z]; }
+      }
+    }
+    return chunkOf(...top);
+  };
+  const near = (x, z) => Math.hypot(x, z) / 4000;       // prefer what is closest to the raft
+  samples.push(
+    pick('plains', 'Open plains', 'terrain', 'Land', 'the grassland between the forests',
+         'tall seeding grass, shrubs, cycads, the odd araucaria and rock tor', best((L, x, z) => (L.h > 8 ? L.plain : 0) - near(x, z))),
+    pick('escarpment', 'Escarpment', 'terrain', 'Land', 'where harder rock weathers into benches',
+         'sandstone benches and cliff risers, crags, vines down the faces', best((L, x, z) => (L.h > 20 ? L.mesa : 0) - near(x, z))),
+    pick('seacliff', 'Sea cliff', 'terrain', 'Coast', 'the exposed coast, well away from the raft',
+         'a cliff straight out of the sea, forest along its top, sea stacks offshore',
+         best((L, x, z) => (L.m > 0 && L.m < 25 ? L.cliff : 0) - near(x, z))),
+    pick('river', 'River valley', 'water', 'Rivers', 'a river on its way down to the sea',
+         'the river, mud and pebble banks, reeds, horsetails, tree ferns',
+         best((L, x, z) => (L.h > 6 && L.river < 4 ? 1 : 0) - near(x, z)), { river: true }),
+  );
   for (const s of samples) if (s.id === 'shallows') s.focusY = 0;
   return samples;
 }

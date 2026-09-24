@@ -20,6 +20,8 @@
 
 import * as THREE from 'three';
 import { ModelLibrary } from './models.js';
+import { logTexture, woodTexture, metalTexture } from './textures.js';
+import { leafAtlas, CELL, ATLAS_SIZE } from './flora.js';
 
 // Where each item sits in camera space (the camera looks down -Z, +X is
 // right) and how it is turned there. `model` names the glTF body in
@@ -40,15 +42,26 @@ export const POSES = {
   // little about the handle (y), face in toward the crosshair: dead straight
   // it is seen end-on, a stub on a stick.
   hammer:  { model: 'tool_hammer', pos: [0.30, -0.37, -0.56], rot: [-0.30, 0.55, 0.30] },
-  // Carried overhand, the way a spear you mean to throw is: the grip above
-  // eye level at the right, the shaft running forward across the top of the
-  // view. It angles well across rather than at the crosshair, because anything
-  // aimed at the middle of the screen is seen end-on — the stone point shrinks
-  // to a dot behind the lashing.
-  spear:   { model: 'tool_spear',  pos: [0.27, 0.12, -0.14], rot: [-1.64, 0.0, 0.56] },
+  // Carried low at the right, point forward and a little up, the shaft
+  // running along the right-hand side of the view rather than across it. The
+  // tip leans slightly right (z < 0) so it stays right of the crosshair, and
+  // rises enough that the stone point shows above the lashing instead of
+  // hiding end-on behind it.
+  spear:   { model: 'tool_spear',  pos: [0.24, -0.30, -0.18], rot: [-1.28, 0.0, -0.10] },
   rod:     { model: 'tool_rod',    pos: [0.27, -0.38, -0.34], rot: [-0.95, 0.0, 0.22] },
   hook:    { model: null,          pos: [0.19, -0.17, -0.52], rot: [0.12, 0.0, 0.20], scale: 1.3 },
   coconut: { model: null,          pos: [0.17, -0.22, -0.60], rot: [0.30, 0.40, 0.0] },
+  // Raw materials: nothing to do with them in hand, but you should see what
+  // you are holding. Low at the right, the way you carry a thing you are not
+  // using.
+  wood:    { model: null,          pos: [0.25, -0.34, -0.62], rot: [0.25, 0.5, 1.25] },
+  plank:   { model: null,          pos: [0.27, -0.36, -0.72], rot: [0.95, 0.3, 0.55] },
+  rope:    { model: null,          pos: [0.20, -0.26, -0.56], rot: [0.55, 0.3, 0.25] },
+  leaf:    { model: null,          pos: [0.22, -0.30, -0.56], rot: [-0.45, 0.4, 0.45] },
+  scrap:   { model: null,          pos: [0.19, -0.25, -0.56], rot: [0.5, 0.6, 0.3] },
+  // Held by the tail, head up — the body is the species you caught last
+  // (holdFish), a generic one until then.
+  fish:    { model: null,          pos: [0.24, -0.33, -0.60], rot: [0.15, 0.9, 0.25] },
 };
 
 // What a click looks like, per action: seconds, and a curve from progress
@@ -99,11 +112,11 @@ const SPEAR_TIP = 1.01;                    // grip to point, tools/build_tools.p
 
 const _aim = new THREE.Vector3();
 /**
- * A thrust is not the carry pose slid forward. The spear is carried angled
- * across the top of the view, and sliding that forward moves the point
- * diagonally, a third of a screen left of the crosshair — while the fish it
- * catches is dead centre. So the thrust swings the point onto the crosshair
- * and drives the spear along its own shaft until the tip is THRUST_REACH out.
+ * A thrust is not the carry pose slid forward. The spear is carried low at
+ * the right, and sliding that forward drives the point off to the right of
+ * the crosshair — while the fish it catches is dead centre. So the thrust
+ * swings the point onto the crosshair and drives the spear along its own
+ * shaft until the tip is THRUST_REACH out.
  *
  * Worked out from the carry pose each time rather than hard-coded, so it stays
  * right if POSES.spear is retuned.
@@ -152,7 +165,98 @@ function cyl(r0, r1, y0, y1, m, seg = 8) {
   return new THREE.Mesh(g, m);
 }
 
+const tex = (t, rx = 1, ry = 1) => { t.repeat.set(rx, ry); return t; };
+
 const BODIES = {
+  // An armful of split wood: three short lengths, bark on, pale ends.
+  wood() {
+    const g = new THREE.Group();
+    const bark = mat(0xffffff, 0.9, { map: tex(logTexture(), 1, 1) });
+    const end = mat(0xc8a676, 0.85);
+    for (const [x, z, r, l] of [[0, 0, 0.045, 0.44], [0.075, 0.02, 0.04, 0.4], [0.035, -0.06, 0.038, 0.42]]) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.05, l, 9), [bark, end, end]);
+      c.position.set(x, 0, z);
+      g.add(c);
+    }
+    return g;
+  },
+  // A sawn plank, grain along it.
+  plank() {
+    const g = new THREE.Group();
+    const face = mat(0xffffff, 0.8, { map: tex(woodTexture({ size: 256, planks: 1 }), 1, 1) });
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.62, 0.028), face);
+    b.position.y = 0.2;
+    g.add(b);
+    return g;
+  },
+  // A coil of palm-fibre cord with its tail hanging.
+  rope() {
+    const g = new THREE.Group();
+    const cord = mat(0xb39360, 0.95);
+    for (let i = 0; i < 4; i++) {
+      const t = new THREE.Mesh(new THREE.TorusGeometry(0.075 - i * 0.004, 0.011, 6, 22), cord);
+      t.position.y = i * 0.018;
+      t.rotation.x = Math.PI / 2;
+      g.add(t);
+    }
+    const tail = cyl(0.011, 0.011, -0.16, 0.0, cord, 6);
+    tail.position.x = 0.075;
+    g.add(tail);
+    return g;
+  },
+  // A palm frond: the painted frond from the forest's leaf atlas, folded along
+  // its midrib the way a real one is carried, on its stalk.
+  leaf() {
+    const g = new THREE.Group();
+    const green = mat(0xffffff, 0.85, { map: leafAtlas(), side: THREE.DoubleSide, alphaTest: 0.5 });
+    const [cx, cy, cw, ch] = CELL.cycad;
+    for (const side of [-1, 1]) {
+      const card = new THREE.PlaneGeometry(0.13, 0.62);
+      const uv = card.attributes.uv;
+      for (let i = 0; i < uv.count; i++) {
+        // Each half of the fold takes its half of the frond.
+        const u = side < 0 ? uv.getX(i) * 0.5 : 0.5 + uv.getX(i) * 0.5;
+        uv.setXY(i, (cx + u * cw) / ATLAS_SIZE, (cy + ch - uv.getY(i) * ch) / ATLAS_SIZE);
+      }
+      card.translate(side * 0.065, 0.33, 0);
+      const m = new THREE.Mesh(card, green);
+      m.rotation.y = side * 0.35;
+      g.add(m);
+    }
+    g.add(cyl(0.007, 0.011, -0.05, 0.62, mat(0x7d7a3e, 0.8), 5));
+    return g;
+  },
+  // Scrap: a bent sheet of rusted metal and a strap, bolted.
+  scrap() {
+    const g = new THREE.Group();
+    const rust = mat(0xffffff, 0.55, { map: tex(metalTexture()), metalness: 0.45 });
+    const sheet = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.006, 4, 1, 1), rust);
+    const p = sheet.geometry.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setZ(i, p.getZ(i) + Math.pow(p.getX(i) * 4, 2) * 0.03);   // bent
+    sheet.geometry.computeVertexNormals();
+    sheet.position.y = 0.05;
+    const strap = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.2, 0.008), rust);
+    strap.position.set(0.05, 0.07, 0.01);
+    strap.rotation.z = 0.5;
+    const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.02, 6), mat(0x5a5652, 0.4, { metalness: 0.7 }));
+    bolt.position.set(0.05, 0.07, 0.015);
+    bolt.rotation.x = Math.PI / 2;
+    g.add(sheet, strap, bolt);
+    return g;
+  },
+  // A fish, until you have caught one to hold: a silver body and a tail.
+  fish() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), mat(0x9aa4a8, 0.45, { metalness: 0.2 }));
+    body.scale.set(0.55, 3.4, 1.2);
+    body.position.y = 0.2;
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.08, 4), mat(0x7d878b, 0.5));
+    tail.scale.set(0.3, 1, 1.2);
+    tail.position.y = 0.02;
+    tail.rotation.x = Math.PI;
+    g.add(body, tail);
+    return g;
+  },
   hammer() {
     const g = new THREE.Group();
     g.add(cyl(0.020, 0.017, -0.06, 0.37, mat(0x5a3f28)));
@@ -459,6 +563,28 @@ export class Viewmodel {
       k.mesh.frustumCulled = false;
       spear.add(k.mesh);
     }
+  }
+
+  /**
+   * Hold this fish — a still body of the species just caught, from
+   * FishSchools.displayBody() — as the raw fish in hand. It stands on its
+   * tail in the item frame, head up.
+   */
+  holdFish(mesh) {
+    if (!mesh) return;
+    const g = new THREE.Group();
+    mesh.rotation.set(-Math.PI / 2, 0, 0);          // nose (+Z) up the item frame
+    const box = new THREE.Box3().setFromObject(mesh);
+    mesh.position.y = -box.min.y - 0.04;             // gripped just above the tail
+    g.add(mesh);
+    this.prepare(g);
+    const old = this.bodies.get('fish');
+    this.bodies.set('fish', g);
+    if (old && old.parent) {
+      old.parent.remove(old);
+      this.hand.add(g);
+    }
+    old?.traverse(o => { if (o.isMesh && o.userData.fish) { o.geometry.dispose(); o.material.dispose(); } });
   }
 
   setBody(id) {

@@ -28,6 +28,10 @@ const PALETTE = {
   anemA:   col(0x74cba4), anemB:   col(0xd4785f),
   grassA:  col(0x4f9a4c), grassB:  col(0x79b85c),
   rock:    col(0x6d6f66), rockMoss: col(0x4d6b48),
+  kelpA:   col(0x8a7a2e), kelpB:   col(0xb09a3c), bladder: col(0x6f5f24),
+  urchin:  col(0x3a1f3f), urchinB: col(0x5c2d63),
+  starA:   col(0xe0663a), starB:   col(0xf2a25c),
+  shell:   col(0xcfc3a8), shellB:  col(0x9d9178), mantleA: col(0x2f9fb0), mantleB: col(0x5fd0a0),
 };
 
 // ── species ──────────────────────────────────────────────────────────────────
@@ -179,6 +183,129 @@ function boulder() {
   ]);
 }
 
+/**
+ * Kelp: a stand of tall stipes, blades all the way up, gas bladders holding
+ * each blade to the light. Golden-brown, and the tallest thing on the shelf.
+ */
+function kelp() {
+  const parts = [];
+  const STIPES = 4;
+  for (let s = 0; s < STIPES; s++) {
+    const a = (s / STIPES) * Math.PI * 2 + s * 0.7;
+    const bx = Math.cos(a) * 0.18, bz = Math.sin(a) * 0.18;
+    const h = 3.2 + ((s * 7) % 5) * 0.45;
+    const stipe = new THREE.CylinderGeometry(0.015, 0.03, h, 4);
+    stipe.translate(bx, h / 2, bz);
+    parts.push({ geo: stipe, color: PALETTE.kelpA });
+    // Blades alternate up the stipe, each on a bladder.
+    const blades = Math.round(h / 0.32);
+    for (let i = 1; i < blades; i++) {
+      const y = (i / blades) * h, side = i % 2 ? 1 : -1, yaw = a + side * 1.2 + i * 0.4;
+      const len = 0.55 + (1 - Math.abs(i / blades - 0.5)) * 0.35;
+      const blade = new THREE.PlaneGeometry(0.13, len, 1, 2);
+      blade.translate(0, len / 2, 0);
+      blade.rotateZ(side * 0.9);
+      blade.rotateY(yaw);
+      blade.translate(bx, y, bz);
+      parts.push({ geo: blade, color: i % 3 ? PALETTE.kelpB : PALETTE.kelpA });
+      if (i % 2) continue;
+      const bl = new THREE.OctahedronGeometry(0.04, 0);
+      bl.translate(bx + Math.cos(yaw) * 0.04, y, bz + Math.sin(yaw) * 0.04);
+      parts.push({ geo: bl, color: PALETTE.bladder });
+    }
+  }
+  // The holdfast gripping the rock.
+  const hold = new THREE.IcosahedronGeometry(0.22, 0);
+  hold.scale(1.3, 0.45, 1.3);
+  hold.translate(0, 0.08, 0);
+  parts.push({ geo: hold, color: PALETTE.bladder });
+  return mergeParts(parts);
+}
+
+/** A sea urchin: a dark test bristling with long spines. */
+function urchin() {
+  const parts = [];
+  const body = new THREE.IcosahedronGeometry(0.12, 1);
+  body.scale(1, 0.75, 1);
+  body.translate(0, 0.09, 0);
+  parts.push({ geo: body, color: PALETTE.urchin });
+  const N = 34, up = new THREE.Vector3(0, 1, 0), dir = new THREE.Vector3(), q = new THREE.Quaternion();
+  for (let i = 0; i < N; i++) {
+    // Spread over the upper hemisphere and the sides (a Fibonacci sphere).
+    const y = 1 - (i / (N - 1)) * 1.3, r = Math.sqrt(Math.max(0, 1 - y * y)), a = i * 2.399;
+    dir.set(Math.cos(a) * r, y, Math.sin(a) * r).normalize();
+    const len = 0.16 + (i % 3) * 0.05;
+    const g = new THREE.ConeGeometry(0.008, len, 3);
+    g.translate(0, len / 2, 0);
+    q.setFromUnitVectors(up, dir);
+    g.applyQuaternion(q);
+    g.translate(dir.x * 0.1, 0.09 + dir.y * 0.07, dir.z * 0.1);
+    parts.push({ geo: g, color: i % 2 ? PALETTE.urchin : PALETTE.urchinB });
+  }
+  return mergeParts(parts);
+}
+
+/** A starfish: five tapering arms, flat to the sand, with a ridge of warts. */
+function starfish() {
+  const parts = [];
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const arm = new THREE.ConeGeometry(0.055, 0.26, 5);
+    arm.scale(1, 1, 0.45);
+    arm.rotateZ(-Math.PI / 2);                   // point along +X
+    arm.translate(0.13, 0.025, 0);
+    arm.rotateY(a);
+    parts.push({ geo: arm, color: PALETTE.starA });
+    for (let k = 1; k <= 3; k++) {
+      const w = new THREE.SphereGeometry(0.011, 4, 3);
+      w.translate(0.04 + k * 0.05, 0.045, 0);
+      w.rotateY(a);
+      parts.push({ geo: w, color: PALETTE.starB });
+    }
+  }
+  const disc = new THREE.CylinderGeometry(0.06, 0.07, 0.04, 10);
+  disc.translate(0, 0.02, 0);
+  parts.push({ geo: disc, color: PALETTE.starA });
+  return mergeParts(parts);
+}
+
+/**
+ * A giant clam: two fluted shell halves gaping open, and the mantle between
+ * them in the blue-green the algae it farms give it.
+ */
+function clam() {
+  const parts = [];
+  const half = (up) => {
+    const g = new THREE.SphereGeometry(0.34, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), z = p.getZ(i);
+      // Flutes: the shell's ribs, scalloping the rim.
+      const a = Math.atan2(z, x);
+      const rib = 1 + 0.08 * Math.cos(a * 7);
+      p.setXYZ(i, x * rib * 1.2, p.getY(i) * 0.55 * (up ? 1 : -1), z * rib * 0.8);
+    }
+    g.computeVertexNormals();
+    return g;
+  };
+  const lower = half(false);
+  lower.translate(0, 0.2, 0);
+  const upper = half(true);
+  upper.rotateZ(0.62);                           // gaping, the mantle out between
+  upper.translate(-0.08, 0.26, 0);
+  parts.push({ geo: lower, color: PALETTE.shell }, { geo: upper, color: PALETTE.shellB });
+  const mantle = new THREE.SphereGeometry(0.3, 12, 4);
+  mantle.scale(1.15, 0.16, 0.66);
+  mantle.translate(0.02, 0.23, 0);
+  parts.push({ geo: mantle, color: PALETTE.mantleA });
+  const lip = new THREE.TorusGeometry(0.3, 0.03, 4, 16);
+  lip.rotateX(Math.PI / 2);
+  lip.scale(1.15, 1, 0.66);
+  lip.translate(0.02, 0.24, 0);
+  parts.push({ geo: lip, color: PALETTE.mantleB });
+  return mergeParts(parts);
+}
+
 // ── where each of them grows ─────────────────────────────────────────────────
 // `reef` is the reef-mask window from terrain.js: coral wants rock to settle
 // on, seagrass wants the open sand between the colonies. `depth` is the height
@@ -199,6 +326,16 @@ export const REEF = [
     depth: [-20, -4.0], weight: 0.85, scale: [0.77, 2.66], soft: 1, tint: 0.22 },
   { name: 'rock',     make: boulder,      reef: [0.00, 1.01], maxSlope: 0.75,
     depth: [-27, -2.5], weight: 0.26, scale: [0.63, 3.36], soft: 0, tint: 0.14 },
+  // Kelp stands in the shallower water, on rock or the sand beside it.
+  { name: 'kelp',     make: kelp,         reef: [0.00, 0.75], maxSlope: 0.45,
+    depth: [-16, -4.5], weight: 0.30, scale: [0.8, 1.9], soft: 1, tint: 0.22 },
+  // Grazers and filterers on the colonies, starfish out on the sand.
+  { name: 'urchin',   make: urchin,       reef: [0.30, 1.01], maxSlope: 0.60,
+    depth: [-22, -5.0], weight: 0.28, scale: [0.8, 1.6], soft: 0, tint: 0.25 },
+  { name: 'starfish', make: starfish,     reef: [0.00, 0.60], maxSlope: 0.35,
+    depth: [-22, -3.0], weight: 0.22, scale: [0.8, 1.8], soft: 0, tint: 0.45 },
+  { name: 'clam',     make: clam,         reef: [0.45, 1.01], maxSlope: 0.30,
+    depth: [-18, -6.0], weight: 0.16, scale: [0.8, 2.0], soft: 0, tint: 0.35 },
 ];
 
 // ── geometry + material ──────────────────────────────────────────────────────
