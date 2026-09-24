@@ -35,7 +35,11 @@ import { ModelLibrary } from './models.js';
 // the harder case: at arm's length it shows only ~24cm either side of centre,
 // so anything posed for a wide screen alone ends up off the right-hand edge.
 export const POSES = {
-  hammer:  { model: 'tool_hammer', pos: [0.30, -0.37, -0.56], rot: [-0.30, -1.35, 0.30] },
+  // The head runs front to back, the striking face forward, so the overhead
+  // strike lands with the face and the blade trails toward you. Turned a
+  // little about the handle (y), face in toward the crosshair: dead straight
+  // it is seen end-on, a stub on a stick.
+  hammer:  { model: 'tool_hammer', pos: [0.30, -0.37, -0.56], rot: [-0.30, 0.55, 0.30] },
   // Carried overhand, the way a spear you mean to throw is: the grip above
   // eye level at the right, the shaft running forward across the top of the
   // view. It angles well across rather than at the crosshair, because anything
