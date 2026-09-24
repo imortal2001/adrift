@@ -40,6 +40,11 @@ export const MODELS = {
   // A photoscanned coconut, pores up, ~17 cm (CREDITS.md): in hand, and on
   // the water as flotsam. Prepared by tools/build_coconut.py.
   coconut:     { file: 'coconut.glb',     yaw: 0 },
+  // The player's body, seen in third and second person (src/body.js): Ready
+  // Player Me characters, CC BY-NC-SA 4.0 (CREDITS.md), rigged, animated in
+  // code. Prepared by tools/build_player.py.
+  player_woman: { file: 'player_woman.glb', yaw: 0 },
+  player_man:   { file: 'player_man.glb',   yaw: 0 },
 };
 
 // Clip names in the wild are a mess: "Walk", "walk", "Armature|Run",

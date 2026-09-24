@@ -10,7 +10,9 @@ import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
 import { Whale } from './whale.js';
 import { Underwater } from './underwater.js';
-import { Viewmodel, THRUST_REACH } from './viewmodel.js';
+import { Viewmodel, THRUST_REACH, COOKED } from './viewmodel.js';
+import { CameraRig } from './camera.js';
+import { PlayerBody } from './body.js';
 import { ThrownSpears, travelTime } from './spear.js';
 import { Fishing } from './fishing.js';
 import { Terrain, heightAt as landHeight, coastDistance, CHUNK } from './terrain.js';
@@ -19,10 +21,12 @@ import { Player } from './player.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { BuildMode } from './build.js';
-import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, fishItem, fishOf, foodOf } from './items.js';
+import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, fishItem, fishOf, foodOf, cookedItem, isCooked } from './items.js';
 import { Hotbar, SLOTS } from './hotbar.js';
 
 const SAVE_KEY = 'adrift.save.v2';
+const THROW_RELEASE = 0.27;         // s into the body's throw (body.js) that the spear leaves the hand
+const SPIT_Y = 0.77;                 // the spit's cross-stick, above the campfire (raft.js)
 
 
 // What the admin "give" buttons hand over. Enough to build without grinding,
@@ -59,6 +63,10 @@ const GOALS = [
     text: 'The raft is growing. Thirst kills first: build a Collector.' },
   { id: 'water',   test: g => [...g.raft.objs.values()].some(o => o.type === 'collector'),
     text: 'Collector up. Wait for it to fill, then press E to drink.' },
+  { id: 'fire',    test: g => [...g.raft.objs.values()].some(o => o.type === 'campfire'),
+    text: 'Campfire built — but not lit. Craft a bow drill (C), hold it at the fire and hold click. It takes 1 Palm for tinder.' },
+  { id: 'lit',     test: g => [...g.raft.objs.values()].some(o => o.type === 'campfire' && o.lit),
+    text: 'Fire lit. Hold a raw fish and press E at the fire to cook it — and feed it wood before it burns out.' },
   { id: 'hook',    test: g => g.inv.has('hook'),
     text: 'Hook ready. Right-click to throw it at debris out of reach.' },
   { id: 'shelter', test: g => [...g.raft.cells.values()].some(c => g.raft.isSheltered(c.cx, c.cz)),
@@ -77,6 +85,11 @@ class Game {
     this.scene = new THREE.Scene();
     // Far enough for the whole continent: its far coast is ~2 km from the raft.
     this.camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 3200);
+    // Your eyes. The player moves these, and everything you do works from
+    // them — reach, aim, what notices you. The camera is put somewhere
+    // relative to them each frame (camera.js): at them in first person,
+    // behind you in third, in front looking back in second.
+    this.eye = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 3200);
 
     this.ocean = new Ocean(this.scene);
     this.sky = new Sky(this.scene, this.ocean);
@@ -86,7 +99,7 @@ class Game {
     // Terrain first: the player and the fish both collide against its reef.
     this.terrain = new Terrain(this.scene);
     this.terrain.shareSky(this.ocean.uniforms);
-    this.player = new Player(this.camera, this.raft, this.terrain);
+    this.player = new Player(this.eye, this.raft, this.terrain);
     this.debris = new DebrisField(this.scene, this.raft);
     // Seed the wildlife around a point well inland from the nearest coast.
     this.wildlife = new Wildlife(this.scene, { x: 210, z: -150 }, this.terrain);
@@ -94,7 +107,18 @@ class Game {
     this.whale = new Whale(this.scene, this.terrain, this.raft, this.fish);
     this.underwater = new Underwater(this.scene, this.ocean);
     this.hook = new Hook(this.scene);
-    this.viewmodel = new Viewmodel(this.renderer, this.camera, this.sky);
+    this.viewmodel = new Viewmodel(this.renderer, this.eye, this.sky);
+    this.view = new CameraRig(this.camera, this.eye, this.raft, this.terrain);
+    // You, from the outside: a character (woman or man) holding what you hold.
+    this.body = new PlayerBody(this.scene);
+    this.character = 'woman';
+    // Outside first person, a line hangs from the rod in the body's hand,
+    // not the invisible one at your eye.
+    this.viewmodel.tipOutside = (id, out) => {
+      if (this.view.first || this.body.heldId !== id || !this.body.held) return null;
+      this.body.held.updateWorldMatrix(true, false);
+      return this.body.held.localToWorld(out.set(0, id === 'rod' ? 1.98 : 1.01, 0));
+    };
     this.debris.dress(this.viewmodel.library);     // the scanned coconut, afloat too
     // Thrown spears wear the same body the hand holds, glTF or procedural.
     this.spears = new ThrownSpears(this.scene, this.terrain, this.raft, this.fish,
@@ -109,6 +133,7 @@ class Game {
       return mesh;
     };
     this.baitId = null;                          // which fish is on the hook as bait
+    this.pendingThrow = null;                    // seconds until a third-person throw lets go
     this.hud = new HUD();
     this.input = new Input(this.renderer.domElement);
     this.build = new BuildMode(this.raft, this.inv, this.hud);
@@ -198,7 +223,9 @@ class Game {
     this.raft.update(0, this.time);
     this.sky.update(0, this.raft.group.position);
     this.player.applyCamera(0, this.time, false);
+    this.view.update(0);
     this.ocean.update(this.time, this.camera.position);
+    this.dress(this.character);               // from the save, or the default
 
     // Paint the HUD once up front, or the pause screen shows placeholder values
     // until the loop starts running.
@@ -239,6 +266,9 @@ class Game {
     const canvas = this.renderer.domElement;
 
     document.getElementById('go').onclick = () => this.start();
+    for (const b of document.querySelectorAll('#who [data-who]')) {
+      b.onclick = e => { e.stopPropagation(); this.dress(b.dataset.who); };
+    }
     canvas.addEventListener('click', () => {
       if (this.cursorPanel) return;          // a panel owns the cursor
       if (!this.playing) this.start();
@@ -265,12 +295,31 @@ class Game {
     document.addEventListener('pointerlockerror', () => this.onLockDenied());
 
     addEventListener('resize', () => {
-      this.camera.aspect = innerWidth / innerHeight;
-      this.camera.updateProjectionMatrix();
+      for (const c of [this.camera, this.eye]) {
+        c.aspect = innerWidth / innerHeight;
+        c.updateProjectionMatrix();
+      }
       this.renderer.setSize(innerWidth, innerHeight);
     });
 
     addEventListener('beforeunload', () => this.save());
+  }
+
+  /** Play as the woman or the man. */
+  dress(who) {
+    this.character = who === 'man' ? 'man' : 'woman';
+    for (const b of document.querySelectorAll('#who [data-who]')) b.classList.toggle('on', b.dataset.who === this.character);
+    this.body.wear(this.character, this.viewmodel.library).then(ok => {
+      if (!ok && this.body.who === this.character) {
+        this.hud.log(`No ${this.character}'s model in assets/models — a stand-in for now.`, 'bad');
+      }
+    });
+  }
+
+  /** V: first person, third, second, and round again. */
+  cycleView() {
+    this.view.cycle();
+    this.hud.log(`${this.view.name} — V to change`);
   }
 
   start() {
@@ -332,6 +381,25 @@ class Game {
     this.hud.refreshCraft(this.inv);
   }
 
+  /** A use of what is in hand, seen: the arm in first person, the body outside it. */
+  useAnim(kind) {
+    this.viewmodel.use(kind);
+    this.body.gesture({ spear: 'thrust', build: 'swing', eat: 'eat', hook: 'toss' }[kind]);
+  }
+
+  /**
+   * The line a throw is aimed along. In first person that is your eyes'. In
+   * third it is the camera's — the crosshair is the centre of *its* view,
+   * half a metre right of and three behind your head, and a throw along your
+   * own line would land that far off it. In second person the camera is
+   * looking at you, so it is your own line again.
+   */
+  aimRay(eye, dir) {
+    if (this.view.mode !== 'third') return { from: eye, dir, extra: 0 };
+    const cam = this.camera.position;
+    return { from: cam, dir: this.camera.getWorldDirection(new THREE.Vector3()), extra: cam.distanceTo(eye) };
+  }
+
   /** Left-click (and right-click for the hook) acts through the held item. */
   useHeld(eye, dir) {
     const id = this.hotbar.held;
@@ -344,21 +412,24 @@ class Game {
       case 'hook':
         if (this.hook.busy) this.hook.release();
         else {
-          this.viewmodel.use('hook');
+          this.useAnim('hook');
           this.hook.throwFrom(eye.clone().addScaledVector(dir, 0.5), dir.clone());
         }
         break;
       case 'eat':
-        this.viewmodel.use('eat');
+        this.useAnim('eat');
         this.eat(id);
         break;
       // The thrust plays whether or not it lands; thrust() decides if it did.
       case 'spear':
-        this.viewmodel.use('spear');
+        this.useAnim('spear');
         this.thrust(eye, dir);
         break;
       case 'rod':
         break;                         // the rod reads the button itself; see frame()
+      case 'drill':
+        this.hud.log('Hold click at an unlit campfire to drill an ember.');
+        break;
       default:
         this.hud.log(`${ITEMS[id].name} is raw material — nothing to do with it in hand.`);
     }
@@ -374,7 +445,24 @@ class Game {
       return;
     }
     if (!this.viewmodel.canRelease('spear')) return;   // still being drawn
+    if (this.pendingThrow != null) return;               // already winding up
 
+    // Seen from outside, a throw is a throw: the arm cocks back over the
+    // shoulder with the spear in it and whips forward, and the spear leaves
+    // the hand at the release — THROW_RELEASE seconds in — not the instant
+    // you click, from wherever the hand happened to be. In first person the
+    // hand is the viewmodel's, and it lets go at once, as it always has.
+    if (!this.view.first) {
+      this.body.gesture('throw');
+      this.pendingThrow = THROW_RELEASE;
+      return;
+    }
+    this.launchSpear(eye, dir);
+  }
+
+  /** The spear leaves the hand, aimed at what the crosshair is on. */
+  launchSpear(eye, dir) {
+    if (!this.inv.has('spear')) return;
     // Leave from the hand, but aim at what the crosshair is on. Throwing
     // parallel to the view from a hand up by your right ear would land
     // everything a foot to the right of where you looked.
@@ -386,19 +474,22 @@ class Game {
     // misses behind it every time. This is soft aim assist, and deliberately
     // tight: the fish has to be within ~10 degrees of the crosshair.
     const submerged = this.player.submerged;
-    const from = this.viewmodel.gripWorld(new THREE.Vector3());
-    const fish = this.fish.pick(eye, dir, 30, 0.985);
+    // It leaves from the hand you can see: the first-person one, or the body's.
+    const from = this.view.first ? this.viewmodel.gripWorld(new THREE.Vector3())
+                                 : this.body.gripWorld(new THREE.Vector3());
+    const aim = this.aimRay(eye, dir);
+    const fish = this.fish.pick(aim.from, aim.dir, 30 + aim.extra, 0.985);
     let point;
     if (fish) {
       const t = travelTime(fish.pos.distanceTo(from), submerged);
       point = fish.pos.clone().addScaledVector(fish.vel, t);
     } else {
-      point = eye.clone().addScaledVector(dir, submerged ? 6 : 25);
+      point = aim.from.clone().addScaledVector(aim.dir, (submerged ? 6 : 25) + aim.extra);
     }
-    const aim = point.sub(from).normalize();
+    const heading = point.sub(from).normalize();
 
     this.inv.remove('spear', 1);
-    this.spears.throw(from, aim, submerged, !fish);
+    this.spears.throw(from, heading, submerged, !fish);
     this.viewmodel.release();
     this.hud.refreshInventory(this.inv);
   }
@@ -435,6 +526,7 @@ class Game {
     }
     this.fish.take(f);
     this.viewmodel.skewer(this.fish.bodyFor(f));
+    if (!this.view.first) this.body.skewer(this.fish.bodyFor(f));   // on the spear you can see
     this.addCatch(f.sp.key);
     this.hud.log(`You spear a ${f.sp.name}.`, 'good');
     this.hud.refreshInventory(this.inv);
@@ -455,9 +547,142 @@ class Game {
   anyFish() {
     const held = this.hotbar.held;
     if (fishOf(held) && this.inv.has(held)) return held;
+    // Cooked before raw — it does more for you and costs no water.
     let best = null;
-    for (const [id, n] of this.inv.slots) if (fishOf(id) && n > 0 && (!best || n > this.inv.count(best))) best = id;
+    const better = (id, n) => !best || isCooked(id) > isCooked(best) ||
+      (isCooked(id) === isCooked(best) && n > this.inv.count(best));
+    for (const [id, n] of this.inv.slots) if (fishOf(id) && n > 0 && better(id, n)) best = id;
     return best;
+  }
+
+  // ── the campfire ───────────────────────────────────────────────────────────
+  /**
+   * What a campfire offers, most pressing first: taking off fish that are
+   * done; lighting it, with the bow drill in hand; cooking the raw fish in
+   * hand; feeding it wood. `drill` marks the fire the bow drill is at, for
+   * frame() to saw at while the button is down.
+   */
+  fireInteraction(o) {
+    const done = o.spitFish.filter(f => f.t >= FIRE.cook);
+    if (done.length) {
+      return { prompt: `<b>E</b> take ${this.describeCatch(done)} off the fire`, act: () => this.takeCooked(o) };
+    }
+    const held = this.hotbar.held;
+    const cooking = o.spitFish.length ? ` — ${this.describeCatch(o.spitFish)} cooking` : '';
+    if (!o.lit) {
+      if (o.fuel <= 0) {
+        return this.inv.has('wood')
+          ? { prompt: `<b>E</b> lay wood in the burnt-out fire${cooking}`, act: () => this.feedFire(o) }
+          : { prompt: `Burnt out — it needs Wood before it will light again${cooking}`, act: null };
+      }
+      if (held === 'bowdrill' && this.inv.has('bowdrill')) {
+        if (!this.inv.has('leaf')) return { prompt: 'You need 1 Palm as tinder to catch the ember', act: null };
+        const p = this.drill?.rec === o ? this.drill.p : 0;
+        return { prompt: p > 0 ? `Drilling an ember <span class="meter"><i style="width:${Math.round(p * 100)}%"></i></span>`
+                               : '<b>Hold click</b> to drill an ember (1 Palm for tinder)',
+                 act: null, drill: o };
+      }
+      return { prompt: (this.inv.has('bowdrill') ? 'Unlit — take out the bow drill to light it'
+                                                 : 'Unlit — craft a bow drill (C) to light it') + cooking, act: null };
+    }
+    const raw = fishOf(held) && !isCooked(held) && this.inv.has(held) ? held : null;
+    if (raw && o.spitFish.length < FIRE.spit) {
+      return { prompt: `<b>E</b> cook the ${ITEMS[raw].name.toLowerCase()}${cooking}`, act: () => this.cook(o, raw) };
+    }
+    const pct = Math.round(o.fuel / FIRE.max * 100);
+    if (this.inv.has('wood') && o.fuel <= FIRE.max - FIRE.perWood / 2) {
+      return { prompt: `<b>E</b> add wood — burning, ${pct}%${cooking}`, act: () => this.feedFire(o) };
+    }
+    const hint = !cooking && !raw && this.anyRawFish() ? ' — hold a raw fish to cook it' : '';
+    return { prompt: `Burning, ${pct}%${cooking}${hint}`, act: null };
+  }
+
+  anyRawFish() {
+    for (const [id, n] of this.inv.slots) if (n > 0 && fishOf(id) && !isCooked(id)) return id;
+    return null;
+  }
+
+  /** The ember catches: the fire is lit, and the tinder is gone. */
+  lightFire(o) {
+    this.drill = null;
+    if (!this.inv.remove('leaf', 1)) return;
+    o.lit = true;
+    this.hud.log('The ember catches in the palm fibre. The fire is lit.', 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  feedFire(o) {
+    if (!this.inv.remove('wood', 1)) return;
+    const was = o.fuel;
+    o.fuel = Math.min(FIRE.max, o.fuel + FIRE.perWood);
+    this.hud.log(was <= 0 ? 'You lay fresh wood in the ashes. It will need lighting.' : 'You feed the fire.', 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  /** A raw fish onto the spit, hung by the tail over the flames. */
+  cook(o, id) {
+    const key = fishOf(id);
+    const sp = this.fish.species(key);
+    if (!sp || !this.inv.remove(id, 1)) return;
+    this.hotbar.refillFish(this.inv);
+    const mesh = this.fish.displayBody(key, Math.min(sp.big ? 0.4 : 0.34, sp.length[1]));
+    if (mesh) {
+      this.fish.lively.delete(mesh);
+      mesh.rotation.set(Math.PI / 2, 0, 0);            // nose down, tail to the stick
+      mesh.userData.raw = mesh.material.color.clone();
+      o.obj.getObjectByName('spit').add(mesh);
+    }
+    o.spitFish.push({ raw: id, done: cookedItem(key), name: sp.name, t: 0, mesh });
+    this.layoutSpit(o);
+    this.hud.log(`You hang the ${sp.name} over the fire.`, 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  /** Spread the fish along the stick, each hanging from it by the tail. */
+  layoutSpit(o) {
+    const n = o.spitFish.length;
+    o.spitFish.forEach((f, i) => {
+      if (!f.mesh) return;
+      // Nose down, its body's -Z end (the tail) is the top: put that at the stick.
+      const g = f.mesh.geometry;
+      if (!g.boundingBox) g.computeBoundingBox();
+      f.mesh.position.set((i - (n - 1) / 2) * 0.3, SPIT_Y + g.boundingBox.min.z * f.mesh.scale.z, 0);
+    });
+  }
+
+  takeCooked(o) {
+    const done = o.spitFish.filter(f => f.t >= FIRE.cook);
+    for (const f of done) {
+      this.inv.add(f.done, 1);
+      this.hotbar.takeFish(f.done);
+      if (f.mesh) {
+        f.mesh.removeFromParent();
+        f.mesh.geometry.dispose();
+        f.mesh.material.dispose();
+      }
+    }
+    o.spitFish = o.spitFish.filter(f => f.t < FIRE.cook);
+    this.layoutSpit(o);
+    this.hud.log(`You take ${this.describeCatch(done)} off the fire, cooked.`, 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  /** Fish on a lit fire cook, and brown as they do; a fire that is out holds them. */
+  updateFires(dt) {
+    for (const o of this.raft.objs.values()) {
+      if (o.type !== 'campfire' || !o.lit) continue;
+      for (const f of o.spitFish) {
+        const was = f.t;
+        f.t = Math.min(FIRE.cook, f.t + dt);
+        if (f.mesh) f.mesh.material.color.copy(f.mesh.userData.raw).lerp(
+          f.mesh.userData.raw.clone().multiply(COOKED), f.t / FIRE.cook);
+        if (was < FIRE.cook && f.t >= FIRE.cook) this.hud.log(`The ${f.name} is done — take it off the fire.`, 'good');
+      }
+    }
+    for (const o of this.raft.wentOut.splice(0)) {
+      this.hud.log(o.spitFish.length ? 'The campfire has burned out, with fish still on it. It needs wood.'
+                                     : 'The campfire has burned out. It needs wood, and lighting again.', 'bad');
+    }
   }
 
   /** A fish to bait the hook with: the smallest you have, the way you would. */
@@ -506,7 +731,7 @@ class Game {
       }
       return { prompt: `Collector is filling (${Math.round(c.water / c.capacity * 100)}%)`, act: null };
     }
-    if (piece?.id === 'campfire') return { prompt: 'The fire holds the dark back', act: null };
+    if (piece?.id === 'campfire') return this.fireInteraction(piece.rec);
 
     const plant = this.terrain.pickPlant(eye, dir);
     if (plant) {
@@ -667,10 +892,13 @@ class Game {
     // World
     this.sky.update(dt, this.player.pos);
     this.raft.update(dt, this.time, this.sky.night);
+    this.updateFires(dt);
     this.player.update(dt, this.time, input, panelOpen);
+    if (!panelOpen && input.pressed('KeyV')) this.cycleView();
+    this.view.update(dt);
     this.ocean.update(this.time, this.camera.position);
 
-    const eye = this.camera.position;
+    const eye = this.eye.position;
     const dir = this.player.forward(this.tmpDir);
     // Stream terrain around whoever is looking at it, then run the ecosystem.
     this.terrain.update(dt, this.player.pos, this.time);
@@ -690,7 +918,7 @@ class Game {
       if (this.build.active) {
         prompt = this.build.update(eye, dir, input);
         if (input.clicked(0)) {
-          this.viewmodel.use('build');
+          this.useAnim('build');
           const placed = this.build.place();
           if (placed) {
             this.hud.log(`${placed.name} built.`, 'good');
@@ -700,6 +928,17 @@ class Game {
         }
       } else {
         const act = this.findInteraction(eye, dir);
+        // The bow drill is sawn, not clicked: the ember builds while the
+        // button is held at an unlit fire, and cools if you stop.
+        if (act?.drill && input.mouseDown(0)) {
+          if (this.drill?.rec !== act.drill) this.drill = { rec: act.drill, p: 0 };
+          this.drill.p += dt / FIRE.light;
+          this.viewmodel.drilling = true;
+          if (this.drill.p >= 1) this.lightFire(act.drill);
+        } else {
+          this.viewmodel.drilling = false;
+          if (this.drill && (this.drill.p -= dt * 0.35) <= 0) this.drill = null;
+        }
         if (act) {
           prompt = act.prompt;
           if (act.act && input.pressed('KeyE')) act.act();
@@ -717,7 +956,7 @@ class Game {
         if (this.hotbar.held === 'rod' && this.inv.has('rod')) {
           this.fishing.control({ press: input.clicked(0), hold: input.mouseDown(0),
                                  release: input.released(0) }, eye, dir, this.player);
-        } else if (input.clicked(0)) this.useHeld(eye, dir);
+        } else if (input.clicked(0) && !act?.drill) this.useHeld(eye, dir);
       }
 
       // Salvage works whether or not build mode is on.
@@ -756,10 +995,13 @@ class Game {
     document.body.classList.toggle('freelook', input.allowLook && !this.cursorPanel);
 
     // Underwater look & feel — colour, light and motes all fall off with depth.
-    const surface = waveHeight(eye.x, eye.z, this.time);
-    const submerged = eye.y < surface;
-    const depth = Math.max(0, surface - eye.y);
-    const light = this.underwater.update(dt, eye, submerged, depth, this.sky,
+    // What the camera sees, not where your eyes are: in third person the
+    // camera can be in the air while you swim, or under while you tread.
+    const lens = this.camera.position;
+    const surface = waveHeight(lens.x, lens.z, this.time);
+    const submerged = lens.y < surface;
+    const depth = Math.max(0, surface - lens.y);
+    const light = this.underwater.update(dt, lens, submerged, depth, this.sky,
                                          this.scene, this.sky.night);
     this.hud.setUnderwater(submerged, submerged ? 1 - light : 0);
 
@@ -771,6 +1013,18 @@ class Game {
       owned: !!held && this.inv.has(held),
       hidden: held === 'hook' && this.hook.busy,     // it is out on the line
     });
+    // The body, outside first person: where you are, holding what you hold.
+    const outside = !this.view.first;
+    this.body.visible = outside;
+    const inHand = held && this.inv.has(held) && !(held === 'hook' && this.hook.busy)
+      && !(held === 'spear' && !this.viewmodel.current) ? held : null;
+    if (inHand !== this.body.heldId) this.body.hold(inHand, inHand ? this.viewmodel.cloneBody(inHand) : null);
+    this.body.update(dt, this.player);
+    if (this.pendingThrow != null && (this.pendingThrow -= dt) <= 0) {
+      this.pendingThrow = null;
+      this.launchSpear(eye, dir);
+    }
+    document.body.classList.toggle('view-second', this.view.mode === 'second');
 
     // After the viewmodel, so the line hangs from where the rod tip is now.
     this.fishing.update(dt, this.time, this.player, held === 'rod' && this.inv.has('rod'));
@@ -833,7 +1087,7 @@ class Game {
     if (this.time - this.lastSave > 10) { this.save(); this.lastSave = this.time; }
 
     this.renderer.render(this.scene, this.camera);
-    this.viewmodel.render();
+    if (this.view.first) this.viewmodel.render();
     input.endFrame();
   }
 
@@ -871,12 +1125,17 @@ class Game {
       const bag = (id, n = 1) => { if (ITEMS[id]) inv[id] = (inv[id] || 0) + n; };
       if (this.spears.count) bag('spear', this.spears.count);
       for (const s of this.spears.list) for (const f of s.catch) bag(fishItem(f.key));
+      // Fish on a spit are not saved hanging there: they go in the bag, cooked
+      // if they were done.
+      for (const o of this.raft.objs.values()) for (const f of o.spitFish || []) bag(f.t >= FIRE.cook ? f.done : f.raw);
       if (this.fishing.bait && this.baitId) bag(this.baitId);
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         raft: this.raft.toJSON(),
         inv,
         hotbar: this.hotbar.toJSON(),
         player: this.player.toJSON(),
+        view: this.view.mode,
+        character: this.character,
         time: this.sky.time,
         day: this.sky.day,
         goals: [...this.goalsDone],
@@ -904,6 +1163,8 @@ class Game {
     this.sky.time = d.time ?? this.sky.time;
     this.sky.day = d.day ?? 1;
     for (const g of d.goals || []) this.goalsDone.add(g);
+    if (d.view) this.view.set(d.view);
+    if (d.character) this.character = d.character;
     return true;
   }
 }

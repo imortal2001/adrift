@@ -207,3 +207,34 @@ flotsam, put through `tools/build_coconut.py`, which:
 - encodes both textures as JPEG.
 
 The colours and surface detail are the author's, carried over by the bake.
+
+### The player
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/player_woman.glb` | Ready Player Me female character | Ready Player Me | [CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/ready-player-me-female-character-2caf5781d3ef422d8d7270fe615bff68) |
+
+This work is based on "Ready Player Me female character"
+(https://sketchfab.com/3d-models/ready-player-me-female-character-2caf5781d3ef422d8d7270fe615bff68)
+by Ready Player Me (https://sketchfab.com/readyplayerme), licensed under
+CC-BY-NC-SA-4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/). The
+Sketchfab page carries no NoAI tag.
+
+> ⚠️ **Non-commercial, share-alike.** Unlike everything else credited here,
+> this licence forbids commercial use, and requires that changed versions are
+> shared under the same licence. `player_woman.glb` (and `player_man.glb`, when
+> it is added) are therefore CC BY-NC-SA 4.0 — whatever licence the rest of the
+> game carries. Fine for a free, personal prototype; if the game is ever sold,
+> these two files have to be replaced.
+
+**Changes made.** Put through `tools/build_player.py`, which:
+
+- drops a stray icosphere from the file, keeping the armature and its meshes;
+- turns it to face the game's forward, with its feet at the origin;
+- strips the numeric suffixes from the bone names;
+- repaints the shoes as dark leather;
+- scales the textures down (colour to 1024², normal maps to 512²) as JPEG.
+
+It is rigged but was never animated; the game moves its bones itself
+(`src/body.js`). The mesh, rig and the rest of its textures are the
+author's.

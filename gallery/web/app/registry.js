@@ -34,17 +34,18 @@ import { FIGHTERS } from '/src/fight.js';
 import { REEF, reefGeometry, reefMaterial } from '/src/reef.js';
 import { Terrain, CHUNK, WORLD, heightAt, coastDistance, reefMask, landAt, RIVERS, riverGeometry } from '/src/terrain.js';
 import { SPECIES as FLORA, speciesMesh, setFloraTime } from '/src/flora.js';
-import { ITEMS, DEBRIS_KINDS, BUILDABLES } from '/src/items.js';
+import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE } from '/src/items.js';
 import { POSES, Viewmodel } from '/src/viewmodel.js';
 import { Fishing } from '/src/fishing.js';
 import { Hook } from '/src/hook.js';
 import { DebrisField } from '/src/debris.js';
 import { Raft } from '/src/raft.js';
+import { PlayerBody } from '/src/body.js';
 
 // ── categories ───────────────────────────────────────────────────────────────
 export const CATEGORIES = [
   { id: 'dinosaurs',  name: 'Dinosaurs',          blurb: 'The continent’s wildlife: every species that roams, grazes and hunts on land.' },
-  { id: 'animals',    name: 'Living animals',     blurb: 'Everything alive that is not a dinosaur — the fish, the shark and the whale.' },
+  { id: 'animals',    name: 'Living animals',     blurb: 'Everything alive that is not a dinosaur — the fish, the shark, the whale, and you.' },
   { id: 'equipment',  name: 'Equipment',          blurb: 'Tools, weapons and fishing gear: what you hold, and what you throw.' },
   { id: 'vegetation', name: 'Trees & vegetation', blurb: 'What grows on land.' },
   { id: 'terrain',    name: 'Land & terrain',     blurb: 'Real 64 m chunks of the world, cut from where each kind of ground is, plus the rocks.' },
@@ -341,7 +342,7 @@ export async function loadRegistry() {
                        : `src/viewmodel.js · BODIES.${id}()`,
       facts: [['In hand', ITEMS[id]?.hint || 'nothing to do with it — a material, carried'],
               ...(id === 'fish' ? [['In play', 'every fish is its own item and is held as its own species; this is the stand-in for one the schools cannot draw']] : []),
-              ['Frame', 'stands along +Y, origin at the grip']],
+              ['Frame', id === 'bowdrill' ? 'its own: the bow across, the spindle down, as held' : 'stands along +Y, origin at the grip']],
       variants: hasModel ? [{ id: 'model', label: 'glTF model' }, { id: 'fallback', label: 'Built-in fallback' }] : null,
       async build(variant) {
         let obj = null;
@@ -356,6 +357,36 @@ export async function loadRegistry() {
       },
     });
   }
+  // ── you ──
+  // The player's body, as the third- and second-person views show it: the
+  // game's own PlayerBody, walked on the spot by the same code as in play.
+  const GAITS = { idle: ['deck', 0], walk: ['deck', 2.6], run: ['deck', 5.6], swim: ['swim', 1.6], tread: ['swim', 0] };
+  for (const [who, name] of [['woman', 'The player (woman)'], ['man', 'The player (man)']]) {
+    const hasModel = manifest.has(`player_${who}`);
+    add({
+      id: `player-${who}`, name, category: 'animals', group: 'You',
+      kind: hasModel ? 'glTF model' : 'built in code',
+      files: hasModel ? [`player_${who}.glb`] : [],
+      source: hasModel ? `assets/models/player_${who}.glb · tools/build_player.py · src/body.js · CREDITS.md`
+                       : 'src/body.js · mannequin() — the stand-in until the model is converted',
+      facts: [['Seen', 'in third person (behind you) and second (facing you) — V changes the view'],
+              ['Motion', 'no animation in the file: the stride, swim, jump and arm swings are made in code (src/body.js)'],
+              ['Licence', hasModel ? 'Ready Player Me, CC BY-NC-SA 4.0 — non-commercial, and changes share alike' : 'original']],
+      variants: [{ id: 'idle', label: 'Standing' }, { id: 'walk', label: 'Walking' }, { id: 'run', label: 'Running' },
+                 { id: 'tread', label: 'Treading water' }, { id: 'swim', label: 'Swimming' }],
+      async build(variant = 'idle') {
+        const holder = new THREE.Group();
+        const body = new PlayerBody(holder);
+        await body.wear(who, lib);
+        const [state, speed] = GAITS[variant] || GAITS.idle;
+        const p = { pos: new THREE.Vector3(0, state === 'swim' ? 0.6 : 0, 0), yaw: Math.PI, pitch: 0, state, speed };
+        body.update(0.016, p);
+        return { object: holder, update: dt => body.update(dt, p),
+                 frame: { center: V(0, 0.9, 0), size: V(1.1, 1.9, 1.1) } };
+      },
+    });
+  }
+
   add({
     id: 'float', name: 'Fishing float', category: 'equipment', group: 'Fishing gear',
     kind: 'built in code', source: 'src/fishing.js · Fishing constructor',
@@ -546,10 +577,13 @@ export async function loadRegistry() {
   for (const b of BUILDABLES) {
     add({
       id: `raft-${b.id}`, name: b.name, category: 'objects', group: 'Raft pieces',
-      kind: 'built in code', source: `src/raft.js · BUILD.${b.id}`,
+      kind: 'built in code', source: b.id === 'campfire' ? 'src/raft.js · BUILD.campfire · src/fire.js' : `src/raft.js · BUILD.${b.id}`,
       facts: [['Costs', Object.entries(b.cost).map(([k, n]) => `${n} ${k}`).join(', ')], ['What', b.desc],
-              ['Goes', { cell: 'in an empty grid square', edge: 'on a side of a square', top: 'over a square', object: 'in the middle of a square' }[b.kind]]],
-      async build() {
+              ['Goes', { cell: 'in an empty grid square', edge: 'on a side of a square', top: 'over a square', object: 'in the middle of a square' }[b.kind]],
+              ...(b.id === 'campfire' ? [['Fire', `built unlit; lit with a bow drill and 1 Palm; burns ${FIRE.perWood / 60} min per Wood, ${FIRE.max / 60} min at most`]] : [])],
+      // A campfire is built unlit now, so both are worth seeing.
+      variants: b.id === 'campfire' ? [{ id: 'lit', label: 'Lit' }, { id: 'unlit', label: 'Unlit' }] : null,
+      async build(variant) {
         const raft = new Raft(scratch);
         raft.place('foundation', { cx: 0, cz: 0, force: true });
         const t = { cx: 0, cz: 0, ex: 0, ez: 0, es: 1, force: true };
@@ -560,6 +594,10 @@ export async function loadRegistry() {
           obj = ({ edge: raft.edges, top: raft.tops, object: raft.objs })[b.kind].values().next().value?.obj;
         }
         if (!obj) return { object: null, missing: 'could not place ' + b.id };
+        if (b.id === 'campfire' && variant !== 'unlit') {
+          const rec = raft.objs.values().next().value;
+          rec.lit = true; rec.fuel = Infinity;          // never burns down on show
+        }
         obj.removeFromParent();
         return {
           object: rest(obj),
