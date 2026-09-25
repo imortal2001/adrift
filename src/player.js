@@ -399,8 +399,9 @@ export class Player {
       this.hunger = Math.max(this.hunger, 40);
       this.thirst = Math.max(this.thirst, 40);
       this.breath = 100;
-      this.respawnOnRaft();
-      this.say('You black out, and wake on the deck. Still adrift.', 'bad');
+      // Where you wake is the game's to say: your statue, or where you started (main.js).
+      if (this.onDeath) this.onDeath();
+      else { this.respawnOnRaft(); this.say('You black out, and wake on the deck. Still adrift.', 'bad'); }
     }
   }
 
@@ -422,8 +423,34 @@ export class Player {
 
   // Position deliberately isn't saved: you always wake up standing on your own
   // deck, which makes it impossible to load into the middle of the ocean.
+  /**
+   * `where` is where you were: 'deck' (you come back on the raft's deck,
+   * wherever it has got to), or 'land' / 'sea' at `pos`.
+   */
   toJSON() {
-    return { yaw: this.yaw, health: this.health, hunger: this.hunger, thirst: this.thirst };
+    const r = v => Math.round(v * 100) / 100;
+    const where = this.state !== 'swim' && !this.onLand && this.raft.solidAtWorld(this.pos.x, this.pos.z) ? 'deck'
+                : this.onLand ? 'land' : 'sea';
+    return { yaw: this.yaw, health: this.health, hunger: this.hunger, thirst: this.thirst,
+             where, pos: [r(this.pos.x), r(this.pos.y), r(this.pos.z)] };
+  }
+
+  /** Stand at (x, z) on land, or float there in the water. */
+  standAt(x, z, yaw = this.yaw) {
+    const ground = landHeight(x, z);
+    this.vel.set(0, 0, 0);
+    this.vy = 0;
+    this.yaw = yaw;
+    this.pitch = -0.1;
+    if (ground > -0.3) {
+      this.pos.set(x, Math.max(ground, 0), z);
+      this.state = 'deck';
+      this.onLand = true;
+    } else {
+      this.pos.set(x, -EYE + 0.24, z);          // eyes just above the water
+      this.state = 'swim';
+      this.onLand = false;
+    }
   }
 
   load(d) {

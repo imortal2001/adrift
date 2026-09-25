@@ -24,7 +24,8 @@ import { DAY_SECONDS } from './sky.js';
 const EVERY = 1 / 3;           // the host tells the others how things stand this often…
 const SLOW = 3;                // …and where the flotsam and the fish schools are, every this many
 
-export const WORLD_EVENTS = ['world', 'gather', 'fish', 'spear', 'sk', 'spearBack', 'bite', 'kill', 'spears', 'paddle'];
+export const WORLD_EVENTS = ['world', 'gather', 'fish', 'spear', 'sk', 'spearBack', 'bite', 'kill', 'spears', 'paddle',
+                             'statue', 'unstatue'];
 
 export class SharedWorld {
   constructor(game) {
@@ -107,6 +108,10 @@ export class SharedWorld {
 
   tookBack(s) { this.send({ k: 'spearBack', s: s.id }); }
 
+  /** A statue set up, or taken up again: it is the world's, so everyone's. */
+  statueUp(s) { this.send({ k: 'statue', s: [s.id, +s.x.toFixed(2), +s.z.toFixed(2), +s.yaw.toFixed(3)] }); }
+  statueDown(s) { this.send({ k: 'unstatue', id: s.id }); }
+
   /** A paddle stroke on the shared raft: the host's raft is the one that moves (and says where it went). */
   paddled(at, dir) {
     if (!this.net.connected || this.net.isHost) return;
@@ -131,6 +136,14 @@ export class SharedWorld {
       if (!this.net.isHost) return;
       const len = Math.hypot(e.d[0], e.d[1]) || 1;
       g.raft.paddle({ x: e.p[0], z: e.p[1] }, { x: e.d[0] / len, z: e.d[1] / len }, 1);
+    } else if (e.k === 'statue' && Array.isArray(e.s)) {
+      const [id, x, z, yaw] = e.s;
+      if (typeof id === 'string' && [x, z, yaw].every(Number.isFinite)) {
+        g.statues.add({ id, x, z, yaw });
+        g.markMine();
+      }
+    } else if (e.k === 'unstatue') {
+      g.statues.remove(e.id);
     } else if (e.k === 'gather') {
       const it = g.debris.items[e.i];
       if (it && !it.held) g.debris.harvest(it);

@@ -64,12 +64,15 @@ export class Together {
     // Fish on your own fires go in the bag first; your raft waits without them.
     this.game.pocketSpit();
     this.own = this.raft.toJSON();
+    // Your statues are of your world, and wait with your raft.
+    this.ownStatues = this.game.statues.toJSON();
+    this.game.statues.clear();
     this.fresh = true;
   }
 
   /** Someone arrived: the host hands them the raft. */
   joined(id) {
-    if (this.net.isHost) this.net.event({ k: 'raft', r: this.raft.snapshot() }, id);
+    if (this.net.isHost) this.net.event({ k: 'raft', r: this.raft.snapshot(), st: this.game.statues.toJSON() }, id);
     this.world.joined(id);
   }
 
@@ -82,6 +85,9 @@ export class Together {
     this.raft.clear();
     this.raft.load(this.own);
     this.own = null;
+    g.statues.load(this.ownStatues);
+    this.ownStatues = null;
+    g.markMine();
     this.fresh = false;
     this.afterChange();
     if (g.player.state !== 'swim') g.player.respawnOnRaft();
@@ -101,6 +107,7 @@ export class Together {
       // would undo it, so that one waits for the next.
       if (this.net.isHost || !e.r || (!this.fresh && now() - this.edited < OWN)) return;
       this.raft.adopt(e.r, spit);
+      if (Array.isArray(e.st)) this.adoptStatues(e.st);
       if (Array.isArray(e.r.pose)) this.raft.steer(e.r.pose);
       if (this.fresh) {
         this.fresh = false;
@@ -127,6 +134,15 @@ export class Together {
     g.hud.refreshInventory(g.inv);
   }
 
+  /** The host's statues: those it has that are missing go up; those it lacks come down. */
+  adoptStatues(list) {
+    const st = this.game.statues;
+    const want = new Set(list.map(s => s[0]));
+    for (const s of [...st.list]) if (!want.has(s.id)) st.remove(s.id);
+    for (const [id, x, z, yaw] of list) if (id && !st.find(id)) st.add({ id, x, z, yaw });
+    this.game.markMine();
+  }
+
   // ── each frame ─────────────────────────────────────────────────────────────
   update(dt) {
     this.world.update(dt);
@@ -134,7 +150,7 @@ export class Together {
     this.every -= dt;
     if (this.settle !== null) this.settle -= dt;
     if (this.every <= 0 || (this.settle !== null && this.settle <= 0)) {
-      this.net.event({ k: 'raft', r: this.raft.snapshot() });
+      this.net.event({ k: 'raft', r: this.raft.snapshot(), st: this.game.statues.toJSON() });
       this.settle = null;
       this.every = EVERY;
     }

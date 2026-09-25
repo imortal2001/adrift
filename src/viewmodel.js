@@ -20,6 +20,7 @@
 // a scan (tools/build_coconut.py), stood with its pores up like its stand-in.
 
 import * as THREE from 'three';
+import { statueBody } from './statue.js';
 import { ModelLibrary } from './models.js';
 import { logTexture, woodTexture, metalTexture } from './textures.js';
 import { leafAtlas, CELL, ATLAS_SIZE } from './flora.js';
@@ -60,6 +61,8 @@ export const POSES = {
   // bow across the view and spindle down — the way you would hold it over a
   // hearth board — turned a little so the bow reads as a curve.
   bowdrill: { model: null,         pos: [0.14, -0.19, -0.50], rot: [0.45, -0.25, 0.0] },
+  // Carried in front of you, upright, its face toward you.
+  statue:  { model: null,          pos: [0.16, -0.36, -0.62], rot: [0.1, Math.PI + 0.35, 0.0] },
   // Tipped toward you, so its three pores — the face of a coconut — show.
   coconut: { model: 'coconut',     pos: [0.17, -0.22, -0.60], rot: [0.75, 0.40, 0.0] },
   // Raw materials: nothing to do with them in hand, but you should see what
@@ -194,6 +197,8 @@ function cyl(r0, r1, y0, y1, m, seg = 8) {
 const tex = (t, rx = 1, ry = 1) => { t.repeat.set(rx, ry); return t; };
 
 const BODIES = {
+  // The statue you are carrying to set up: the same figure as stands on land, small.
+  statue() { return statueBody(0.28); },
   // A paddle: a pole with a crossbar grip at the hand, and a broad blade at
   // the working end, lashed on.
   paddle() {

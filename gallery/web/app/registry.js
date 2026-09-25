@@ -29,6 +29,7 @@ import { ModelLibrary } from '/src/models.js';
 import { SPECIES as DINOS, Wildlife } from '/src/wildlife.js';
 import { FishSchools, normalise, BODY_LENGTH, BIG } from '/src/fish.js';
 import { swimMaterial, styleFor, Swimmer, skinOf } from '/src/swim.js';
+import { statueBody } from '/src/statue.js';
 import { Whale } from '/src/whale.js';
 import { FIGHTERS } from '/src/fight.js';
 import { REEF, reefGeometry, reefMaterial } from '/src/reef.js';
@@ -393,6 +394,21 @@ export async function loadRegistry() {
       },
     });
   }
+
+  add({
+    id: 'statue', name: 'Statue', category: 'objects', group: 'On land',
+    kind: 'built in code', source: 'src/statue.js · statueBody()',
+    facts: [['Where', 'two dozen stand about the land, to be found — or carve one (6 wood, 2 rope, 3 palm)'],
+            ['What', 'register at it (E) and you wake beside it if you die; without one you wake where you first came to'],
+            ['Moving it', 'X lifts it; click sets it down on land, or on the raft\'s deck, where it sails with you'],
+            ['Size', 'about 1.9 m'], ['Garland', 'on the one you are registered at, on your screen']],
+    variants: [{ id: 'plain', label: 'Standing' }, { id: 'yours', label: 'Yours (garlanded)' }],
+    async build(variant = 'plain') {
+      const obj = statueBody();
+      obj.getObjectByName('garland').visible = variant === 'yours';
+      return { object: shadows(obj) };
+    },
+  });
 
   add({
     id: 'float', name: 'Fishing float', category: 'equipment', group: 'Fishing gear',

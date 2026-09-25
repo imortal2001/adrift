@@ -196,6 +196,8 @@ pause screen starts over.
 | `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold. |
 | `src/net.js` | Playing together: joining a room through the relay, sending where you are and what you do, and drawing the others — their characters, smoothed between updates, holding what they hold, with a name over their heads. |
 | `src/sharedworld.js` | Playing together in one world, the host's: the time of day, the flotsam, the fish schools, the whale and the dinosaurs, a catch or a gather gone for everyone, the others' spears in flight, a bite on a guest sent to them. |
+| `src/spawn.js` | Where a new castaway comes to: a beach, the open sea, a square of wreckage or a small raft — never inland — and what they are told. |
+| `src/statue.js` | The statues: carved in code, scattered over the land to be found, lifted and set up on land or on the deck, registered at to wake beside when you die. |
 | `src/together.js` | Playing together on one raft, the host's: your own put by while you are away from it, each change sent as it happens, and the host's copy settling anything contested. |
 | `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
@@ -733,6 +735,27 @@ blacktip reef shark
 and humpback whale ([CRRU](https://crru.org.uk/education/species/humpback-whale)).
 The game compresses all of it — real fights last longer and real tuna do not
 come this close to a reef — but the order of things is theirs.
+
+### Where you come to, and where you wake
+
+A new game starts you somewhere on the edge of the world, never inland
+(`src/spawn.js`): washed up on a beach with nothing, treading water in the
+open sea, clinging to a single square of wreckage, or on the little raft of
+four pallets. Wherever it was is your starting point. From a beach or the sea,
+the first foundation is laid on the water wherever you aim the hammer — deep
+enough to float it — and the raft grows from there.
+
+**Statues** stand all over the land — two dozen of them, on beaches, in the
+forest, up on the hills, well apart — carved long ago and waiting to be found;
+the log counts the ones you come across. **E** at one makes it where you wake:
+die, and you come to beside it. Any statue can be lifted (**X**) and carried,
+and a click sets it down again: on open ground, or on a free square of the
+raft's deck, where it is lashed down and sails with you — register at that one
+and you wake aboard, wherever the raft has got to. You can carve your own,
+too (6 wood, 2 rope, 3 palm). Without one — or if yours has been lifted — you
+wake at your starting point. Yours wears a garland, on your screen. Statues are the world's: playing together, everyone sees the
+host's, and yours wait at home with your raft. The game keeps where you are,
+too: on the deck, ashore, or in the water where you left off.
 
 ### Paddling and sailing
 

@@ -16,6 +16,7 @@ import { textures } from './textures.js';
 import { BUILDABLE_BY_ID, FIRE } from './items.js';
 import { buildCampfire, updateFire, tickFire } from './fire.js';
 import { heightAt } from './terrain.js';
+import { statueBody } from './statue.js';
 
 export const CELL = 2;
 export const DECK_Y = 0;        // walkable surface, in raft-local space
@@ -215,6 +216,15 @@ const BUILD = {
     furl.name = 'furl';
     furl.visible = false;                // set until update() says otherwise
     rig.add(furl);
+    return g;
+  },
+
+  // A statue set up on the deck (statue.js): the same figure as on land, a
+  // little smaller, lashed down. In the build ghost it is all one colour.
+  statue(t, M) {
+    const g = statueBody(0.78);
+    g.position.set(t.cx * CELL, 0, t.cz * CELL);
+    if (M('plank') !== mats().plank) g.traverse(o => { if (o.isMesh) o.material = M('plank'); });
     return g;
   },
 
@@ -566,6 +576,8 @@ export class Raft {
     if (!b) return false;
     if (b.kind === 'cell') {
       if (this.hasCell(t.cx, t.cz) || this.cells.size >= MAX_CELLS) return false;
+      // The first foundation of all goes wherever you lay it (BuildMode puts the raft there).
+      if (!this.cells.size) return true;
       // A save restores cells in arbitrary order, so adjacency can't be required.
       if (t.force) return true;
       return NEIGHBOURS.some(([dx, dz]) => this.hasCell(t.cx + dx, t.cz + dz));
@@ -630,7 +642,8 @@ export class Raft {
       }
     }
     for (const o of this.objs.values()) {
-      const x = o.cx * CELL, z = o.cz * CELL, r = o.type === 'campfire' ? 0.62 : o.type === 'sail' ? 0.18 : 0.58;
+      const x = o.cx * CELL, z = o.cz * CELL,
+            r = o.type === 'campfire' ? 0.62 : o.type === 'sail' ? 0.18 : o.type === 'statue' ? 0.3 : 0.58;
       this.blockers.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r });
     }
   }
@@ -913,7 +926,9 @@ export class Raft {
         else { o.fuel = fuel; o.lit = !!lit && fuel > 0; }
       }
     }
-    if (!this.cells.size) this.startingRaft();
+    // An old save always had a raft; a new one with none has none yet (a
+    // castaway washed up on a beach, say) and should keep having none.
+    if (!this.cells.size && !Array.isArray(data.pose)) this.startingRaft();
   }
 }
 

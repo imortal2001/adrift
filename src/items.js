@@ -21,6 +21,9 @@ export const ITEMS = {
              hint: 'Right-click to throw it — then E to pull it back out' },
   rod:     { name: 'Rod',     tool: true, action: 'rod',
              hint: 'Click to cast — click again the moment the float goes under. Right-click baits the hook with a fish' },
+  // Carved from driftwood, set up on land: where you wake if you die.
+  statue:  { name: 'Statue',  tool: false, action: 'place',
+             hint: 'Click to set it up on land — then E at it, and it is where you wake if you die' },
   // A blade on a pole: the raft goes where you paddle it.
   paddle:  { name: 'Paddle',  tool: true, action: 'paddle',
              hint: 'On the deck: hold click to paddle, right-click to back-paddle. Paddle at one side to turn' },
@@ -106,6 +109,8 @@ export const RECIPES = [
     desc: 'Friction fire: saw the bow at a campfire to light it.' },
   { id: 'paddle', out: ['paddle', 1], cost: { plank: 2, rope: 1 },
     desc: 'Move the raft. Stroke at one side to turn it the other way.' },
+  { id: 'statue', out: ['statue', 1], cost: { wood: 6, rope: 2, leaf: 3 },
+    desc: 'Set it up on land and register at it (E): if you die, you wake beside it.' },
 ];
 
 // kind: how the piece attaches to the raft grid.
@@ -131,6 +136,10 @@ export const BUILDABLES = [
 ];
 
 export const BUILDABLE_BY_ID = Object.fromEntries(BUILDABLES.map(b => [b.id, b]));
+// Not on the build bar: a statue goes on the deck from your hands (main.js
+// placeStatue), and it comes back to your hands — its "cost" is itself.
+BUILDABLE_BY_ID.statue = { id: 'statue', name: 'Statue', kind: 'object', cost: { statue: 1 },
+                           desc: 'Set up on the deck, it sails with the raft; register at it to wake aboard.' };
 
 /** What each kind of flotsam gives up when gathered. */
 export const DEBRIS_KINDS = {
