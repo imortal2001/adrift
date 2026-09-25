@@ -117,6 +117,11 @@
     font-size:12px;animation:slide .25s ease both}
   .msg.good{border-color:rgba(127,211,138,.5)}
   .msg.bad{border-color:rgba(255,122,107,.5)}
+  .msg.chat{border-color:rgba(143,227,255,.45);background:rgba(8,26,36,.8)}
+  .msg.chat.mine{opacity:.85}
+  #chat{position:absolute;left:18px;bottom:132px;width:360px;pointer-events:auto}
+  #chat input{width:100%;box-sizing:border-box;font:inherit;font-size:13px;color:#f4efe2;padding:8px 11px;
+    border-radius:8px;border:1px solid rgba(143,227,255,.55);background:rgba(8,20,28,.86);outline:none}
   @keyframes slide{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
 
   /* ---------- modal panels (craft / build) ---------- */
@@ -283,6 +288,8 @@
   <div id="reticle"></div>
   <div id="prompt" class="panel"></div>
   <div id="log"></div>
+  <div id="chat" hidden><input id="chatBox" maxlength="140" autocomplete="off"
+    placeholder="Say something — Enter to send, Esc to cancel" aria-label="Say something"></div>
 
   <div id="topright" class="panel">
     <div id="clock">06:00</div>
@@ -363,7 +370,8 @@
     <div class="row"><span class="lbl">Play together</span>
       <input id="mpName" maxlength="20" placeholder="Your name" aria-label="Your name"></div>
     <div class="row out"><button id="mpHost">Host a game</button><span class="or">or</span>
-      <input id="mpCode" maxlength="8" placeholder="Code" aria-label="Room code"><button id="mpJoin">Join</button></div>
+      <input id="mpCode" maxlength="8" placeholder="Code" aria-label="Room code"><button id="mpJoin">Join</button>
+      <button id="mpRejoin" hidden></button></div>
     <div class="row inn"><input id="mpInvite" readonly aria-label="Invite link"><button id="mpCopy">Copy invite link</button><button id="mpLeave">Leave</button></div>
     <div id="mpStatus"></div>
   </div>
@@ -381,6 +389,7 @@
       <b>click</b> places it</span>
     <span><b>Q</b> eat a coconut &nbsp; <b>C</b> crafting &nbsp; <b>B</b> take out the hammer</span>
     <span><b>X</b> salvage the piece you are looking at &mdash; materials come back</span>
+    <span>Playing together, <b>Enter</b> to say something to the others</span>
     <span><b>F</b> slip into the water &nbsp; <b>Z</b> swim down &nbsp; <b>Space</b> swim up / climb out</span>
     <span><b>H</b> pause and show this help</span>
     <span id="adminHint" hidden><b>`</b> admin panel &mdash; set the time of day

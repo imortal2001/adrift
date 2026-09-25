@@ -55,12 +55,13 @@ export class HUD {
   }
 
   // ── messages ───────────────────────────────────────────────────────────────
-  log(text, kind = '') {
+  /** A line in the message log, for `ms` (something said stays up longer). */
+  log(text, kind = '', ms = 5200) {
     const node = document.createElement('div');
     node.className = `msg ${kind}`;
     node.textContent = text;
     this.el.log.appendChild(node);
-    const entry = { node, until: performance.now() + 5200 };
+    const entry = { node, until: performance.now() + ms };
     this.msgs.push(entry);
     while (this.msgs.length > 5) {
       const old = this.msgs.shift();

@@ -119,7 +119,7 @@ class Game {
     this.together = new Together(this);
     this.net = new Net({ scene: this.scene, library: this.viewmodel.library,
                          cloneHeld: id => this.viewmodel.cloneBody(id),
-                         log: (text, kind) => this.hud.log(text, kind),
+                         log: (text, kind, ms) => this.hud.log(text, kind, ms),
                          raft: this.raft, together: this.together });
     // Outside first person, a line hangs from the rod in the body's hand,
     // not the invisible one at your eye.
@@ -279,6 +279,7 @@ class Game {
       b.onclick = e => { e.stopPropagation(); this.dress(b.dataset.who); };
     }
     this.bindTogether();
+    this.bindChat();
     canvas.addEventListener('click', () => {
       if (this.cursorPanel) return;          // a panel owns the cursor
       if (!this.playing) this.start();
@@ -313,6 +314,8 @@ class Game {
     });
 
     addEventListener('beforeunload', () => this.save());
+    // Closing the page, you have left the game, not dropped out of it.
+    addEventListener('pagehide', () => this.net.goodbye());
   }
 
   /**
@@ -341,6 +344,7 @@ class Game {
     $('mpHost').onclick = () => go(newCode());
     $('mpJoin').onclick = () => { const c = cleanCode($('mpCode').value); if (c.length >= 4) go(c); };
     $('mpLeave').onclick = () => this.net.leave();
+    $('mpRejoin').onclick = () => { const c = this.net.lastRoom; if (c) go(c); };
     $('mpCopy').onclick = () => {
       navigator.clipboard?.writeText(this.net.invite).then(() => { $('mpCopy').textContent = 'Copied'; },
         () => { $('mpInvite').select?.(); });
@@ -351,6 +355,9 @@ class Game {
       box.classList.toggle('off', !n.available);
       box.classList.toggle('in', !!n.code && n.connected);
       $('mpStatus').textContent = n.status;
+      const again = n.lastRoom;
+      $('mpRejoin').hidden = !again || (!!n.code && !!n.ws);
+      $('mpRejoin').textContent = again ? `Rejoin ${again}` : '';
       $('mpInvite').value = n.invite;
       const crew = n.crew();
       $('crew').hidden = crew.length === 0;
@@ -361,6 +368,43 @@ class Game {
     refresh();
     const code = cleanCode(new URLSearchParams(location.search).get('room'));
     if (code.length >= 4 && this.net.available) { $('mpCode').value = code; go(code); }
+  }
+
+  /**
+   * Playing together, Enter opens a line to say something in; Enter again
+   * says it, Esc thinks better of it. While it is open the keys are the
+   * line's, not the game's.
+   */
+  bindChat() {
+    const box = document.getElementById('chatBox');
+    if (!box) return;
+    this.chatting = false;
+    const close = () => {
+      if (!this.chatting) return;
+      this.chatting = false;
+      box.value = '';
+      box.blur();
+      box.parentElement.hidden = true;
+      this.input.enabled = true;
+    };
+    this.openChat = () => {
+      if (this.chatting || !this.net.connected) return;
+      this.chatting = true;
+      this.input.held.clear();
+      this.input.enabled = false;
+      box.parentElement.hidden = false;
+      // After this key's own keydown, or it types into the box.
+      setTimeout(() => box.focus(), 0);
+    };
+    box.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+        const text = box.value.trim();
+        if (text && !this.net.chat(text)) return;      // too soon after the last: keep it
+        close();
+      } else if (e.code === 'Escape') close();
+    });
+    box.addEventListener('blur', close);
   }
 
   /** Play as the woman or the man. */
@@ -1093,7 +1137,10 @@ class Game {
         } else if (input.clicked(0) && !act?.drill) this.useHeld(eye, dir);
       }
 
-      // Salvage works whether or not build mode is on.
+      // Playing together: say something.
+    if (!panelOpen && !this.chatting && (input.pressed('Enter') || input.pressed('NumpadEnter'))) this.openChat?.();
+
+    // Salvage works whether or not build mode is on.
       if (input.pressed('KeyX')) {
         this.ray.set(eye, dir);
         const r = this.build.salvage(this.ray);

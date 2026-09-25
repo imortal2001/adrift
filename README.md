@@ -740,6 +740,15 @@ name and **Host a game**: you get a five-letter room code and an invite link
 to send. Whoever opens the link (or types the code and **Join**s) is in your
 game — up to six of you. The crew is listed under the clock.
 
+**Enter** opens a line to say something: it goes in everyone's log and in a
+speech bubble over your head; Enter sends it, Esc thinks better of it. If
+your connection drops, the game reconnects on its own — you stay on the
+shared raft, in the shared world, and the others see that you lost the
+connection and then that you are back; after 45 seconds of trying, you are
+back on your own raft. Closing the page or pressing **Leave** is leaving, and
+the others see you have gone. A game you were in lately has a **Rejoin**
+button on the splash screen.
+
 You see each other as you are: where you stand or swim, which way you face,
 walking, running, jumping, treading water, woman or man, what is in your
 hand, and each thrust, throw, strike and swing — the same body and motion

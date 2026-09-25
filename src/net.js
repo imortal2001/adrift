@@ -31,6 +31,25 @@ const SLEW = 1.5;              // a sea behind closes this much of the gap a sec
 const JUMP = 1.5;              // …or jumps, if it is this many seconds behind
 const NEAR = 0.2;              // and within this, it is the same sea
 
+const GIVE_UP = 45;            // seconds of trying to reconnect before going back to your own raft
+const LAST_ROOM = 3 * 3600e3;  // a game you were in this recently can be rejoined from the splash
+const SAY = 140;               // characters of something said
+const CHATTY = 0.7;            // seconds between one thing said and the next
+
+// Who you are to the relay across a dropped connection (and a reload of the
+// page): the same in this tab, different in the next.
+const TOKEN = (() => {
+  try {
+    let t = sessionStorage.getItem('adrift.tok');
+    if (!t) sessionStorage.setItem('adrift.tok', t = Math.random().toString(36).slice(2, 14));
+    return t;
+  } catch { return Math.random().toString(36).slice(2, 14); }
+})();
+const store = {
+  get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* fine */ } },
+};
+
 const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';       // no I, O, 0, 1
 export function newCode(n = 5) {
   let s = '';
@@ -60,6 +79,40 @@ function nameTag(text) {
   s.scale.set(0.32 * w / 72, 0.32, 1);
   s.renderOrder = 5;
   return s;
+}
+
+/** Something said, over someone's head: a speech bubble, wrapped to a few lines. */
+function speechBubble(text) {
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  const font = '500 34px system-ui, sans-serif', max = 520, lh = 42, pad = 22;
+  ctx.font = font;
+  const lines = [];
+  let line = '';
+  for (const word of text.split(/\s+/)) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width > max && line) { lines.push(line); line = word; }
+    else line = next;
+  }
+  if (line) lines.push(line);
+  if (lines.length > 4) { lines.length = 4; lines[3] = lines[3].replace(/.{0,2}$/, '…'); }
+  const w = Math.ceil(Math.min(max, Math.max(...lines.map(l => ctx.measureText(l).width)))) + pad * 2;
+  const h = lines.length * lh + pad * 1.4 + 16;
+  c.width = w; c.height = h;
+  ctx.font = font;
+  ctx.fillStyle = 'rgba(250,246,236,0.94)';
+  ctx.beginPath(); ctx.roundRect(0, 0, w, h - 16, 22); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(w / 2 - 14, h - 17); ctx.lineTo(w / 2, h); ctx.lineTo(w / 2 + 14, h - 17); ctx.fill();
+  ctx.fillStyle = '#1d2a33';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  lines.forEach((l, i) => ctx.fillText(l, w / 2, pad * 0.7 + lh * (i + 0.5)));
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  const k = 0.3 / 72;
+  sp.scale.set(w * k, h * k, 1);
+  sp.renderOrder = 6;
+  return sp;
 }
 
 const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
@@ -124,6 +177,26 @@ class Remote {
     this.body.update(dt, p);
     this.tag.visible = true;
     this.tag.position.set(p.pos.x, p.pos.y + 2.05, p.pos.z);
+    if (this.bubble) {
+      if (performance.now() / 1000 > this.bubbleUntil) this.dropBubble();
+      else this.bubble.position.set(p.pos.x, p.pos.y + 2.25 + this.bubble.scale.y / 2, p.pos.z);
+    }
+  }
+
+  /** Something they said, over their head for a while. */
+  say(text) {
+    this.dropBubble();
+    this.bubble = speechBubble(text);
+    this.bubbleUntil = performance.now() / 1000 + 5 + text.length * 0.06;
+    this.net.scene.add(this.bubble);
+  }
+
+  dropBubble() {
+    if (!this.bubble) return;
+    this.bubble.removeFromParent();
+    this.bubble.material.map.dispose();
+    this.bubble.material.dispose();
+    this.bubble = null;
   }
 
   /**
@@ -141,6 +214,11 @@ class Remote {
 
   event(e) {
     if (e.k === 'g') this.body.gesture(e.g);
+    else if (e.k === 'chat' && e.text) {
+      const text = String(e.text).replace(/[\u0000-\u001f]/g, '').slice(0, SAY);
+      this.say(text);
+      this.net.log(`${this.name}: ${text}`, 'chat', 12000);
+    }
     else if (e.k === 'name' && e.name && e.name !== this.name) {
       this.net.log(`${this.name} is now ${e.name}.`);
       this.name = e.name;
@@ -159,6 +237,7 @@ class Remote {
     this.body.hold(null, null);
     this.body.group.removeFromParent();
     this.dropTag();
+    this.dropBubble();
   }
 
   dropTag() {
@@ -173,7 +252,7 @@ export class Net {
    * @param scene     where others are drawn
    * @param library   the ModelLibrary, for their characters
    * @param cloneHeld (id) => a copy of an item's body, for their hands
-   * @param log       (text, kind) => a line in the message log
+   * @param log       (text, kind, ms) => a line in the message log
    * @param raft      the raft, which others stand on
    * @param together  the shared raft (together.js): told of arrivals, and of world events
    */
@@ -202,6 +281,13 @@ export class Net {
   get isHost() { return this.connected && this.id === this.host; }
   get invite() { return this.code ? `${location.origin}${location.pathname}?room=${this.code}` : ''; }
 
+  /** A game you were in lately and are not in now: its code, to rejoin. */
+  get lastRoom() {
+    const l = store.get('adrift.last');
+    if (!l?.code || Date.now() - l.at > LAST_ROOM || (l.code === this.code && this.ws)) return null;
+    return l.code;
+  }
+
   /** Join (or, with a new code, host) a room. */
   join(code, name, who) {
     if (!RELAY) return;
@@ -209,30 +295,78 @@ export class Net {
     this.code = cleanCode(code);
     this.name = name;
     this.who = who;
-    this.status = `Connecting to ${this.code}…`;
+    store.set('adrift.last', { code: this.code, at: Date.now() });
+    this.connect(false);
+  }
+
+  connect(again) {
+    this.status = again ? `Reconnecting to ${this.code}…` : `Connecting to ${this.code}…`;
     this.onChange();
     const ws = new WebSocket(`${RELAY}/room/${this.code}`);
     this.ws = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name, who }));
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: this.name, who: this.who, tok: TOKEN }));
     ws.onmessage = e => this.hear(e.data);
     ws.onclose = () => {
       if (this.ws !== ws) return;
-      const was = this.connected || this.id !== null;
+      const was = this.id !== null;
       this.clear();
       this.ws = null;
+      // Dropped out of a game: try to get back in — still on the shared
+      // raft, in the shared world — and only after a while give it up.
+      if (was || this.retrying) { this.retry(); return; }
       this.together?.exit();
-      this.status = was ? `Lost the connection to ${this.code}` : `Could not reach the relay`;
+      this.status = 'Could not reach the relay';
       this.onChange();
     };
   }
 
+  retry() {
+    const now = performance.now() / 1000;
+    if (!this.retrying) {
+      this.retrying = { since: now, n: 0 };
+      this.log('The connection dropped. Reconnecting…', 'bad');
+    }
+    if (now - this.retrying.since > GIVE_UP) {
+      this.retrying = null;
+      this.together?.exit();
+      this.status = `Lost the connection to ${this.code}`;
+      this.log(`Could not get back into ${this.code}.`, 'bad');
+      this.onChange();
+      return;
+    }
+    this.status = `Connection lost — reconnecting to ${this.code}…`;
+    this.onChange();
+    const wait = Math.min(5, 1 + this.retrying.n++ * 1.5);
+    this.retryIn = setTimeout(() => this.connect(true), wait * 1000);
+  }
+
   leave(quiet = false) {
+    clearTimeout(this.retryIn);
+    this.retrying = null;
     const ws = this.ws;
     this.ws = null;
-    if (ws) ws.close();
+    if (ws) {
+      // On purpose: the others hear you have gone, not that you dropped.
+      if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'bye' }));
+      ws.close();
+    }
     this.clear();
     this.together?.exit();
     if (!quiet) { this.code = null; this.status = 'Not in a game'; this.onChange(); }
+  }
+
+  /** Closing the page is leaving on purpose too. */
+  goodbye() { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ t: 'bye' })); }
+
+  /** Say something to the others. Returns whether it went. */
+  chat(text) {
+    text = String(text || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, SAY);
+    const now = performance.now() / 1000;
+    if (!text || !this.connected || now - (this.said || 0) < CHATTY) return false;
+    this.said = now;
+    this.event({ k: 'chat', text });
+    this.log(`${this.name}: ${text}`, 'chat mine', 12000);
+    return true;
   }
 
   clear() {
@@ -251,17 +385,20 @@ export class Net {
       for (const p of m.peers) this.add(p);
       this.status = `In game ${this.code}`;
       this.together?.enter(this.isHost);
-      this.log(this.remotes.size ? `You join ${this.code}: ${[...this.remotes.values()].map(r => r.name).join(', ')} ${this.remotes.size === 1 ? 'is' : 'are'} here.`
-                                 : `You are hosting ${this.code}. Share the invite link.`, 'good');
+      const names = [...this.remotes.values()].map(r => r.name).join(', ');
+      if (this.retrying) this.log(`Back in ${this.code}.`, 'good');
+      else this.log(this.remotes.size ? `You join ${this.code}: ${names} ${this.remotes.size === 1 ? 'is' : 'are'} here.`
+                                      : `You are hosting ${this.code}. Share the invite link.`, 'good');
+      this.retrying = null;
       this.onChange();
     } else if (m.t === 'join') {
       this.add(m);
       this.together?.joined(m.id);
-      this.log(`${m.name} comes aboard.`, 'good');
+      this.log(m.back ? `${m.name} is back.` : `${m.name} comes aboard.`, 'good');
       this.onChange();
     } else if (m.t === 'leave') {
       const r = this.remotes.get(m.id);
-      if (r) { this.log(`${r.name} has gone.`); r.dispose(); this.remotes.delete(m.id); this.together?.left(m.id); this.onChange(); }
+      if (r) { this.log(m.bye ? `${r.name} has gone.` : `${r.name} lost the connection.`); r.dispose(); this.remotes.delete(m.id); this.together?.left(m.id); this.onChange(); }
     } else if (m.t === 'state') {
       this.remotes.get(m.id)?.hear(m.s);
     } else if (m.t === 'ev' && m.e) {
