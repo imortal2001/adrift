@@ -79,7 +79,7 @@ code and models, runs on this machine only, and has its own
 | Arrow keys | also turn the view |
 | `Space` | jump — and climb aboard when you are in the water |
 | `V` | change the view: first person → third (behind you) → second (facing you) |
-| `E` | gather the debris you are looking at, drink from a collector — or a river, lake or pool ashore — take back a thrown spear; at a campfire, cook the raw fish in hand, take fish that are done, or feed it wood |
+| `E` | gather the debris you are looking at, drink from a collector — or a river, lake or pool ashore — grab a crab, take back a thrown spear; at a campfire, cook the raw fish in hand, take fish that are done, or feed it wood |
 | `1`–`5`, wheel | pick a hotbar slot |
 | Left-click | use whatever is in your hands |
 | `I` | pack — register tools and items into the five slots |
@@ -205,6 +205,8 @@ pause screen starts over.
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
 | `src/whale.js` | One humpback, ambient: cruises, surfaces to blow, sounds flukes-up. Not catchable. |
+| `src/reeflife.js` | The animals that move, other than fish and dinosaurs: sea turtles, stingrays, octopus and crabs on the reef, tortoises on land and pond turtles in the lakes — each with its own way of moving and of reacting to you; crab and octopus as catches. |
+| `src/reefmodels.js` | Their glTF bodies, when the models are here: the octopus's arm chains curled in code, the stingray's clip, and the tortoise's and pond turtle's limbs found in the mesh and moved in the vertex shader. |
 | `src/reef.js` | What lives on the sea bed: coral, sponges, anemones, seagrass, kelp, urchins, starfish, giant clams and rock, plus the surge that bends the soft ones. |
 | `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Used by the reef. |
 | `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers, and the falls and lakes on them), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
@@ -219,6 +221,7 @@ pause screen starts over.
 | `tools/build_whale.py` | Converts a third-party humpback whale (CC BY 4.0, see CREDITS.md) for the game: centred and scaled to 12.5 m, flipper and fluke tags from its shape, dark eyes, its normal map flipped to glTF's convention. |
 | `tools/build_coconut.py` | Converts a third-party photoscanned coconut (CC BY 4.0, see CREDITS.md) for the game: a smooth 3,072-triangle shell fitted to the 199,500-triangle scan, pores up, ~17 cm, with the scan's colour and relief baked onto it at 1024² (23 MB down to 270 KB). Held in hand, and afloat as flotsam at 2.4 times the size. |
 | `tools/build_player.py` | Converts the Ready Player Me woman and man (CC BY-NC-SA 4.0, see CREDITS.md) into the player's body: pose made the rest pose, facing the game's forward in metres, bone names cleaned, dressed for the Stone Age by repainting (the man's atlas by the bones that move each part), textures shrunk. |
+| `tools/build_sealife.py` | Converts the six third-party reef and pond animals (sea turtle, tortoise, pond turtle, crab, octopus, stingray — see CREDITS.md; the stingray is CC BY-NC) for the game: decimated to a few thousand triangles (the pond turtle's 25-piece photoscan joined and welded first), textures 1024² JPEG, plain lit materials, in the game's frame at their real sizes; the crab kept as 13 parts pivoting at their joints, the octopus and stingray keeping their rigs. |
 | `tools/build_shark.py` | Converts a third-party blacktip reef shark (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, one mesh and one texture atlas, fin tags for the swim shader, a normal map. |
 | `tools/simulate_fight.mjs` | Plays the rod's fight thousands of times per species with five kinds of player, for tuning `fight.js` by numbers rather than feel. |
 | `tools/build_tools.py` | Puts the three third-party tool models in the frame the hand holds them by, colours the spear, and shrinks their textures. |
@@ -995,6 +998,74 @@ it is out.
 
 Saves from before fires had to be lit keep theirs burning, with a full load
 of wood. The numbers are `FIRE` in `items.js`.
+
+### Reef animals
+
+The fish are not alone (`src/reeflife.js`). Round you at sea — keeping to the
+same focus the fish do — and on the beaches when you are ashore:
+
+- **Sea turtles** (3) glide over the reef and the sand in water deeper than
+  4 m, on slow sweeps of their front flippers — slow up, fast down, the
+  flipper turning edge-on on the way back. Every minute or two one rises to
+  the surface to breathe, lies there a few seconds, and dives again. Swim at
+  one and it turns away, unhurried.
+- **Stingrays** (4) lie on the open sand between the reefs, mottled the colour
+  of it; now and then one lifts off and flies low on rippling wings — a wave
+  running down each wing, front to back, growing toward the tips. Come within
+  3.5 m and it is off at a rush.
+- **Octopus** (3) creep over the coral, eight arms reaching and curling, their
+  colour sliding through the reef's to match what they are on. Come within
+  2.8 m and one blanches, jets off backwards and leaves a cloud of ink — then
+  hides, still, where it lands, which is when you can get close. The spear
+  takes one — thrown, or thrust into one that is hiding.
+- **Crabs** (7 on the reef, 8 on the beaches) scuttle sideways in short
+  bursts. On the reef one runs a few metres from you; on a beach it runs for
+  the sea and is gone. Get close and **E** grabs it.
+
+And away from the sea:
+
+- **Tortoises** (3) plod about the land near you — off the beach, on ground
+  that is not too steep, below the trees' end — a little way at a time,
+  stopping to graze with their heads down. Come within 3 m and one stops
+  where it is and draws in its head and legs, and stays that way until you
+  have been gone a while.
+- **Pond turtles** (4) live in the lakes, tarns and plunge pools when one is
+  near you. They paddle about at the surface, shells just awash, and now and
+  then haul out onto the bank to bask. Come near one there and it slides
+  back into the water and dives, and stays down a while.
+
+Crab and octopus are catches like the fish (`CATCHES` in `items.js`): they go
+in the fish slot, bait a hook, cook on the spit and are eaten, raw or cooked.
+Each player's sea has its own: they are not shared playing together, as a
+school's fish are not.
+
+**Models.** The sea turtle, stingray, octopus, crab, tortoise and pond turtle are
+third-party models (`assets/models/`, credited in `CREDITS.md`; **the
+stingray is CC BY-NC** — non-commercial — and must be replaced before the
+game is sold), converted by `tools/build_sealife.py` and moved in code by
+`src/reefmodels.js`:
+
+- the **sea turtle** is one mesh; its flippers are found in it the way the
+  tortoise's legs are (below) and beaten in the vertex shader — the front
+  pair together, down and back, the downstroke the quicker, the hind pair
+  only steering;
+- the **stingray** runs its own swim clip, as slowly or quickly as it is
+  going, nearly still on the sand;
+- the **octopus**'s rig has eight arm chains, which are curled and swept in
+  code — reaching and coiling as it creeps, trailing straight behind it as
+  it jets — and its texture is tinted through the camouflage colours;
+- the **crab** comes as a shell, two claws and ten legs, each with its
+  origin at its joint: every part is one instanced mesh for all the crabs,
+  turned about its joint, the legs walking in a tetrapod gait;
+- the **tortoise** and **pond turtle** are one mesh each. Their legs, head
+  and tail are found in the mesh — a height map from above says where the
+  shell is; what reaches out past it, or hangs below its rim, is limb — and
+  moved in the vertex shader, blended smoothly between limbs so the mesh
+  never tears: walking, paddling, grazing, drawing in.
+
+Without the files, the sea's animals are the code-built ones they replace
+(a few meshes each, their wings and arms re-shaped on the CPU every frame; the
+crabs three instanced meshes), and there are no tortoises or pond turtles.
 
 ### The whale
 

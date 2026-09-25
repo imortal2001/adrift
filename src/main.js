@@ -9,6 +9,7 @@ import { DebrisField } from './debris.js';
 import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
 import { Whale } from './whale.js';
+import { ReefLife } from './reeflife.js';
 import { Underwater } from './underwater.js';
 import { Viewmodel, THRUST_REACH, COOKED } from './viewmodel.js';
 import { CameraRig } from './camera.js';
@@ -122,6 +123,9 @@ class Game {
     this.wildlife = new Wildlife(this.scene, { x: 210, z: -150 }, this.terrain);
     this.fish = new FishSchools(this.scene, this.terrain, this.raft);
     this.whale = new Whale(this.scene, this.terrain, this.raft, this.fish);
+    // Turtles, stingrays, octopus and crabs (reeflife.js); crab and octopus are catches, as fish are.
+    this.reef = new ReefLife(this.scene, this.terrain);
+    this.fish.extra = this.reef;
     this.underwater = new Underwater(this.scene, this.ocean);
     this.hook = new Hook(this.scene);
     this.viewmodel = new Viewmodel(this.renderer, this.eye, this.sky);
@@ -148,6 +152,7 @@ class Game {
     // Thrown spears wear the same body the hand holds, glTF or procedural.
     this.spears = new ThrownSpears(this.scene, this.terrain, this.raft, this.fish,
                                    () => this.viewmodel.cloneBody('spear'));
+    this.spears.extra = this.reef;
     this.fishing = new Fishing(this.scene, this.raft, this.fish, this.viewmodel);
     // A fish in hand is the species it is: a still, hand-sized copy — a big
     // one scaled down, or a tuna held at arm's length would fill the view.
@@ -672,6 +677,16 @@ class Game {
    */
   thrust(eye, dir) {
     const f = this.fish.pick(eye, dir, THRUST_REACH, 0.9);
+    const octo = !f && this.reef.pick(eye, dir, THRUST_REACH, 'octopus');
+    if (octo) {
+      const body = this.reef.take(octo);
+      this.viewmodel.skewer(body);
+      if (!this.view.first) this.body.skewer(this.reef.bodyFor('octopus', 0.6));
+      this.addCatch('octopus');
+      this.hud.log('You spear an octopus. Its arms wrap the shaft.', 'good');
+      this.hud.refreshInventory(this.inv);
+      return;
+    }
     if (!f) {
       // A miss still scares everything near the point.
       if (this.player.submerged) this.fish.startle(eye.clone().addScaledVector(dir, THRUST_REACH), 2.5, 0.05);
@@ -932,7 +947,7 @@ class Game {
   describeCatch(fish) {
     const counts = new Map();
     for (const f of fish) counts.set(f.name, (counts.get(f.name) || 0) + 1);
-    const parts = [...counts].map(([name, n]) => (n === 1 ? `a ${name}` : `${n} ${name}`));
+    const parts = [...counts].map(([name, n]) => (n === 1 ? `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}` : `${n} ${name}`));
     return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
   }
 
@@ -1466,6 +1481,17 @@ class Game {
     if (spear) {
       return { prompt: '<b>E</b> take your spear', act: () => this.retrieveSpear(spear) };
     }
+    // A crab, near enough to grab — on the beach or on the reef.
+    const crab = this.reef.pick(eye, dir, this.player.state === 'swim' ? 2.2 : 2.6, 'crab');
+    if (crab) {
+      return { prompt: '<b>E</b> grab the crab', act: () => {
+        this.reef.take(crab);
+        this.addCatch('crab');
+        this.useAnim('eat');
+        this.hud.log('You grab the crab from behind, clear of its claws.', 'good');
+        this.hud.refreshInventory(this.inv);
+      } };
+    }
     const it = this.debris.pick(eye, dir, reach);
     if (it) {
       return { prompt: `<b>E</b> gather ${DEBRIS_KINDS[it.kind].label}`, act: () => this.gather(it) };
@@ -1565,13 +1591,16 @@ class Game {
     // throw's (how far a spear stays fast enough to skewer) — offering a thrust at
     // a fish two metres out of reach is worse than saying nothing.
     const armed = this.hotbar.held === 'spear' && this.inv.has('spear');
+    const octo = this.reef.pick(eye, dir, this.player.submerged ? 3.7 : 9, 'octopus');
     if (armed) {
-      if (this.fish.pick(eye, dir, THRUST_REACH, 0.9)) {
+      if (this.fish.pick(eye, dir, THRUST_REACH, 0.9) || this.reef.pick(eye, dir, THRUST_REACH, 'octopus')) {
         return { prompt: '<b>Click</b> to thrust', act: null };
       }
-      if (this.fish.pick(eye, dir, this.player.submerged ? 3.7 : 9, 0.985)) {
+      if (this.fish.pick(eye, dir, this.player.submerged ? 3.7 : 9, 0.985) || octo) {
         return { prompt: '<b>Right-click</b> to throw', act: null };
       }
+    } else if (octo && octo.pos.distanceTo(eye) < 3.5) {
+      return { prompt: 'An octopus — it would take a spear', act: null };
     } else if (this.fish.pick(eye, dir, 3.0)) {
       return { prompt: 'Too quick to catch by hand — you need a spear', act: null };
     }
@@ -1700,7 +1729,7 @@ class Game {
     if (!this.player.onLand) {
       this.focus ||= new THREE.Vector3();
       this.focus.set(this.player.pos.x, 0, this.player.pos.z);
-      this.debris.focus = this.fish.focus = this.whale.focus = this.focus;
+      this.debris.focus = this.fish.focus = this.whale.focus = this.reef.focus = this.focus;
     }
     // Stepped onto another raft, or swimming by one: that is the raft now.
     {
@@ -1742,6 +1771,7 @@ class Game {
                          this.player.state === 'deck' && this.player.onLand);
     this.debris.update(dt, this.time, this.player.pos);
     this.fish.update(dt, this.time, eye);      // the others it shies from too: sharedworld.js
+    this.reef.update(dt, this.time, eye, this.player.pos);
     this.whale.update(dt, this.time);
     this.spears.update(dt, this.time);
     this.hook.update(dt, eye.clone().addScaledVector(dir, 0.5), this.time, this.debris,

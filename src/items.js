@@ -54,10 +54,13 @@ export const FIRE = {
 // in the renderer). All of them eat the same, as FOOD.fish. Smallest first,
 // which is the order bait is picked in. A third name, where the full one is
 // too long for a hotbar slot, is what the slot shows.
+// The crab and the octopus are catches too (src/reeflife.js): a crab by
+// hand, an octopus on the spear; they go in the fish slot and cook the same.
 export const CATCHES = [
+  ['crab', 'Crab'],
   ['chromis', 'Chromis'], ['silver', 'Silverside'], ['wrasse', 'Wrasse'],
   ['tang', 'Yellow tang', 'Tang'], ['bluetang', 'Blue tang'], ['flounder', 'Flounder'],
-  ['porgy', 'Porgy'], ['snapper', 'Red snapper', 'Snapper'], ['mackerel', 'Mackerel'],
+  ['porgy', 'Porgy'], ['octopus', 'Octopus'], ['snapper', 'Red snapper', 'Snapper'], ['mackerel', 'Mackerel'],
   ['grouper', 'Grouper'], ['barracuda', 'Barracuda'], ['mahi', 'Mahi-mahi'],
   ['tuna', 'Yellowfin tuna', 'Tuna'], ['blacktip', 'Blacktip shark', 'Blacktip'],
 ];
@@ -89,6 +92,11 @@ export const FOOD = {
   coconut: { hunger: 26, thirst: 11,  text: 'You crack the coconut open. Milk and flesh.' },
   fish:    { hunger: 22, thirst: -3,  text: 'You eat the fish raw. Salty, but it keeps you going.' },
   cooked:  { hunger: 36, thirst: 0,   text: 'Hot fish off the fire. That is a meal.' },
+  // The same, in their own words.
+  fish_crab:       { hunger: 22, thirst: -3, text: 'You crack the crab open and eat it raw. Sweet, and salty.' },
+  cooked_crab:     { hunger: 36, thirst: 0,  text: 'You crack the shell and pick out the hot, sweet meat.' },
+  fish_octopus:    { hunger: 22, thirst: -3, text: 'You chew your way through raw octopus. It keeps you going.' },
+  cooked_octopus:  { hunger: 36, thirst: 0,  text: 'Octopus off the fire, charred at the tips. A good meal.' },
 };
 
 /** Items worth a hotbar slot: the ones that actually do something in hand. */

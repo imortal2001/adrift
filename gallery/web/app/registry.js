@@ -36,6 +36,8 @@ import { FIGHTERS } from '/src/fight.js';
 import { REEF, reefGeometry, reefMaterial } from '/src/reef.js';
 import { Terrain, CHUNK, WORLD, heightAt, coastDistance, reefMask, landAt, RIVERS, riverGeometry, riverCourse, LAKES, FALLS } from '/src/terrain.js';
 import { Waterfall, lakeGeometry } from '/src/waterfall.js';
+import { REEF_ANIMALS, turtleBody, rayBody, octopusBody, Crabs, OCTO_SHADES } from '/src/reeflife.js';
+import { octopusModel, rayModel, shelledModel, seaTurtleModel } from '/src/reefmodels.js';
 import { SPECIES as FLORA, speciesMesh, setFloraTime } from '/src/flora.js';
 import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE } from '/src/items.js';
 import { POSES, Viewmodel } from '/src/viewmodel.js';
@@ -67,7 +69,6 @@ export const GAPS = [
   { category: 'animals', name: 'Birds and flying animals', note: 'There is nothing in the air at all — no gulls over the sea, no pterosaurs.' },
   { category: 'equipment', name: 'Survival gear', note: 'No water bottle, knife, net, torch, or armour.' },
   { category: 'terrain', name: 'Caves and overhangs', note: 'Terrain is one heightfield: cliffs are steep, but nothing overhangs.' },
-  { category: 'reef', name: 'Reef animals that move', note: 'Nothing on the reef moves but the fish: no octopus, turtles, rays or crabs.' },
   { category: 'objects', name: 'Shipwrecks and weather', note: 'Deliberately out of scope for the prototype (see README).' },
 ];
 
@@ -311,6 +312,142 @@ export async function loadRegistry() {
       },
     });
   }
+
+  // ── reef animals (src/reeflife.js): built in code, moving as they do in play ──
+  const reefFacts = (key, extra) => [['Lives', REEF_ANIMALS[key].where], ['Round you', `${REEF_ANIMALS[key].count} at a time`], ...extra];
+  // Where a model is here (src/reefmodels.js; CREDITS.md) it is shown, and the code-built one is a variant.
+  const reefModel = key => (manifest.has(key) ? lib.get(key) : Promise.resolve(null));
+  const modelled = (key, file) => manifest.has(key)
+    ? { kind: 'glTF model', files: [file], source: `assets/models/${file} · tools/build_sealife.py · src/reefmodels.js · CREDITS.md` }
+    : { kind: 'built in code' };
+  add({
+    id: 'reef-turtle', name: 'Sea turtle', category: 'animals', group: 'Reef animals',
+    ...modelled('sea_turtle', 'sea_turtle.glb'), backdrop: 'underwater',
+    source: (manifest.has('sea_turtle') ? 'assets/models/sea_turtle.glb · tools/build_sealife.py · seaTurtleModel(); fallback ' : '') + 'src/reeflife.js · turtleBody() · ReefLife.turtle()',
+    facts: reefFacts('turtle', [['Size', 'about a metre, shell plated olive and brown'],
+      ['Behaviour', 'glides on slow sweeps of its front flippers; rises every minute or two to breathe at the surface; turns away, unhurried, if you swim at it'],
+      ['Moves by', manifest.has('sea_turtle') ? 'its flippers found in the mesh and beaten in the vertex shader' : 'four flippers, each turned about its shoulder'],
+      ['Caught with', 'nothing — it is left alone']]),
+    variants: [{ id: 'cruise', label: 'Cruising' }, { id: 'flee', label: 'Swimming off' }, { id: 'code', label: 'Built in code' }],
+    async build(variant) {
+      const entry = variant === 'code' ? null : await reefModel('sea_turtle');
+      const t = entry ? seaTurtleModel(entry, 1.1) : turtleBody(), fast = variant === 'flee';
+      return { object: t, keepHeight: true, frame: { center: V(0, 0.05, 0.1), size: V(1.4, 0.4, 1.5) },
+               update: (dt, time) => t.userData.animate(time, fast ? 0.7 : 0.28, 1) };
+    },
+  });
+  add({
+    id: 'reef-ray', name: 'Stingray', category: 'animals', group: 'Reef animals',
+    ...modelled('stingray', 'stingray.glb'), backdrop: 'underwater',
+    source: (manifest.has('stingray') ? 'assets/models/stingray.glb (CC BY-NC — see CREDITS.md) · tools/build_sealife.py · rayModel(); fallback ' : '') + 'src/reeflife.js · rayBody() · ReefLife.ray()',
+    facts: reefFacts('ray', [['Size', 'a metre across the wings, and a whip of a tail'],
+      ['Behaviour', 'lies on the sand; lifts off and flies low on rippling wings; off at a rush if you come within 3.5 m'],
+      ['Moves by', manifest.has('stingray') ? 'its own swim clip, run as slow or as fast as it is going' : 'its disc re-shaped every frame'],
+      ['Caught with', 'nothing — it is left alone']]),
+    variants: [{ id: 'glide', label: 'Gliding' }, { id: 'flee', label: 'Fleeing' }, { id: 'rest', label: 'Resting' },
+               { id: 'code', label: 'Built in code' }],
+    async build(variant) {
+      const entry = variant === 'code' ? null : await reefModel('stingray');
+      const r = entry ? rayModel(entry, 1.1) : rayBody();
+      const [beat, amp] = { glide: [0.5, 0.06], flee: [1.4, 0.12], rest: [0.5, 0.004], code: [0.5, 0.06] }[variant || 'glide'];
+      r.userData.animate(0, beat, amp);
+      return { object: r, keepHeight: true,
+               frame: entry ? { center: V(0, 0.15, 0), size: V(1.3, 0.5, 1.6) } : { center: V(0, 0.05, -0.2), size: V(1.3, 0.4, 1.9) },
+               update: (dt, time) => r.userData.animate(time, beat, amp) };
+    },
+  });
+  add({
+    id: 'reef-octopus', name: 'Octopus', category: 'animals', group: 'Reef animals',
+    ...modelled('octopus', 'octopus.glb'), backdrop: 'underwater',
+    source: (manifest.has('octopus') ? 'assets/models/octopus.glb · tools/build_sealife.py · octopusModel(); fallback ' : '') + 'src/reeflife.js · octopusBody() · ReefLife.octopus()',
+    facts: reefFacts('octopus', [['Size', 'half a metre to a metre across the arms'],
+      ['Behaviour', 'creeps over the coral, arms curling, its colour sliding to match what it is on; startled within 2.8 m, it blanches, jets off backwards and leaves a cloud of ink — then hides'],
+      ['Moves by', manifest.has('octopus') ? 'its rig’s eight arm chains, curled and swept in code' : 'its arms re-shaped every frame'],
+      ['Caught with', 'the spear — thrown, or thrust once it has hidden'], ['Eats as', 'a fish: cooks on the spit']]),
+    variants: [{ id: 'crawl', label: 'Creeping' }, { id: 'jet', label: 'Jetting off' }, { id: 'code', label: 'Built in code' }],
+    async build(variant) {
+      const entry = variant === 'code' ? null : await reefModel('octopus');
+      const o = entry ? octopusModel(entry, 0.8) : octopusBody(), jet = variant === 'jet';
+      for (let k = 0; k < 30; k++) o.userData.animate(k * 0.05, jet ? 3 : 0.14, jet ? 1 : 0);   // its arms shaped before it is framed
+      const shade = new THREE.Color(), a = new THREE.Color(), b = new THREE.Color();
+      const tint = c => (o.userData.tint ? o.userData.tint(c) : o.userData.skin.color.copy(c));
+      return { object: o, keepHeight: true, frame: { center: V(0, 0.1, 0), size: V(1.0, 0.35, 1.0) },
+               update: (dt, time) => {
+                 // It shifts through its colours, as it does to match the reef.
+                 const k = time / 4, i = Math.floor(k) % OCTO_SHADES.length;
+                 a.set(OCTO_SHADES[i]); b.set(OCTO_SHADES[(i + 1) % OCTO_SHADES.length]);
+                 tint(jet ? shade.set(0xe8ddd0) : a.lerp(b, k - Math.floor(k)));
+                 o.userData.animate(time, jet ? 3 : 0.14, jet ? 1 : 0);
+               } };
+    },
+  });
+  add({
+    id: 'reef-crab', name: 'Crab', category: 'animals', group: 'Reef animals',
+    ...modelled('crab', 'crab.glb'), backdrop: 'underwater',
+    source: (manifest.has('crab') ? 'assets/models/crab.glb (a blue crab, in 13 parts) · tools/build_sealife.py; fallback ' : '') + 'src/reeflife.js · Crabs (instanced, part by part) · ReefLife.crab()',
+    facts: reefFacts('crab', [['On the beaches', '8 more, sand-coloured, near you when you are ashore'],
+      ['Size', '18–26 cm long, a third more across the legs'],
+      ['Behaviour', 'scuttles sideways in short bursts; on the reef it runs a few metres from you, on a beach it runs for the sea'],
+      ['Caught with', 'your hands: E, if you can get close'], ['Eats as', 'a fish: cooks on the spit']]),
+    variants: [{ id: 'reef', label: 'On the reef' }, { id: 'beach', label: 'On the beach' }, { id: 'code', label: 'Built in code' }],
+    async build(variant) {
+      const g = new THREE.Group(), crabs = new Crabs(g, 1);
+      const entry = variant === 'code' ? null : await reefModel('crab');
+      if (entry) crabs.useModel(entry.scene);
+      const colour = variant === 'beach' ? 0xd9c79c : entry ? 0xffffff : 0xc24a2c;
+      const k = { pos: V(0, 0, 0), heading: 0, size: 1.1, colour: new THREE.Color(colour), gait: 0, moving: 1, claws: 0.4 };
+      return { object: g, keepHeight: true, backdrop: variant === 'beach' ? 'world' : 'underwater',
+               frame: { center: V(0, 0.05, 0.01), size: V(0.42, 0.14, 0.3) },
+               update: (dt, time) => { k.gait = time * 3; k.claws = 0.4 + 0.3 * Math.sin(time * 2); crabs.draw([k]); } };
+    },
+  });
+  // The tortoise and the pond turtle are models only: with no file, they are not in the game.
+  // Their legs, head and tail move in the vertex shader; this drives it as ReefLife.limbs() does.
+  const shelled = (key, sp, drive) => async variant => {
+    const entry = await reefModel(key);
+    if (!entry) return { object: null, missing: `assets/models/${key}.glb is not here (tools/build_sealife.py)` };
+    const L = (sp.length[0] + sp.length[1]) / 2;
+    const t = shelledModel(entry, L, key === 'tortoise' ? 2.6 : 1), u = t.userData.limbs;
+    let step = 0;
+    return { object: t, keepHeight: true, backdrop: drive.backdrop?.(variant) || 'world',
+             frame: { center: V(0, L * 0.2, 0), size: V(L * 1.3, L * 0.5, L * 1.5) },
+             update: (dt, time) => {
+               const m = drive(variant, time);
+               step += dt * (m.walk * 2.4 + m.swim * 3.2) * (0.35 / L) ** 0.5;
+               u.uPhase.value = step;
+               u.uStride.value = 0.06 * m.walk; u.uLift.value = 0.035 * m.walk; u.uSwim.value = 0.1 * m.swim;
+               u.uHide.value = m.hide || 0; u.uGraze.value = (m.graze || 0) * (1 - (m.hide || 0));
+               u.uLook.value = Math.sin(time * 0.4) * (1 - (m.hide || 0)) * (1 - m.walk);
+             } };
+  };
+  add({
+    id: 'tortoise', name: 'Tortoise', category: 'animals', group: 'Land animals',
+    ...modelled('tortoise', 'tortoise.glb'),
+    facts: [['Lives', REEF_ANIMALS.tortoise.where], ['Round you', `${REEF_ANIMALS.tortoise.count} at a time`],
+      ['Size', '40–60 cm long'],
+      ['Behaviour', 'plods a little way, stops to graze, plods on; come within 3 m and it stops and draws in its head and legs until you have gone'],
+      ['Moves by', 'its legs, head and tail found in the mesh and moved in the vertex shader'],
+      ['Caught with', 'nothing — it is left alone']],
+    variants: [{ id: 'walk', label: 'Walking' }, { id: 'graze', label: 'Grazing' }, { id: 'hide', label: 'Drawn in' }],
+    build: shelled('tortoise', REEF_ANIMALS.tortoise, (v, time) => ({
+      walk: v === 'walk' ? 1 : 0, swim: 0,
+      graze: v === 'graze' ? 0.5 + 0.5 * Math.sin(time * 1.7) : 0,
+      hide: v === 'hide' ? 0.5 + 0.5 * Math.sin(time * 0.8) : 0,
+    })),
+  });
+  add({
+    id: 'pond-turtle', name: 'Pond turtle', category: 'animals', group: 'Land animals',
+    ...modelled('pond_turtle', 'pond_turtle.glb'),
+    facts: [['Lives', REEF_ANIMALS.pond_turtle.where], ['Round you', `${REEF_ANIMALS.pond_turtle.count}, when a lake is near`],
+      ['Size', '17–24 cm long'],
+      ['Behaviour', 'paddles about at the surface, shell awash; hauls out onto the bank to bask; come near and it slides back in, dives, and stays down a while'],
+      ['Moves by', 'its legs, head and tail found in the mesh and moved in the vertex shader'],
+      ['Caught with', 'nothing — it is left alone']],
+    variants: [{ id: 'swim', label: 'Paddling' }, { id: 'walk', label: 'Hauling out' }, { id: 'bask', label: 'Basking' }],
+    build: shelled('pond_turtle', REEF_ANIMALS.pond_turtle, Object.assign((v) => ({
+      walk: v === 'walk' ? 1 : 0, swim: v === 'swim' ? 1 : 0,
+    }), { backdrop: v => (v === 'swim' ? 'underwater' : 'world') })),
+  });
 
   add({
     id: 'whale', name: 'Humpback whale', category: 'animals', group: 'Aquatic',
