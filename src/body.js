@@ -290,6 +290,17 @@ const GESTURES = {
     return { armR: arm, elbowR: elbow, openR: open, foreInR: 0.05, chest: lean,
              armL: 0.1 + 1.3 * point, elbowL: 0.15 };
   } },
+  // A paddle stroke over the right side: reach forward, pull back past the
+  // hip, lift and bring it round — both arms on the shaft, the body turning
+  // into it.
+  paddle: { time: 0.85, pose: u => {
+    const reach = ease(u / 0.25), pull = ease((u - 0.25) / 0.4), back = ease((u - 0.65) / 0.35);
+    // swing: the shaft's lean, forward (+) to back (-); k: how hard it is pulling
+    const swing = u < 0.25 ? 1.1 * reach : u < 0.65 ? 1.1 - 1.5 * pull : -0.4 * (1 - back);
+    const k = u < 0.25 ? reach : u < 0.65 ? 1 - pull : 0;
+    return { armR: 0.2 + swing * 0.7, elbowR: 0.5 + 0.4 * k, openR: 0.25, foreInR: 0.05,
+             armL: 0.4 + swing * 0.5, elbowL: 1.2 - 0.3 * k, chest: 0.12 + 0.18 * k, lean: swing };
+  } },
   eat: { time: 0.7, pose: u => {
     const k = Math.sin(Math.PI * u);
     return { armR: 0.3 + 0.7 * k, elbowR: 1.1 + 1.25 * k, foreInR: 0.15 + 0.35 * k, neck: -0.15 * k };
@@ -496,8 +507,9 @@ export class PlayerBody {
 
   /**
    * @param p  the player: pos (feet), yaw, pitch, state ('deck' | 'air' |
-   *           'swim'), submerged (head under), and optionally speed, to
-   *           animate without moving
+   *           'swim'), submerged (head under), optionally speed, to
+   *           animate without moving, and drift: how far the raft carried
+   *           them this frame, which is not walking
    */
   update(dt, p) {
     const g = this.group;
@@ -505,7 +517,9 @@ export class PlayerBody {
     g.rotation.y = p.yaw;
     // Under water, going up or down is swimming too.
     const up = p.state === 'swim' && p.submerged ? p.pos.y - this.lastPos.y : 0;
-    const moved = Math.hypot(p.pos.x - this.lastPos.x, p.pos.z - this.lastPos.z, up) / Math.max(dt, 1e-4);
+    // Carried by the raft is not walking: `drift` is how far it moved them.
+    const cx = p.drift ? p.drift.x : 0, cz = p.drift ? p.drift.z : 0;
+    const moved = Math.hypot(p.pos.x - this.lastPos.x - cx, p.pos.z - this.lastPos.z - cz, up) / Math.max(dt, 1e-4);
     this.lastPos.copy(p.pos);
     // `p.speed` stands in for real movement (the gallery walks it on the spot).
     this.speed += (Math.min(p.speed ?? moved, 8) - this.speed) * Math.min(1, dt * 8);
@@ -600,6 +614,7 @@ export class PlayerBody {
       this.aimK = gst.aim ? gst.aim(this.use) : 0;
     } else if (swimming && this.heldTool) this.aimK = this.swim;
     if (this.skewered && (this.skewered.t += dt) > 1.7) this.clearSkewer();
+    this.paddleLean = this.use < 1 && this.useKind === 'paddle' ? a.lean : 0;
     if (!swimming) a.neck = THREE.MathUtils.clamp(p.pitch, -0.9, 0.7) * 0.8;
     // Treading water, you look where you are looking.
     else a.neck += THREE.MathUtils.clamp(p.pitch, -0.9, 0.7) * 0.8 * (1 - this.swim);
@@ -667,7 +682,14 @@ export class PlayerBody {
     if (this.heldTool) {
       this.held.position.copy(grip);
       // Mid-thrust the spear turns from its carry to point where you look.
-      const dir = this.aimK > 0 ? across.clone().lerp(this.aimDir, this.aimK).normalize() : across;
+      let dir = this.aimK > 0 ? across.clone().lerp(this.aimDir, this.aimK).normalize() : across;
+      // A paddle goes down over the right side into the water, blade first,
+      // leaning forward at the catch and back at the end of the pull.
+      if (this.heldId === 'paddle') {
+        const yaw = this.group.rotation.y, lean = this.paddleLean;
+        const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+        dir = fwd.multiplyScalar(0.2 + 0.55 * lean).addScaledVector(right, 0.3).add(new THREE.Vector3(0, -0.9, 0)).normalize();
+      }
       this.held.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
     } else {
       const fingers = knuck.clone().sub(hand).normalize();

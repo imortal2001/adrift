@@ -52,6 +52,10 @@ export const POSES = {
   spear:   { model: 'tool_spear',  pos: [0.24, -0.30, -0.18], rot: [-1.28, 0.0, -0.10] },
   rod:     { model: 'tool_rod',    pos: [0.27, -0.38, -0.34], rot: [-0.95, 0.0, 0.22] },
   hook:    { model: null,          pos: [0.19, -0.17, -0.52], rot: [0.12, 0.0, 0.20], scale: 1.3 },
+  // The grip low at the right and the shaft going down over the side, the
+  // blade out of sight in the water — a paddle from the eyes of the one
+  // holding it. The stroke carries it forward and back.
+  paddle:  { model: null,          pos: [0.30, -0.26, -0.60], rot: [-2.0, 0.0, -0.30] },
   // Held out in front of you, right of centre and clear of the hotbar, the
   // bow across the view and spindle down — the way you would hold it over a
   // hearth board — turned a little so the bow reads as a curve.
@@ -99,6 +103,14 @@ const USES = {
     const back = ease(t / 0.35), fling = ease((t - 0.35) / 0.25);
     return t < 0.35 ? { rx: 0.60 * back, pz: 0.08 * back }
                     : { rx: 0.60 - 1.2 * fling, pz: 0.08 - 0.30 * fling };
+  } },
+  // A stroke: the blade reaches forward into the water, pulls back past you
+  // along the side, lifts out and comes forward again.
+  paddle: { time: 0.85, curve: t => {
+    const reach = ease(t / 0.25), pull = ease((t - 0.25) / 0.4), back = ease((t - 0.65) / 0.35);
+    const pz = t < 0.25 ? -0.16 * reach : t < 0.65 ? -0.16 + 0.42 * pull : 0.26 * (1 - back);
+    const py = t < 0.25 ? -0.05 * reach : t < 0.65 ? -0.05 - 0.04 * Math.sin(Math.PI * pull) : 0.06 * Math.sin(Math.PI * back);
+    return { pz, py, rx: -pz * 0.9 };
   } },
   // The rod's forward flick after a wind-up. The wind-up itself is held, not
   // played — it is `windup` below — so this only has to carry it through.
@@ -182,6 +194,28 @@ function cyl(r0, r1, y0, y1, m, seg = 8) {
 const tex = (t, rx = 1, ry = 1) => { t.repeat.set(rx, ry); return t; };
 
 const BODIES = {
+  // A paddle: a pole with a crossbar grip at the hand, and a broad blade at
+  // the working end, lashed on.
+  paddle() {
+    const g = new THREE.Group();
+    const wood = mat(0x7a5a3a, 0.85), blade = mat(0x8f6c45, 0.8), cord = mat(0xb39360, 0.95);
+    g.add(cyl(0.017, 0.015, -0.12, 1.05, wood, 8));
+    const grip = cyl(0.016, 0.016, -0.07, 0.07, wood, 6);
+    grip.rotation.z = Math.PI / 2;
+    grip.position.y = -0.12;
+    g.add(grip);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.42, 0.022), blade);
+    b.position.y = 1.2;
+    b.rotation.y = Math.PI / 2;          // face on to the stroke
+    g.add(b);
+    for (const y of [0.98, 1.03]) {
+      const t = new THREE.Mesh(new THREE.TorusGeometry(0.02, 0.006, 5, 12), cord);
+      t.rotation.x = Math.PI / 2;
+      t.position.y = y;
+      g.add(t);
+    }
+    return g;
+  },
   // A bow drill, in its own frame (held, not a +Y tool): the bow a bent
   // stick across the view with its cord looped once round an upright
   // spindle, and the socket block you press down on over the spindle's top.
@@ -547,7 +581,7 @@ export class Viewmodel {
    * @param hidden    true while the item is out of your hand (a thrown hook)
    * @param playing   false on the title screen and while paused
    */
-  update(dt, { held, owned, hidden = false, playing = true }) {
+  update(dt, { held, owned, hidden = false, playing = true, drift = null }) {
     this.time += dt;
     const want = playing && owned && poseOf(held) ? held : null;
     this.visible = playing;
@@ -578,7 +612,9 @@ export class Viewmodel {
     this.rig.quaternion.setFromRotationMatrix(this.camera.matrixWorld);
 
     // ── bob from how fast the eye is actually moving ──
-    const moved = Math.hypot(this.rig.position.x - this.lastPos.x, this.rig.position.z - this.lastPos.z);
+    // (Less what the raft carried you: riding it is not walking.)
+    const moved = Math.hypot(this.rig.position.x - this.lastPos.x - (drift?.x || 0),
+                             this.rig.position.z - this.lastPos.z - (drift?.z || 0));
     const speed = dt > 0 ? Math.min(8, moved / dt) : 0;
     this.lastPos.copy(this.rig.position);
     this.bobAmp += (Math.min(1, speed / 5.3) - this.bobAmp) * Math.min(1, dt * 6);

@@ -101,6 +101,7 @@ export class Together {
       // would undo it, so that one waits for the next.
       if (this.net.isHost || !e.r || (!this.fresh && now() - this.edited < OWN)) return;
       this.raft.adopt(e.r, spit);
+      if (Array.isArray(e.r.pose)) this.raft.steer(e.r.pose);
       if (this.fresh) {
         this.fresh = false;
         const p = this.game.player;

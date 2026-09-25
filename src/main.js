@@ -366,7 +366,7 @@ class Game {
       [...$('crew').querySelectorAll('div')].forEach((d, i) => { d.textContent = crew[i]; });
     };
     this.net.onChange = refresh;
-    this.refreshCrew = refresh;          // and now and then, for how far off everyone is
+    this.refreshCrew = refresh;          // and twice a second, for how far off everyone is
     refresh();
     const code = cleanCode(new URLSearchParams(location.search).get('room'));
     if (code.length >= 4 && this.net.available) { $('mpCode').value = code; go(code); }
@@ -490,7 +490,7 @@ class Game {
   /** A use of what is in hand, seen: the arm in first person, the body outside it. */
   useAnim(kind) {
     this.viewmodel.use(kind);
-    const g = { spear: 'thrust', build: 'swing', eat: 'eat', hook: 'toss' }[kind];
+    const g = { spear: 'thrust', build: 'swing', eat: 'eat', hook: 'toss', paddle: 'paddle' }[kind];
     this.body.gesture(g);
     this.net.event({ k: 'g', g });                // the others see it too
   }
@@ -535,6 +535,8 @@ class Game {
         break;
       case 'rod':
         break;                         // the rod reads the button itself; see frame()
+      case 'paddle':
+        break;                         // held, not clicked: see frame()
       case 'drill':
         this.hud.log('Hold click at an unlit campfire to drill an ember.');
         break;
@@ -870,6 +872,32 @@ class Game {
     return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
   }
 
+  // ── the paddle ─────────────────────────────────────────────────────────────
+  /** On the raft's deck (not ashore, not in the water). */
+  onDeck() {
+    const p = this.player;
+    return p.state === 'deck' && !p.onLand && this.raft.solidAtWorld(p.pos.x, p.pos.z);
+  }
+
+  /**
+   * One stroke of the paddle, from where you stand, the way you face: +1
+   * forward, -1 back. Made at one side of the raft it turns it too.
+   */
+  paddleStroke(sign) {
+    if (this.paddleIn > 0) return;
+    if (!this.onDeck()) {
+      this.paddleIn = 1.2;
+      this.hud.log('Paddle from the deck of the raft.', 'bad');
+      return;
+    }
+    this.paddleIn = 0.85;
+    const p = this.player;
+    const dir = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw)).multiplyScalar(sign);
+    this.raft.paddle(p.pos, dir, 1);
+    this.together.world.paddled(p.pos, dir);
+    this.useAnim('paddle');
+  }
+
   // ── the others ─────────────────────────────────────────────────────────────
   /** Another player under the crosshair, within `reach`. */
   crewAt(eye, dir, reach) {
@@ -927,22 +955,6 @@ class Game {
     return null;
   }
 
-  /**
-   * P: point at what you are looking at — the ground, the water, the raft —
-   * for the others to see. Found by stepping along the view until it meets
-   * the land or the sea.
-   */
-  pointAt(eye, dir) {
-    const p = eye.clone(), step = dir.clone().multiplyScalar(0.5);
-    for (let i = 0; i < 500; i++) {
-      p.add(step);
-      const ground = this.terrain.clearanceAt(p.x, p.z);
-      const sea = this.raft.solidAtWorld(p.x, p.z) ? this.raft.deckY(p.x, p.z) : waveHeight(p.x, p.z, this.time);
-      if (p.y <= Math.max(ground, sea)) { p.y = Math.max(ground, sea); break; }
-    }
-    if (this.net.point(p)) this.hud.log('You point.', 'chat', 3000);
-  }
-
   // ── what is under the crosshair ────────────────────────────────────────────
   /** @returns {{prompt:string, act:Function}|null} */
   findInteraction(eye, dir) {
@@ -986,6 +998,18 @@ class Game {
       return { prompt: `Collector is filling (${Math.round(c.water / c.capacity * 100)}%)`, act: null };
     }
     if (piece?.id === 'campfire') return this.fireInteraction(piece.rec);
+    if (piece?.id === 'sail') {
+      const o = piece.rec;
+      return {
+        prompt: o.raised ? '<b>E</b> lower the sail' : '<b>E</b> raise the sail — the wind will take the raft',
+        act: () => {
+          o.raised = !o.raised;
+          this.together.touched(o);
+          this.hud.log(o.raised ? 'The sail fills. The raft starts to move with the wind — paddle to steer.'
+                                : 'You furl the sail.', 'good');
+        },
+      };
+    }
 
     const plant = this.terrain.pickPlant(eye, dir);
     if (plant) {
@@ -1154,6 +1178,23 @@ class Game {
     // World
     this.sky.update(dt, this.player.pos);
     this.raft.update(dt, this.time, this.sky.night);
+    // Standing on the raft — or in the air just off its deck — you go where it
+    // goes, and turn as it turns. `drift` is how far that took you, which the
+    // body and the view do not mistake for walking.
+    const pl = this.player;
+    pl.drift ||= new THREE.Vector3();
+    pl.drift.set(0, 0, 0);
+    if (pl.state !== 'swim' && !pl.onLand && this.raft.solidAtWorld(pl.pos.x, pl.pos.z)) {
+      const x0 = pl.pos.x, z0 = pl.pos.z;
+      pl.yaw += this.raft.carry(pl.pos);
+      pl.drift.set(pl.pos.x - x0, 0, pl.pos.z - z0);
+    }
+    if (this.raft.aground && !this.wasAground && this.raft.speed > 0.05 && this.time - (this.groundedSaid ?? -99) > 10) {
+      this.groundedSaid = this.time;
+      this.hud.log('The raft grinds onto the bottom. Paddle it back off.', 'bad');
+    }
+    this.wasAground = this.raft.aground;
+    if (this.paddleIn > 0) this.paddleIn -= dt;
     this.updateFires(dt);
     this.player.update(dt, this.time, input, panelOpen);
     if (!panelOpen && input.pressed('KeyV')) this.cycleView();
@@ -1207,6 +1248,9 @@ class Game {
           if (act.act && input.pressed('KeyE')) act.act();
         } else if (this.player.state === 'swim' && this.raft.nearestDeck(this.player.pos.x, this.player.pos.z, 2.1)) {
           prompt = '<b>Space</b> climb aboard';
+        } else if (this.hotbar.held === 'paddle' && this.inv.has('paddle') && this.onDeck()) {
+          prompt = `<b>Hold click</b> paddle · <b>right-click</b> back-paddle — ${this.raft.speed.toFixed(1)} m/s` +
+                   (this.raft.aground ? ' · aground' : '');
         } else if (now < this.slotHintUntil) {
           const id = this.hotbar.held;
           if (id && this.inv.has(id) && ITEMS[id].hint) {
@@ -1219,12 +1263,15 @@ class Game {
         if (this.hotbar.held === 'rod' && this.inv.has('rod')) {
           this.fishing.control({ press: input.clicked(0), hold: input.mouseDown(0),
                                  release: input.released(0) }, eye, dir, this.player);
+        } else if (this.hotbar.held === 'paddle' && this.inv.has('paddle')) {
+          // Held down, it keeps stroking — forward, or back with the other button.
+          if (input.mouseDown(0)) this.paddleStroke(1);
+          else if (input.mouseDown(2)) this.paddleStroke(-1);
         } else if (input.clicked(0) && !act?.drill) this.useHeld(eye, dir);
       }
 
-      // Playing together: say something, or point.
+      // Playing together: say something.
     if (!panelOpen && !this.chatting && (input.pressed('Enter') || input.pressed('NumpadEnter'))) this.openChat?.();
-    if (!panelOpen && !this.chatting && !this.admin && this.net.connected && input.pressed('KeyP')) this.pointAt(eye, dir);
 
     // Salvage works whether or not build mode is on.
       if (input.pressed('KeyX')) {
@@ -1250,6 +1297,7 @@ class Game {
           if (d) this.hud.refreshInventory(this.inv);
           if (!d && this.fishing.busy) this.hud.log('Reel in first to change the bait.', 'bad');
         } else if (held === 'spear') this.throwSpear(eye, dir);
+        else if (held === 'paddle') { /* back-paddling: held, above */ }
         else if (held === 'hook') this.useHeld(eye, dir);
         else if (this.inv.has('hook') || this.inv.has('spear')) {
           this.hud.log('Select the hook or the spear first.', 'bad');
@@ -1277,6 +1325,7 @@ class Game {
     // copies — so what is in your hand goes dark and blue with the world.
     const held = this.hotbar.held;
     this.viewmodel.update(dt, {
+      drift: this.player.drift,
       held,
       owned: !!held && this.inv.has(held),
       hidden: held === 'hook' && this.hook.busy,     // it is out on the line

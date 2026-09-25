@@ -289,6 +289,16 @@ export class Whale {
     // lies low and swims out rather than riding up the beach.
     const lowest = Math.min(floor + 2.2, sea - 0.9);
 
+    // The raft goes where it is paddled. A goal it has left behind is no
+    // goal; and a whale left far behind comes round again near it — while it
+    // is down, cruising, out of sight.
+    const r = this.raft.group.position;
+    if (this.state === 'cruise' && Math.hypot(this.pos.x - r.x, this.pos.z - r.z) > 420) {
+      const start = this.deepSpot(Math.random() * Math.PI * 2, ROUTE[1]);
+      this.pos.set(start.x, CRUISE_DEPTH, start.z);
+      this.pickGoal();
+    } else if (Math.hypot(this.goal.x - r.x, this.goal.z - r.z) > ROUTE[1] * 1.8) this.pickGoal();
+
     // Head for the goal, around any shoal on the way; pick another when it
     // gets there, or when a shoal has turned it well off its line.
     const dx = this.goal.x - this.pos.x, dz = this.goal.z - this.pos.z;

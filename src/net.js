@@ -117,15 +117,9 @@ function speechBubble(text) {
 
 const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
-// Which way someone is from where you face, as an arrow: ↑ ahead, ↓ behind.
-const ARROWS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
-export function bearing(from, yaw, to) {
-  const ang = Math.atan2(to.x - from.x, to.z - from.z);       // world: 0 is +Z
-  const ahead = Math.atan2(-Math.sin(yaw), -Math.cos(yaw));    // you face -Z at yaw 0
-  let rel = ahead - ang;                                      // + is to your right
-  rel = Math.atan2(Math.sin(rel), Math.cos(rel));
-  return ARROWS[(Math.round(rel / (Math.PI / 4)) + 8) % 8];
-}
+// A name is read at a conversational distance, not across the island:
+// finding each other is looking for each other.
+const NAME_CLEAR = 25, NAME_GONE = 45;
 
 // What is on the end of someone's line: a float (the rod) or the hook.
 const LINE_SEGS = 10;
@@ -145,25 +139,6 @@ function lineEnd(kind) {
   return g;
 }
 
-/** Where someone is pointing: a column of light, a ring, and their name, for a while. */
-const POINT_TIME = 9;
-function pointMarker(name) {
-  const g = new THREE.Group();
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 14, 8, 1, true),
-    new THREE.MeshBasicMaterial({ color: 0x8fe3ff, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
-  beam.position.y = 7;
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.75, 32),
-    new THREE.MeshBasicMaterial({ color: 0x8fe3ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.05;
-  const tag = nameTag(name);
-  tag.position.y = 14.5;
-  tag.material.depthTest = false;
-  g.add(beam, ring, tag);
-  g.userData = { beam, ring, tag, base: tag.scale.clone() };
-  return g;
-}
-
 /** Another player, as this browser draws them. */
 class Remote {
   constructor(net, id, name, who) {
@@ -175,7 +150,6 @@ class Remote {
     this.who = who;
     this.tag = nameTag(name);
     net.scene.add(this.tag);
-    this.tagBase = this.tag.scale.clone();
     this.snaps = [];          // [{at, s}] as they arrive
     this.line = null;         // their rod's line or hook's rope, when it is out: {kind, rope, end}
     this.held = undefined;
@@ -203,13 +177,28 @@ class Remote {
     }
     const k = b.at > a.at ? THREE.MathUtils.clamp((now - a.at) / (b.at - a.at), 0, 1) : 1;
     const p = this.pose;
-    const x = a.s.p[0] + (b.s.p[0] - a.s.p[0]) * k, z = a.s.p[2] + (b.s.p[2] - a.s.p[2]) * k;
+    // On the raft, where they stand was sent in the raft's frame (r 1): put
+    // on this machine's raft, wherever it has got to, they ride it rather
+    // than trail it. Each snapshot is made a place here before the two are
+    // blended, so stepping off the deck blends two places, not two frames.
+    const raft = this.net.raft;
+    const wa = this.place(a.s), wb = this.place(b.s);
+    const x = wa.x + (wb.x - wa.x) * k, z = wa.z + (wb.z - wa.z) * k;
     // Each height as it stands here before the two are blended, so one on
     // the deck and the next in the water (climbing out, jumping in) blend as
     // heights, not as a height above the deck and one above the sea.
     const ya = this.height(a.s, x, z), yb = this.height(b.s, x, z);
+    const lastX = p.pos.x, lastZ = p.pos.z;
     p.pos.set(x, ya + (yb - ya) * k, z);
-    p.yaw = lerpAngle(a.s.y || 0, b.s.y || 0, k);
+    p.yaw = lerpAngle(wa.yaw, wb.yaw, k);
+    // How far the raft carried them this frame, which is not walking.
+    p.drift ||= new THREE.Vector3();
+    p.drift.set(0, 0, 0);
+    if (b.s.r === 1 && this.seen) {
+      const c = { x: lastX, z: lastZ };
+      raft.carry(c);
+      p.drift.set(c.x - lastX, 0, c.z - lastZ);
+    }
     p.pitch = (a.s.pi || 0) + ((b.s.pi || 0) - (a.s.pi || 0)) * k;
     p.state = { d: 'deck', a: 'air', s: 'swim' }[b.s.st] || 'deck';
     p.onLand = !!b.s.l;
@@ -226,11 +215,12 @@ class Remote {
     this.body.update(dt, p);
     this.tag.visible = true;
     this.tag.position.set(p.pos.x, p.pos.y + 2.05, p.pos.z);
-    // Far off, a name stays big enough to read, and shows through what is
-    // in the way — it is how you find each other.
+    // Close by, their name; further off, it fades, and there is only them to
+    // go by — and behind a hill, not even that.
     const far = this.net.eye ? this.net.eye.distanceTo(this.tag.position) : 0;
-    this.tag.scale.copy(this.tagBase).multiplyScalar(Math.max(1, far / 14));
-    this.tag.material.depthTest = far < 30;
+    const clear = 1 - THREE.MathUtils.smoothstep(far, NAME_CLEAR, NAME_GONE);
+    this.tag.material.opacity = clear;
+    this.tag.visible = clear > 0.01;
     this.drawLine(a.s.ln, b.s.ln, k);
     if (this.bubble) {
       if (performance.now() / 1000 > this.bubbleUntil) this.dropBubble();
@@ -306,6 +296,15 @@ class Remote {
    * shared clock (Net.seaTime) keeps the two seas close, not exact, and a height
    * drawn a moment behind would otherwise be a moment's swell out.
    */
+  /** A snapshot's place and heading, here: off the raft's frame if it was sent in it. */
+  place(s) {
+    if (s.r === 1) {
+      const w = this.net.raft.toWorld(s.p[0], s.p[2]);
+      return { x: w.x, z: w.z, yaw: (s.y || 0) + this.net.raft.heading };
+    }
+    return { x: s.p[0], z: s.p[2], yaw: s.y || 0 };
+  }
+
   height(s, x, z) {
     if (s.r === 1) return s.p[1] + this.net.raft.deckY(x, z);
     if (s.r === 2) return s.p[1] + waveHeight(x, z, this.net.time);
@@ -314,13 +313,6 @@ class Remote {
 
   event(e) {
     if (e.k === 'g') this.body.gesture(e.g);
-    else if (e.k === 'point' && Array.isArray(e.p) && e.p.length === 3 && e.p.every(Number.isFinite)) {
-      const at = new THREE.Vector3(...e.p);
-      this.net.mark(at, this.name);
-      const me = this.net.me;
-      const how = me ? ` — ${Math.round(Math.hypot(at.x - me.pos.x, at.z - me.pos.z))} m ${bearing(me.pos, me.yaw, at)}` : '';
-      this.net.log(`${this.name} points${how}.`, 'chat', 7000);
-    }
     else if (e.k === 'chat' && e.text) {
       const text = String(e.text).replace(/[\u0000-\u001f]/g, '').slice(0, SAY);
       this.say(text);
@@ -366,14 +358,13 @@ export class Net {
    */
   /**
    * @param onEvent   (e, remote) => true if the game took it: things that
-   *                  are for you rather than about them — a gift, a point
+   *                  are for you rather than about them — a gift, a catch
    */
   constructor({ scene, library, cloneHeld, log, raft, together, onEvent }) {
     this.scene = scene;
     this.onEvent = onEvent;
-    this.eye = null;            // where you look from, for how big their names are
-    this.me = null;             // you: {pos, yaw}, for which way they are from you
-    this.points = [];           // markers where someone pointed
+    this.eye = null;            // where you look from, for how clearly their names show
+    this.me = null;             // where you are, for how far off the others are
     this.raft = raft;
     this.together = together;
     this.library = library;
@@ -486,7 +477,6 @@ export class Net {
   }
 
   clear() {
-    for (const p of [...this.points]) this.dropPoint(p);
     for (const r of this.remotes.values()) r.dispose();
     this.remotes.clear();
     this.id = null;
@@ -585,8 +575,7 @@ export class Net {
   update(dt, player, held, time, line = null, eye = null) {
     this.time = time;
     this.eye = eye;
-    this.me = player;
-    this.tickPoints(dt);
+    this.me = player.pos;
     for (const r of this.remotes.values()) r.update(dt);
     if (!this.connected) return;
     this.sendIn -= dt;
@@ -600,8 +589,11 @@ export class Net {
     const swim = player.state === 'swim';
     const deck = !swim && !player.onLand && this.raft.solidAtWorld(x, z);
     const h = deck ? y - this.raft.deckY(x, z) : swim ? y - waveHeight(x, z, time) : y;
-    const s = { p: [r2(x), r2(h), r2(z)],
-                y: Math.round(player.yaw * 1000) / 1000, pi: Math.round(player.pitch * 100) / 100,
+    // On the deck, where you stand and face in the raft's frame (see Remote.place).
+    const at = deck ? this.raft.toLocal(x, z) : { x, z };
+    const yaw = deck ? player.yaw - this.raft.heading : player.yaw;
+    const s = { p: [r2(at.x), r2(h), r2(at.z)],
+                y: Math.round(yaw * 1000) / 1000, pi: Math.round(player.pitch * 100) / 100,
                 st: { deck: 'd', air: 'a', swim: 's' }[player.state] || 'd', h: held || null };
     if (line) s.ln = [r2(line[0]), r2(line[1]), r2(line[2]), line[3]];
     if (deck) s.r = 1;
@@ -616,55 +608,14 @@ export class Net {
   }
 
   /** Names in the game, you first. */
-  /** Names in the game, you first; the others with how far off they are, and which way. */
+  /**
+   * Names in the game, you first, and how far off each of the others is —
+   * how far only, never which way: where they are is for finding out.
+   */
   crew() {
     if (!this.connected) return [];
     const mark = id => (id === this.host ? ' (host)' : '');
-    const where = r => {
-      if (!this.me || !r.body.visible) return '';
-      const d = Math.hypot(r.pose.pos.x - this.me.pos.x, r.pose.pos.z - this.me.pos.z);
-      return d < 4 ? ' · here' : ` · ${Math.round(d)} m ${bearing(this.me.pos, this.me.yaw, r.pose.pos)}`;
-    };
-    return [`${this.name}${mark(this.id)} — you`, ...[...this.remotes.values()].map(r => `${r.name}${mark(r.id)}${where(r)}`)];
-  }
-
-  // ── pointing ───────────────────────────────────────────────────────────────
-  /** Point somewhere: a marker there, for you and for the others. */
-  point(at) {
-    if (!this.connected) return false;
-    this.mark(at, this.name);
-    const r = v => Math.round(v * 10) / 10;
-    this.event({ k: 'point', p: [r(at.x), r(at.y), r(at.z)] });
-    return true;
-  }
-
-  mark(at, name) {
-    // One marker a person: pointing again moves it.
-    const old = this.points.find(p => p.name === name);
-    if (old) this.dropPoint(old);
-    const obj = pointMarker(name);
-    obj.position.copy(at);
-    this.scene.add(obj);
-    this.points.push({ name, obj, t: POINT_TIME });
-  }
-
-  tickPoints(dt) {
-    for (const p of [...this.points]) {
-      p.t -= dt;
-      if (p.t <= 0) { this.dropPoint(p); continue; }
-      const u = p.obj.userData, fade = Math.min(1, p.t / 1.5);
-      u.beam.material.opacity = 0.55 * fade;
-      u.ring.material.opacity = 0.8 * fade;
-      u.ring.scale.setScalar(1 + 0.25 * Math.sin(p.t * 5));
-      u.tag.material.opacity = fade;
-      const far = this.eye ? this.eye.distanceTo(p.obj.position) : 0;
-      u.tag.scale.copy(u.base).multiplyScalar(Math.max(1, far / 14));
-    }
-  }
-
-  dropPoint(p) {
-    p.obj.removeFromParent();
-    p.obj.traverse(o => { o.geometry?.dispose(); if (o.material) { o.material.map?.dispose(); o.material.dispose(); } });
-    this.points.splice(this.points.indexOf(p), 1);
+    const far = r => (this.me && r.body.visible ? ` — ${Math.round(this.me.distanceTo(r.pose.pos))} m` : '');
+    return [`${this.name}${mark(this.id)} — you`, ...[...this.remotes.values()].map(r => `${r.name}${mark(r.id)}${far(r)}`)];
   }
 }

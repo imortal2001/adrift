@@ -386,7 +386,9 @@ export class FishSchools {
       const last = attempt === tries - 1;
       const a = Math.random() * Math.PI * 2;
       const d = kind === 'deep' ? rand(...school.zone.range) : rand(min, SPAWN_MAX);
-      const x = Math.cos(a) * d, z = Math.sin(a) * d;
+      // Round the raft, wherever it has got to.
+      const hub = this.raftPos();
+      const x = hub.x + Math.cos(a) * d, z = hub.z + Math.sin(a) * d;
       if (kind === 'deep') {
         // Past the drop-off, over water too deep for anything to grow on.
         if (heightAt(x, z) > school.zone.floor && !last) continue;
@@ -460,7 +462,8 @@ export class FishSchools {
 
       // Following the host's schools, where they go is the host's to say.
       if (this.follow) continue;
-      const far = Math.hypot(s.center.x, s.center.z);
+      const hub = this.raftPos();
+      const far = Math.hypot(s.center.x - hub.x, s.center.z - hub.z);
       if (far > (s.kind === 'deep' ? DEEP_RANGE : HOME_RANGE)) this.respawn(s);
       else if (s.kind === 'reef' && (s.floor < ZONES.reef.floor[0] - 6)) this.respawn(s);
       // A tuna school that has wandered back over the shelf goes back out.

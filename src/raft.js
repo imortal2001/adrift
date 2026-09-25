@@ -1,15 +1,21 @@
 // ── The raft ─────────────────────────────────────────────────────────────────
 // A grid of 2m cells that floats on the shared wave field. Cells carry edges
-// (walls / railings), a roof slot and one object slot each. The raft tilts and
-// heaves but never yaws, which keeps "where am I standing" cheap and stable:
-// horizontal position is shared with world space, only height goes through the
-// transform.
+// (walls / railings), a roof slot and one object slot each.
+//
+// It goes where it is paddled (or, with a sail, blown): it has a place in the
+// world and a heading, a speed and a turn, which the water slows, and it runs
+// aground on anything shallower than its draught. Its pieces live in its own
+// frame — cell (cx, cz) is at (cx·CELL, cz·CELL) there — so everything that
+// asks "what is at this spot" of it in world terms (cellAtWorld, deckY,
+// resolve, nearestDeck) turns the question into that frame first, and carry()
+// moves whoever is standing on it along with it.
 
 import * as THREE from 'three';
 import { waveHeight, waveNormal } from './ocean.js';
 import { textures } from './textures.js';
 import { BUILDABLE_BY_ID, FIRE } from './items.js';
 import { buildCampfire, updateFire, tickFire } from './fire.js';
+import { heightAt } from './terrain.js';
 
 export const CELL = 2;
 export const DECK_Y = 0;        // walkable surface, in raft-local space
@@ -17,6 +23,29 @@ export const WALL_H = 2.2;
 export const ROOF_Y = 2.34;
 export const MAX_CELLS = 120;
 
+// How it moves. A paddle stroke is an impulse: a push in the direction
+// stroked, and a turn from how far off the middle it was made. The water
+// takes both off again, so a raft coasts to a stop in some seconds.
+const STROKE = 0.46;            // m/s a stroke adds, on the four-cell raft you start with (~1.3 m/s held)
+const DRAG = 0.42;              // of its speed, lost a second
+const SPIN_DRAG = 0.95;         // of its turn, lost a second
+const TOP_SPEED = 2.4;          // m/s
+const DRAUGHT = 0.55;           // how far under the water it reaches: shallower than this is aground
+const SAIL_PUSH = 0.62;         // m/s² a raised sail gives the four-cell raft, in a fresh wind
+
+/**
+ * The wind at sea-clock `time`: which way it blows (a unit vector, world x
+ * and z) and how hard (0..1). It swings round slowly over the day and
+ * freshens and falls away — the same on every machine, since it runs on the
+ * shared sea clock.
+ */
+export function windAt(time, out = { x: 0, z: 0, strength: 0 }) {
+  const a = 0.9 + Math.sin(time / 310) * 0.8 + Math.sin(time / 97 + 1.3) * 0.18;
+  out.x = Math.sin(a);
+  out.z = Math.cos(a);
+  out.strength = 0.72 + 0.28 * Math.sin(time / 143 + 0.4);
+  return out;
+}
 const UP = new THREE.Vector3(0, 1, 0);
 const key = (cx, cz) => `${cx},${cz}`;
 const ekey = (cx, cz, s) => `${cx},${cz},${s}`;
@@ -155,6 +184,40 @@ const BUILD = {
     return g;
   },
 
+  // A mast, a yard across it, and a sail of woven palm below the yard — or
+  // rolled up under it, lowered. The rig turns to the wind (see update).
+  sail(t, M) {
+    const g = new THREE.Group();
+    const x = t.cx * CELL, z = t.cz * CELL;
+    g.add(mesh(geo('mast', () => new THREE.CylinderGeometry(0.055, 0.08, 3.7, 8)), M('plank'), x, 1.85, z));
+    const rig = new THREE.Group();
+    rig.name = 'rig';
+    rig.position.set(x, 0, z);
+    g.add(rig);
+    rig.add(mesh(geo('yard', () => new THREE.CylinderGeometry(0.04, 0.04, 2.1, 6).rotateZ(Math.PI / 2)),
+                 M('plank'), 0, 3.35, 0.09));
+    // Bellied out forward (-z) by the wind behind it: deepest in the middle.
+    const cloth = mesh(geo('sailcloth', () => {
+      const p = new THREE.PlaneGeometry(1.9, 2.1, 10, 10);
+      const a = p.attributes.position;
+      for (let i = 0; i < a.count; i++) {
+        const u = a.getX(i) / 0.95, v = (a.getY(i) + 1.05) / 2.1;
+        a.setZ(i, -0.38 * (1 - u * u) * Math.sin(Math.PI * Math.min(1, 0.15 + v * 0.95)));
+      }
+      p.computeVertexNormals();
+      p.translate(0, 2.28, 0.1);
+      return p;
+    }), M('cloth'), 0, 0, 0);
+    cloth.name = 'cloth';
+    rig.add(cloth);
+    const furl = mesh(geo('furl', () => new THREE.CylinderGeometry(0.1, 0.1, 1.9, 8).rotateZ(Math.PI / 2)),
+                      M('cloth'), 0, 3.2, 0.12);
+    furl.name = 'furl';
+    furl.visible = false;                // set until update() says otherwise
+    rig.add(furl);
+    return g;
+  },
+
   campfire(t, M) {
     const x = t.cx * CELL, z = t.cz * CELL;
     // Stones, wood, flame, sparks and light: src/fire.js.
@@ -199,17 +262,184 @@ export class Raft {
     this.tilt = 0.55;         // how much of the wave normal the raft takes on
     this._v = new THREE.Vector3();
     this._n = new THREE.Vector3();
+
+    // Where it is and how it is going: cell (0, 0) is at (x, z) in the world,
+    // and the raft is turned `heading` about the vertical from the world's axes.
+    this.x = 0;
+    this.z = 0;
+    this.heading = 0;
+    this.vel = new THREE.Vector2();   // m/s, world x and z
+    this.spin = 0;                    // rad/s
+    this.last = { x: 0, z: 0, heading: 0 };   // the pose a frame ago, for carry()
+    this.aground = false;
+    this.up = new THREE.Vector3(0, 1, 0);     // the deck's up, for the camera's sway
+    this.follow = null;               // playing together, the host's pose: see steer()
+    this._yaw = new THREE.Quaternion();
+  }
+
+  // ── where it is ────────────────────────────────────────────────────────────
+  /** A point in the raft's frame, in the world (horizontally). */
+  toWorld(lx, lz, out = { x: 0, z: 0 }) {
+    const c = Math.cos(this.heading), s = Math.sin(this.heading);
+    out.x = this.x + lx * c + lz * s;
+    out.z = this.z - lx * s + lz * c;
+    return out;
+  }
+
+  /** A point in the world, in the raft's frame (horizontally). */
+  toLocal(x, z, out = { x: 0, z: 0 }) {
+    const c = Math.cos(this.heading), s = Math.sin(this.heading);
+    const dx = x - this.x, dz = z - this.z;
+    out.x = dx * c - dz * s;
+    out.z = dx * s + dz * c;
+    return out;
+  }
+
+  /** The middle of the deck, in the world. */
+  centre(out = { x: 0, z: 0 }) {
+    let mx = 0, mz = 0;
+    for (const c of this.cells.values()) { mx += c.cx; mz += c.cz; }
+    const n = Math.max(1, this.cells.size);
+    return this.toWorld(mx / n * CELL, mz / n * CELL, out);
+  }
+
+  /**
+   * Move a point that is on the raft along with it, for how it moved this
+   * frame. Returns how far it turned, for the one standing there to turn too.
+   */
+  carry(p) {
+    const { x, z, heading } = this.last;
+    const dh = this.heading - heading;
+    if (!dh && x === this.x && z === this.z) return 0;
+    const c = Math.cos(dh), s = Math.sin(dh);
+    const dx = p.x - x, dz = p.z - z;
+    p.x = this.x + dx * c + dz * s;
+    p.z = this.z - dx * s + dz * c;
+    return dh;
+  }
+
+  /** How fast it is going, m/s. */
+  get speed() { return this.vel.length(); }
+
+  /**
+   * A paddle stroke: `dir` the way the water is pushed from (so the way the
+   * raft goes), made at `at`, `power` 1 for a full stroke (negative to back-paddle).
+   * A stroke off to one side turns it as well as pushing it.
+   */
+  paddle(at, dir, power = 1) {
+    const mass = Math.max(4, this.cells.size);
+    const push = STROKE * power / Math.pow(mass / 4, 0.7);
+    this.vel.x += dir.x * push;
+    this.vel.y += dir.z * push;
+    const m = this.centre();
+    const rx = at.x - m.x, rz = at.z - m.z;
+    // The turn: a push forward on the right-hand side swings the bow left,
+    // which is +heading. Bigger rafts are harder to turn round.
+    this.spin += (rz * dir.x - rx * dir.z) * push * 0.4 / Math.sqrt(mass);
+    if (this.vel.length() > TOP_SPEED) this.vel.setLength(TOP_SPEED);
+    this.spin = THREE.MathUtils.clamp(this.spin, -0.6, 0.6);
+  }
+
+  /** Its pose, for the others: [x, z, heading, vx, vz, spin]. */
+  pose() {
+    const r = (v, k = 100) => Math.round(v * k) / k;
+    return [r(this.x), r(this.z), r(this.heading, 1000), r(this.vel.x), r(this.vel.y), r(this.spin, 1000)];
+  }
+
+  /** Take on a pose outright — loading one, or the host's when far out. */
+  setPose([x, z, heading, vx = 0, vz = 0, spin = 0]) {
+    this.x = x; this.z = z; this.heading = heading;
+    this.vel.set(vx, vz); this.spin = spin;
+    this.last = { x, z, heading };
+    this.place();
+  }
+
+  /**
+   * Playing together, the host's pose, a moment old: this raft goes on as it
+   * was going and is eased onto where that says it now is.
+   */
+  steer(pose) {
+    const [x, z, h] = pose;
+    if (Math.hypot(x - this.x, z - this.z) > 8 || Math.abs(Math.atan2(Math.sin(h - this.heading), Math.cos(h - this.heading))) > 0.8) {
+      this.setPose(pose);
+      return;
+    }
+    this.follow = { pose, at: performance.now() / 1000 };
+  }
+
+  /** Put the group where the pose says (no heave or tilt): before update() has run. */
+  place() {
+    this.group.position.set(this.x, this.group.position.y, this.z);
+    this.group.quaternion.setFromAxisAngle(UP, this.heading);
+    this.group.updateMatrixWorld();
+  }
+
+  /** Would the raft be aground with cell (0, 0) at (x, z) and this heading? */
+  groundedAt(x, z, heading) {
+    const c = Math.cos(heading), s = Math.sin(heading);
+    for (const cell of this.cells.values()) {
+      const lx = cell.cx * CELL, lz = cell.cz * CELL;
+      const wx = x + lx * c + lz * s, wz = z - lx * s + lz * c;
+      if (heightAt(wx, wz) > -DRAUGHT) return true;
+    }
+    return false;
+  }
+
+  /** Speed, turn and drag — and the wind in any raised sail; aground, it stops where it touched. */
+  sail(dt, time) {
+    this.last = { x: this.x, z: this.z, heading: this.heading };
+    const raised = [...this.objs.values()].filter(o => o.type === 'sail' && o.raised).length;
+    if (raised) {
+      const w = windAt(time, this._wind ||= { x: 0, z: 0, strength: 0 });
+      const mass = Math.max(4, this.cells.size);
+      // Each sail more is less than as much again: they spill each other's wind.
+      const push = SAIL_PUSH * w.strength * Math.pow(raised, 0.7) / Math.pow(mass / 4, 0.7) * dt;
+      this.vel.x += w.x * push;
+      this.vel.y += w.z * push;
+      if (this.vel.length() > TOP_SPEED) this.vel.setLength(TOP_SPEED);
+    }
+    if (this.follow) {
+      // Eased onto the host's, carried on from when it was sent.
+      const [x, z, h, vx, vz, spin] = this.follow.pose;
+      const t = Math.min(1, performance.now() / 1000 - this.follow.at);
+      const k = Math.min(1, dt * 2.5);
+      const tx = x + vx * t, tz = z + vz * t, th = h + spin * t;
+      this.vel.x += (vx - this.vel.x) * k; this.vel.y += (vz - this.vel.y) * k;
+      this.spin += (spin - this.spin) * k;
+      this.x += (tx - this.x) * k * 0.6; this.z += (tz - this.z) * k * 0.6;
+      this.heading += Math.atan2(Math.sin(th - this.heading), Math.cos(th - this.heading)) * k * 0.6;
+    }
+    const moving = this.vel.lengthSq() > 1e-6 || Math.abs(this.spin) > 1e-5;
+    if (!moving) { this.aground = false; return; }
+    const nx = this.x + this.vel.x * dt, nz = this.z + this.vel.y * dt, nh = this.heading + this.spin * dt;
+    if (this.groundedAt(nx, nz, nh)) {
+      // Touched bottom: it stops, and swings a little off what it hit.
+      this.aground = true;
+      this.vel.multiplyScalar(-0.15);
+      this.spin *= -0.2;
+    } else {
+      this.aground = false;
+      this.x = nx; this.z = nz; this.heading = nh;
+    }
+    this.vel.multiplyScalar(Math.exp(-DRAG * dt));
+    this.spin *= Math.exp(-SPIN_DRAG * dt);
+    if (this.vel.lengthSq() < 1e-6) this.vel.set(0, 0);
+    if (Math.abs(this.spin) < 1e-5) this.spin = 0;
   }
 
   // ── layout queries ─────────────────────────────────────────────────────────
-  cellAtWorld(x, z) { return [Math.round(x / CELL), Math.round(z / CELL)]; }
+  cellAtWorld(x, z) {
+    const l = this.toLocal(x, z, this._l ||= { x: 0, z: 0 });
+    return [Math.round(l.x / CELL), Math.round(l.z / CELL)];
+  }
   hasCell(cx, cz) { return this.cells.has(key(cx, cz)); }
   solidAtWorld(x, z) { const [a, b] = this.cellAtWorld(x, z); return this.hasCell(a, b); }
   get size() { return this.cells.size; }
 
-  /** World-space height of the deck under (x,z), accounting for heave and tilt. */
+  /** World-space height of the deck under world (x, z), accounting for heave and tilt. */
   deckY(x, z) {
-    return this.group.localToWorld(this._v.set(x, DECK_Y, z)).y;
+    const l = this.toLocal(x, z, this._l ||= { x: 0, z: 0 });
+    return this.group.localToWorld(this._v.set(l.x, DECK_Y, l.z)).y;
   }
 
   edge(cx, cz, s) {
@@ -239,22 +469,28 @@ export class Raft {
   /** @param night 0 by day, 1 at night — firelight has to earn its brightness. */
   update(dt, time, night = 1) {
     mats().glow.opacity = 0.12 + 0.66 * night;
+    this.sail(dt, time);
     // Heave from the mean height under the hull, so a bigger raft rides flatter.
     let ex = CELL, ez = CELL;
     for (const c of this.cells.values()) {
       ex = Math.max(ex, Math.abs(c.cx * CELL) + 1);
       ez = Math.max(ez, Math.abs(c.cz * CELL) + 1);
     }
-    const h = (waveHeight(-ex, -ez, time) + waveHeight(ex, -ez, time) +
-               waveHeight(-ex, ez, time) + waveHeight(ex, ez, time) +
-               waveHeight(0, 0, time) * 2) / 6;
-    this.group.position.set(0, h + 0.32, 0);
+    const w = this._w ||= { x: 0, z: 0 };
+    let h = 0;
+    for (const [a, b] of [[-ex, -ez], [ex, -ez], [-ex, ez], [ex, ez]]) {
+      this.toWorld(a, b, w);
+      h += waveHeight(w.x, w.z, time);
+    }
+    h = (h + waveHeight(this.x, this.z, time) * 2) / 6;
+    this.group.position.set(this.x, h + 0.32, this.z);
 
-    // Tilt with the swell, damped as the raft grows.
+    // Tilt with the swell, damped as the raft grows — on top of its heading.
     const damp = this.tilt * THREE.MathUtils.clamp(9 / (6 + this.cells.size), 0.22, 1);
-    waveNormal(0, 0, time, this._n);
-    this._v.set(this._n.x * damp, 1, this._n.z * damp).normalize();
-    this.group.quaternion.setFromUnitVectors(UP, this._v);
+    waveNormal(this.x, this.z, time, this._n);
+    this.up.set(this._n.x * damp, 1, this._n.z * damp).normalize();
+    this._yaw.setFromAxisAngle(UP, this.heading);
+    this.group.quaternion.setFromUnitVectors(UP, this.up).multiply(this._yaw);
     this.group.updateMatrixWorld();
 
     // Animate fires and top up collectors.
@@ -282,6 +518,15 @@ export class Raft {
       } else if (o.type === 'collector') {
         o.water = Math.min(o.capacity, o.water + dt * o.rate);
         this.refreshCollector(o);
+      } else if (o.type === 'sail') {
+        // Turned to the wind, its belly downwind; set, or rolled up under the yard.
+        const w = windAt(time, this._wind ||= { x: 0, z: 0, strength: 0 });
+        const rig = o.obj.getObjectByName('rig');
+        rig.rotation.y = Math.atan2(-w.x, -w.z) - this.heading;
+        const cloth = rig.getObjectByName('cloth');
+        cloth.visible = o.raised;
+        rig.getObjectByName('furl').visible = !o.raised;
+        if (o.raised) cloth.scale.z = 0.75 + 0.3 * w.strength + Math.sin(time * 1.7 + o.cx) * 0.06;
       }
     }
   }
@@ -355,7 +600,7 @@ export class Raft {
               water: 0, capacity: id === 'collector' ? 5 : 0,
               rate: id === 'collector' ? 0.085 : 0,
               // A campfire is built with its wood laid and not lit.
-              fuel: id === 'campfire' ? FIRE.laid : 0, lit: false, spitFish: [] };
+              fuel: id === 'campfire' ? FIRE.laid : 0, lit: false, spitFish: [], raised: false };
       this.objs.set(key(t.cx, t.cz), rec);
       if (id === 'collector') this.refreshCollector(rec);
     }
@@ -385,7 +630,7 @@ export class Raft {
       }
     }
     for (const o of this.objs.values()) {
-      const x = o.cx * CELL, z = o.cz * CELL, r = o.type === 'campfire' ? 0.62 : 0.58;
+      const x = o.cx * CELL, z = o.cz * CELL, r = o.type === 'campfire' ? 0.62 : o.type === 'sail' ? 0.18 : 0.58;
       this.blockers.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r });
     }
   }
@@ -490,8 +735,17 @@ export class Raft {
   }
 
   // ── collision ──────────────────────────────────────────────────────────────
-  /** Push a circle of radius r out of walls, railings and deck objects. */
+  /** Push a circle of radius r (at world p: x, y=z) out of walls, railings and deck objects. */
   resolve(p, r) {
+    const l = this.toLocal(p.x, p.y, this._l ||= { x: 0, z: 0 });
+    const q = this._q2 ||= new THREE.Vector2();
+    q.set(l.x, l.z);
+    this.resolveLocal(q, r);
+    const w = this.toWorld(q.x, q.y, this._w2 ||= { x: 0, z: 0 });
+    p.set(w.x, w.z);
+  }
+
+  resolveLocal(p, r) {
     for (const b of this.blockers) {
       const qx = THREE.MathUtils.clamp(p.x, b.minX, b.maxX);
       const qz = THREE.MathUtils.clamp(p.y, b.minZ, b.maxZ);
@@ -513,17 +767,25 @@ export class Raft {
     }
   }
 
-  /** Nearest deck edge point to (x,z) — used for climbing back aboard. */
+  /**
+   * Nearest deck edge point to world (x, z) — for climbing back aboard. The
+   * point is in the world; cx, cz the cell it is on.
+   */
   nearestDeck(x, z, maxDist = 2.2) {
+    const l = this.toLocal(x, z);
     let best = null, bestD = maxDist * maxDist;
     for (const c of this.cells.values()) {
-      const px = THREE.MathUtils.clamp(x, c.cx * CELL - 0.85, c.cx * CELL + 0.85);
-      const pz = THREE.MathUtils.clamp(z, c.cz * CELL - 0.85, c.cz * CELL + 0.85);
-      const d = (x - px) ** 2 + (z - pz) ** 2;
-      if (d < bestD) { bestD = d; best = { x: px, z: pz, cx: c.cx, cz: c.cz }; }
+      const px = THREE.MathUtils.clamp(l.x, c.cx * CELL - 0.85, c.cx * CELL + 0.85);
+      const pz = THREE.MathUtils.clamp(l.z, c.cz * CELL - 0.85, c.cz * CELL + 0.85);
+      const d = (l.x - px) ** 2 + (l.z - pz) ** 2;
+      if (d < bestD) { bestD = d; best = { lx: px, lz: pz, cx: c.cx, cz: c.cz }; }
     }
+    if (best) { const w = this.toWorld(best.lx, best.lz); best.x = w.x; best.z = w.z; }
     return best;
   }
+
+  /** The middle of a cell, in the world. */
+  cellWorld(cx, cz) { return this.toWorld(cx * CELL, cz * CELL); }
 
   // ── starting raft & save ───────────────────────────────────────────────────
   startingRaft() {
@@ -539,19 +801,21 @@ export class Raft {
 
   toJSON() {
     return {
+      pose: [+this.x.toFixed(2), +this.z.toFixed(2), +this.heading.toFixed(4)],
       cells: [...this.cells.values()].map(c => [c.cx, c.cz]),
       edges: [...this.edges.values()].map(e => [e.ex, e.ez, e.es, e.type]),
       tops:  [...this.tops.values()].map(t => [t.cx, t.cz]),
       objs:  [...this.objs.values()].map(o => o.type === 'campfire'
         ? [o.cx, o.cz, o.type, 0, Math.round(o.fuel), o.lit ? 1 : 0]
+        : o.type === 'sail' ? [o.cx, o.cz, o.type, 0, o.raised ? 1 : 0]
         : [o.cx, o.cz, o.type, +o.water.toFixed(2)]),
     };
   }
 
   // ── playing together ─────────────────────────────────────────────────────
-  /** A deck object's changing state: [cx, cz, type, water, fuel, lit, spit]. */
+  /** A deck object's changing state: [cx, cz, type, water, fuel, lit (a sail: raised), spit]. */
   objState(o) {
-    return [o.cx, o.cz, o.type, +o.water.toFixed(2), Math.round(o.fuel), o.lit ? 1 : 0,
+    return [o.cx, o.cz, o.type, +o.water.toFixed(2), Math.round(o.fuel), (o.type === 'sail' ? o.raised : o.lit) ? 1 : 0,
             (o.spitFish || []).map(f => [f.raw, +f.t.toFixed(1)])];
   }
 
@@ -562,6 +826,7 @@ export class Raft {
   setObj(o, [, , , water, fuel, lit, fish], spit) {
     if (!o) return;
     if (o.type === 'collector') { o.water = Math.min(o.capacity, water || 0); this.refreshCollector(o); }
+    if (o.type === 'sail') o.raised = !!lit;
     if (o.type === 'campfire') {
       const was = o.lit;
       o.fuel = fuel || 0;
@@ -574,6 +839,7 @@ export class Raft {
   /** The whole raft, to send someone: what toJSON saves, with the fish on the fires. */
   snapshot() {
     const s = this.toJSON();
+    s.pose = this.pose();
     s.objs = [...this.objs.values()].map(o => this.objState(o));
     return s;
   }
@@ -621,6 +887,7 @@ export class Raft {
 
   /** Everything off the deck, back to nothing — before loading a raft over it. */
   clear() {
+    this.setPose([0, 0, 0]);
     for (const m of [this.objs, this.tops, this.edges, this.cells]) {
       for (const r of m.values()) this.group.remove(r.obj);
       m.clear();
@@ -629,6 +896,8 @@ export class Raft {
   }
 
   load(data) {
+    // Where it was left: before anything asks where its deck is.
+    if (Array.isArray(data.pose)) this.setPose(data.pose);
     for (const [cx, cz] of data.cells || []) this.place('foundation', { cx, cz, force: true });
     for (const [ex, ez, es, type] of data.edges || []) this.place(type, { ex, ez, es });
     for (const [cx, cz] of data.tops || []) this.place('roof', { cx, cz });
@@ -636,6 +905,7 @@ export class Raft {
       this.place(type, { cx, cz });
       const o = this.objs.get(key(cx, cz));
       if (o && water) { o.water = water; this.refreshCollector(o); }
+      if (o?.type === 'sail') o.raised = !!fuel;
       if (o?.type === 'campfire') {
         // A save from before fires had to be lit: those were burning, and
         // stay burning, with a full load of wood.

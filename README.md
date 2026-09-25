@@ -87,6 +87,7 @@ code and models, runs on this machine only, and has its own
 | `C` / `B` | crafting / take out the hammer |
 | wheel, `[` `]` | with the hammer out: pick a build piece |
 | Right-click | throw what is in hand — the spear, or the hook |
+| Hold left / right click | with the paddle, on the deck: paddle forward / back-paddle |
 | `Q` | eat — a coconut if you have one, otherwise a fish (the one in hand, else the one you have most of) |
 | `X` | salvage the piece under the crosshair — materials come back |
 | `F` | step off into the water |
@@ -189,7 +190,7 @@ pause screen starts over.
 |---|---|
 | `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. |
 | `src/sky.js` | Sun, sky dome, stars and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
-| `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry. |
+| `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
 | `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
 | `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold. |
@@ -733,6 +734,27 @@ and humpback whale ([CRRU](https://crru.org.uk/education/species/humpback-whale)
 The game compresses all of it — real fights last longer and real tuna do not
 come this close to a reef — but the order of things is theirs.
 
+### Paddling and sailing
+
+The raft goes where you take it. Craft a **paddle** (2 plank, 1 rope), hold it
+on the deck, and hold click to stroke: each stroke pushes the raft the way you
+face, and the water slows it again over some seconds. Right-click back-paddles.
+Where you stand matters — a stroke from the middle drives it straight, one
+from a side turns it away from that side — so to turn, paddle from the edge.
+A bigger raft is slower to get going and slower to turn. Playing together,
+everyone paddling pushes the same raft.
+
+Build a **sail** on a square of deck (4 plank, 3 rope, 6 palm) and **E**
+raises it: the wind fills it and takes the raft downwind, and you steer with
+the paddle. The wind swings round slowly through the day and freshens and
+falls away; the sail turns to it, and more sails push harder (less than as
+much again each). **E** furls it.
+
+Run into water shallower than the raft's draught and it grounds where it
+touched — paddle it back off. Whoever is standing on the deck goes with it,
+turning as it turns. The flotsam, the fish that shelter under it and the whale
+all follow the raft wherever it has got to, and it is saved where you left it.
+
 ### Playing together
 
 Co-op by invite link. On the splash screen, under *Play together*, give a
@@ -750,10 +772,10 @@ the others see you have gone. A game you were in lately has a **Rejoin**
 button on the splash screen.
 
 Look at someone close by and **E** hands them one of what you are holding.
-**P** points where you are looking — a column of light with your name, for
-everyone, for a few seconds. The crew list says how far off each of the others
-is and which way (↑ ahead, ↓ behind), and a name far away stays readable and
-shows through what is in the way. You see the others' lines out too — the
+Nothing tells you where anyone is. The crew list gives each of the others'
+distance from you — how far, never which way — a name fades beyond
+forty-odd metres, and behind a hill there is no telling
+anyone is there — finding each other is looking for each other. You see the others' lines out too — the
 rod's float, the hook on its rope — a fish on the spear they thrust with, the
 spears they threw before you joined, and the dinosaurs' kills wherever you are.
 

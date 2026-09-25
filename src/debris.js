@@ -192,10 +192,17 @@ export class DebrisField {
     it.buoy = kind === 'coconut' ? 0.02 : kind === 'palm' ? 0.01 : -0.04;
   }
 
+  /** Where the flotsam is centred: the raft, wherever it has got to. */
+  get hub() {
+    const r = this.raft;
+    return { x: r.x ?? r.group.position.x, z: r.z ?? r.group.position.z };
+  }
+
   respawn(it, along = -SPAWN_DIST) {
     const lateral = (Math.random() * 2 - 1) * BAND;
-    it.x = CURRENT.x * along + SIDE.x * lateral;
-    it.z = CURRENT.y * along + SIDE.y * lateral;
+    const h = this.hub;
+    it.x = h.x + CURRENT.x * along + SIDE.x * lateral;
+    it.z = h.z + CURRENT.y * along + SIDE.y * lateral;
     it.held = false;
     it.yaw = Math.random() * 7;
     return it;
@@ -213,6 +220,7 @@ export class DebrisField {
   update(dt, time, playerPos) {
     const R = this.raftRadius();
     const n = new THREE.Vector3();
+    const h = this.hub;
 
     for (const it of this.items) {
       if (it.held) {
@@ -227,15 +235,18 @@ export class DebrisField {
         it.z += CURRENT.y * SPEED * dt;
 
         // Drift around the raft instead of straight through it.
-        const dist = Math.hypot(it.x, it.z);
+        const rx = it.x - h.x, rz = it.z - h.z;
+        const dist = Math.hypot(rx, rz);
         if (dist < R) {
           const push = (R - dist) * dt * 1.6;
-          it.x += (it.x / (dist || 1)) * push;
-          it.z += (it.z / (dist || 1)) * push;
+          it.x += (rx / (dist || 1)) * push;
+          it.z += (rz / (dist || 1)) * push;
         }
 
-        const along = it.x * CURRENT.x + it.z * CURRENT.y;
-        if (along > KILL_DIST) this.respawn(it);
+        // Gone by downstream — or left behind, the raft having gone on — it
+        // comes round again upstream of where the raft is now.
+        const along = rx * CURRENT.x + rz * CURRENT.y;
+        if (along > KILL_DIST || along < -SPAWN_DIST - 30 || Math.abs(rx * SIDE.x + rz * SIDE.y) > BAND + 60) this.respawn(it);
       }
 
       it.yaw += it.spin * dt;

@@ -8,7 +8,6 @@
 
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
-import { CELL } from './raft.js';
 import { heightAt as landHeight, isLand } from './terrain.js';
 
 // Side order matches Raft: 0 = -z, 1 = +x, 2 = +z, 3 = -x.
@@ -119,7 +118,7 @@ export class Player {
   respawnOnRaft() {
     const cells = [...this.raft.cells.values()];
     if (!cells.length) {
-      this.pos.set(0, 0, 0);
+      this.pos.set(this.raft.x, 0, this.raft.z);
       this.state = 'deck';
       return;
     }
@@ -153,7 +152,8 @@ export class Player {
       }
     }
 
-    this.pos.set(best.cx * CELL, 0, best.cz * CELL);
+    const at = this.raft.cellWorld(best.cx, best.cz);
+    this.pos.set(at.x, 0, at.z);
     this.pos.y = this.raft.deckY(this.pos.x, this.pos.z);
     this.vel.set(0, 0, 0);
     this.state = 'deck';
@@ -163,7 +163,7 @@ export class Player {
     const facing = (bestSea && bestSea.length) ? bestSea
                  : (bestSides && bestSides.length) ? bestSides : null;
     if (facing) {
-      this.yaw = Player.SIDE_YAW[facing[0]];
+      this.yaw = Player.SIDE_YAW[facing[0]] + this.raft.heading;   // the sides turn with the raft
       this.pitch = -0.22;
     }
   }
@@ -297,7 +297,8 @@ export class Player {
     if (!moveLocked && input.pressed('Space')) {
       const spot = this.raft.nearestDeck(this.pos.x, this.pos.z, CLIMB_REACH);
       if (spot) {
-        this.pos.set(spot.cx * 2, 0, spot.cz * 2);
+        const at = this.raft.cellWorld(spot.cx, spot.cz);
+        this.pos.set(at.x, 0, at.z);
         this.pos.y = this.raft.deckY(this.pos.x, this.pos.z);
         this.vy = 0;
         this.vel.set(0, 0, 0);
@@ -407,10 +408,12 @@ export class Player {
   applyCamera(dt, time, moving) {
     const bobY = this.state === 'deck' && moving ? Math.sin(this.bob) * 0.045 : 0;
 
-    // Inherit a little of the raft's roll so the deck feels like it is moving.
-    const e = new THREE.Euler().setFromQuaternion(this.raft.group.quaternion, 'YXZ');
+    // Inherit a little of the raft's roll so the deck feels like it is moving:
+    // how far the deck's up leans across the way you are looking.
+    const up = this.raft.up;
+    const across = up.x * Math.cos(this.yaw) - up.z * Math.sin(this.yaw);
     const want = (this.state === 'deck' && !this.onLand)
-      ? e.z * 0.45 : Math.sin(time * 0.6) * 0.02;
+      ? -Math.atan2(across, up.y) * 0.45 : Math.sin(time * 0.6) * 0.02;
     this.roll = THREE.MathUtils.lerp(this.roll, want, Math.min(1, dt * 3));
 
     this.camera.position.set(this.pos.x, this.pos.y + EYE + bobY, this.pos.z);

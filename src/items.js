@@ -21,6 +21,9 @@ export const ITEMS = {
              hint: 'Right-click to throw it — then E to pull it back out' },
   rod:     { name: 'Rod',     tool: true, action: 'rod',
              hint: 'Click to cast — click again the moment the float goes under. Right-click baits the hook with a fish' },
+  // A blade on a pole: the raft goes where you paddle it.
+  paddle:  { name: 'Paddle',  tool: true, action: 'paddle',
+             hint: 'On the deck: hold click to paddle, right-click to back-paddle. Paddle at one side to turn' },
   // A bow with its cord round a spindle: sawing the bow spins the spindle in
   // a notch in a board, and the friction makes an ember. The oldest way to
   // make fire from what floats past a raft — wood and cord.
@@ -101,6 +104,8 @@ export const RECIPES = [
     desc: 'Cast a line from the deck.' },
   { id: 'bowdrill', out: ['bowdrill', 1], cost: { plank: 1, rope: 1 },
     desc: 'Friction fire: saw the bow at a campfire to light it.' },
+  { id: 'paddle', out: ['paddle', 1], cost: { plank: 2, rope: 1 },
+    desc: 'Move the raft. Stroke at one side to turn it the other way.' },
 ];
 
 // kind: how the piece attaches to the raft grid.
@@ -121,6 +126,8 @@ export const BUILDABLES = [
     desc: 'Catches rain and dew. Use it to drink.' },
   { id: 'campfire',   name: 'Campfire',   kind: 'object', cost: { wood: 3, scrap: 1 },
     desc: 'Built unlit. Light it with a bow drill, feed it wood, cook fish on it.' },
+  { id: 'sail',       name: 'Sail',       kind: 'object', cost: { plank: 4, rope: 3, leaf: 6 },
+    desc: 'A mast and a palm-weave sail. E raises it: the wind takes the raft; paddle to steer.' },
 ];
 
 export const BUILDABLE_BY_ID = Object.fromEntries(BUILDABLES.map(b => [b.id, b]));
