@@ -14,6 +14,7 @@ import { Viewmodel, THRUST_REACH, COOKED } from './viewmodel.js';
 import { CameraRig } from './camera.js';
 import { PlayerBody } from './body.js';
 import { Net, newCode, cleanCode } from './net.js';
+import { Together } from './together.js';
 import { ThrownSpears, travelTime } from './spear.js';
 import { Fishing } from './fishing.js';
 import { Terrain, heightAt as landHeight, coastDistance, CHUNK } from './terrain.js';
@@ -114,10 +115,12 @@ class Game {
     this.body = new PlayerBody(this.scene);
     this.character = 'woman';
     // Others, when playing together (net.js): drawn from what the relay
-    // passes on, in the same world.
+    // passes on, in the same world, on the host's raft (together.js).
+    this.together = new Together(this);
     this.net = new Net({ scene: this.scene, library: this.viewmodel.library,
                          cloneHeld: id => this.viewmodel.cloneBody(id),
-                         log: (text, kind) => this.hud.log(text, kind) });
+                         log: (text, kind) => this.hud.log(text, kind),
+                         raft: this.raft, together: this.together });
     // Outside first person, a line hangs from the rod in the body's hand,
     // not the invisible one at your eye.
     this.viewmodel.tipOutside = (id, out) => {
@@ -327,7 +330,13 @@ class Game {
     name.value = store.get('adrift.name') || `Castaway ${Math.floor(Math.random() * 90 + 10)}`;
     const who = () => (name.value.trim() || 'Castaway').slice(0, 20);
     for (const el of box.querySelectorAll('input, button')) el.addEventListener('click', e => e.stopPropagation());
-    name.onchange = () => store.set('adrift.name', who());
+    // Renamed, you are renamed in the game you are in too, once you stop typing.
+    let typing;
+    name.oninput = () => {
+      store.set('adrift.name', who());
+      clearTimeout(typing);
+      typing = setTimeout(() => this.net.rename(who()), 500);
+    };
     const go = code => { store.set('adrift.name', who()); this.net.join(code, who(), this.character); };
     $('mpHost').onclick = () => go(newCode());
     $('mpJoin').onclick = () => { const c = cleanCode($('mpCode').value); if (c.length >= 4) go(c); };
@@ -660,6 +669,7 @@ class Game {
     this.drill = null;
     if (!this.inv.remove('leaf', 1)) return;
     o.lit = true;
+    this.together.touched(o);
     this.hud.log('The ember catches in the palm fibre. The fire is lit.', 'good');
     this.hud.refreshInventory(this.inv);
   }
@@ -668,16 +678,28 @@ class Game {
     if (!this.inv.remove('wood', 1)) return;
     const was = o.fuel;
     o.fuel = Math.min(FIRE.max, o.fuel + FIRE.perWood);
+    this.together.touched(o);
     this.hud.log(was <= 0 ? 'You lay fresh wood in the ashes. It will need lighting.' : 'You feed the fire.', 'good');
     this.hud.refreshInventory(this.inv);
   }
 
   /** A raw fish onto the spit, hung by the tail over the flames. */
   cook(o, id) {
-    const key = fishOf(id);
-    const sp = this.fish.species(key);
+    const sp = this.fish.species(fishOf(id));
     if (!sp || !this.inv.remove(id, 1)) return;
     this.hotbar.refillFish(this.inv);
+    this.hang(o, id);
+    this.layoutSpit(o);
+    this.together.touched(o);
+    this.hud.log(`You hang the ${sp.name} over the fire.`, 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  /** A fish on a spit, `t` seconds cooked (layoutSpit() puts it in its place). */
+  hang(o, id, t = 0) {
+    const key = fishOf(id);
+    const sp = this.fish.species(key);
+    if (!sp) return;
     const mesh = this.fish.displayBody(key, Math.min(sp.big ? 0.4 : 0.34, sp.length[1]));
     if (mesh) {
       this.fish.lively.delete(mesh);
@@ -685,10 +707,60 @@ class Game {
       mesh.userData.raw = mesh.material.color.clone();
       o.obj.getObjectByName('spit').add(mesh);
     }
-    o.spitFish.push({ raw: id, done: cookedItem(key), name: sp.name, t: 0, mesh });
+    const f = { raw: id, done: cookedItem(key), name: sp.name, t, mesh };
+    o.spitFish.push(f);
+    this.brown(f);
+  }
+
+  unhang(f) {
+    if (!f.mesh) return;
+    f.mesh.removeFromParent();
+    f.mesh.geometry.dispose();
+    f.mesh.material.dispose();
+  }
+
+  /** A fish browns as it cooks. */
+  brown(f) {
+    if (f.mesh) f.mesh.material.color.copy(f.mesh.userData.raw).lerp(
+      f.mesh.userData.raw.clone().multiply(COOKED), f.t / FIRE.cook);
+  }
+
+  /** A spit's fish as someone else's raft has them: [[raw id, seconds cooked], …]. */
+  setSpit(o, list) {
+    const same = list.length === o.spitFish.length && list.every(([raw], i) => o.spitFish[i].raw === raw);
+    if (same) {
+      list.forEach(([, t], i) => { o.spitFish[i].t = Math.min(FIRE.cook, t); this.brown(o.spitFish[i]); });
+      return;
+    }
+    for (const f of o.spitFish) this.unhang(f);
+    o.spitFish = [];
+    for (const [raw, t] of list) if (ITEMS[raw] && fishOf(raw)) this.hang(o, raw, Math.min(FIRE.cook, t));
     this.layoutSpit(o);
-    this.hud.log(`You hang the ${sp.name} over the fire.`, 'good');
-    this.hud.refreshInventory(this.inv);
+  }
+
+  /** Every fish on every fire into the bag, cooked if done — before your raft is put by. */
+  pocketSpit() {
+    let n = 0;
+    for (const o of this.raft.objs.values()) {
+      for (const f of o.spitFish || []) {
+        const id = f.t >= FIRE.cook ? f.done : f.raw;
+        this.inv.add(id, 1);
+        this.hotbar.autoAssign(id);
+        this.unhang(f);
+        n++;
+      }
+      if (o.spitFish) o.spitFish = [];
+    }
+    if (n) {
+      this.hud.log(`You take your fish off the fire and bring ${n === 1 ? 'it' : 'them'} with you.`, 'good');
+      this.hud.refreshInventory(this.inv);
+      this.hud.refreshHotbar(this.hotbar, this.inv);
+    }
+  }
+
+  /** The fish on every fire gone, as a raft is cleared away. */
+  clearSpits() {
+    for (const o of this.raft.objs.values()) for (const f of o.spitFish || []) this.unhang(f);
   }
 
   /** Spread the fish along the stick, each hanging from it by the tail. */
@@ -708,14 +780,11 @@ class Game {
     for (const f of done) {
       this.inv.add(f.done, 1);
       this.hotbar.takeFish(f.done);
-      if (f.mesh) {
-        f.mesh.removeFromParent();
-        f.mesh.geometry.dispose();
-        f.mesh.material.dispose();
-      }
+      this.unhang(f);
     }
     o.spitFish = o.spitFish.filter(f => f.t < FIRE.cook);
     this.layoutSpit(o);
+    this.together.touched(o);
     this.hud.log(`You take ${this.describeCatch(done)} off the fire, cooked.`, 'good');
     this.hud.refreshInventory(this.inv);
   }
@@ -727,8 +796,7 @@ class Game {
       for (const f of o.spitFish) {
         const was = f.t;
         f.t = Math.min(FIRE.cook, f.t + dt);
-        if (f.mesh) f.mesh.material.color.copy(f.mesh.userData.raw).lerp(
-          f.mesh.userData.raw.clone().multiply(COOKED), f.t / FIRE.cook);
+        this.brown(f);
         if (was < FIRE.cook && f.t >= FIRE.cook) this.hud.log(`The ${f.name} is done — take it off the fire.`, 'good');
       }
     }
@@ -777,6 +845,7 @@ class Game {
           act: () => {
             c.water -= 1;
             this.raft.refreshCollector(c);
+            this.together.touched(c);
             this.player.thirst = Math.min(100, this.player.thirst + 32);
             this.hud.log('Cool rainwater. That buys you time.', 'good');
           },
@@ -853,12 +922,20 @@ class Game {
     const now = performance.now();
 
     if (this.paused) {
+      // Paused, you stand still, but the others go on: they are still drawn,
+      // and a host still keeps the shared raft in step.
+      // Playing together, the sea's clock keeps going, paused or not, so
+      // the others' seas are not held back by yours.
+      if (this.net.connected) this.time = this.net.seaTime(this.time + dt, dt);
+      this.net.update(dt, this.player, this.body.heldId, this.time);
+      this.together.update(dt);
       this.renderer.render(this.scene, this.camera);
       input.endFrame();
       return;
     }
 
-    this.time += dt;
+    // Playing together, everyone's sea keeps one time (net.js).
+    this.time = this.net.seaTime(this.time + dt, dt);
     // The craft panel takes the cursor and the view; the admin panel takes the
     // cursor but leaves you free to look at the sky you are changing.
     const panelOpen = this.cursorPanel;
@@ -974,6 +1051,7 @@ class Game {
           this.useAnim('build');
           const placed = this.build.place();
           if (placed) {
+            this.together.placed(placed.id, this.build.placedAt);
             this.hud.log(`${placed.name} built.`, 'good');
             this.hud.refreshInventory(this.inv);
             this.hud.refreshCraft(this.inv);
@@ -1018,6 +1096,7 @@ class Game {
         const r = this.build.salvage(this.ray);
         if (r?.blocked) this.hud.log(r.blocked, 'bad');
         else if (r) {
+          this.together.took(r.piece);
           this.hud.log(`Salvaged ${r.name}.`, 'good');
           this.hud.refreshInventory(this.inv);
         }
@@ -1073,7 +1152,8 @@ class Game {
       && !(held === 'spear' && !this.viewmodel.current) ? held : null;
     if (inHand !== this.body.heldId) this.body.hold(inHand, inHand ? this.viewmodel.cloneBody(inHand) : null);
     this.body.update(dt, this.player);
-    this.net.update(dt, this.player, inHand);
+    this.net.update(dt, this.player, inHand, this.time);
+    this.together.update(dt);
     if (this.pendingThrow != null && (this.pendingThrow -= dt) <= 0) {
       this.pendingThrow = null;
       this.launchSpear(eye, dir);
@@ -1181,10 +1261,13 @@ class Game {
       for (const s of this.spears.list) for (const f of s.catch) bag(fishItem(f.key));
       // Fish on a spit are not saved hanging there: they go in the bag, cooked
       // if they were done.
-      for (const o of this.raft.objs.values()) for (const f of o.spitFish || []) bag(f.t >= FIRE.cook ? f.done : f.raw);
+      // On someone else's raft, it is your own that is saved (together.js),
+      // and the fish on their fires are theirs.
+      const guest = this.together.guest;
+      if (!guest) for (const o of this.raft.objs.values()) for (const f of o.spitFish || []) bag(f.t >= FIRE.cook ? f.done : f.raw);
       if (this.fishing.bait && this.baitId) bag(this.baitId);
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        raft: this.raft.toJSON(),
+        raft: guest ? this.together.own : this.raft.toJSON(),
         inv,
         hotbar: this.hotbar.toJSON(),
         player: this.player.toJSON(),

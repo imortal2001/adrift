@@ -37,6 +37,11 @@ The game, served from `localhost`, connects to it on its own (`src/net.js`).
 3. Put that address, as `wss://`, in `DEPLOYED_RELAY` at the top of
    `src/net.js`, and publish the game as usual.
 
+After changing anything in this folder, deploy again the same way, from this
+folder (`cd server && npx wrangler deploy`) — publishing the game does not
+update the relay. Run it from anywhere else and wrangler offers to publish
+the whole repository as a website instead: say no.
+
 The free plan is enough for a small game. As Cloudflare's free tier stood
 when this was written: 100,000 Durable Object requests a day, with incoming
 WebSocket messages counted 20 to a request, and 13,000 GB-s of running time

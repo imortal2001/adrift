@@ -11,7 +11,9 @@
 // Protocol — JSON text frames:
 //   player → room   {t:'hello', name, who}      once, on connecting
 //                   {t:'state', s}              ~12 a second: where you are
-//                   {t:'ev', e}                 something that happened
+//                   {t:'ev', e}                 something that happened, to everyone
+//                   {t:'ev', e, to}             …or to one player (the host, sending
+//                                               a newcomer the raft)
 //   room → player   {t:'welcome', id, host, peers:[{id, name, who, s}]}
 //                   {t:'join', id, name, who}   {t:'leave', id}
 //                   {t:'state', id, s}          {t:'ev', id, e}
@@ -20,8 +22,9 @@
 
 export const LIMITS = {
   players: 6,             // a raft crew, not a server
-  bytes: 4096,            // largest message passed on
-  perSecond: 45,          // messages a player may send, averaged
+  bytes: 32768,           // largest message passed on (a whole raft, built out)
+  perSecond: 45,          // messages a player may send, averaged…
+  chunk: 4096,            // …each counted once per this many bytes
   name: 20,               // characters of a name
 };
 
@@ -53,8 +56,9 @@ export class Room {
     const now = Date.now();
     peer.budget = Math.min(LIMITS.perSecond, peer.budget + (now - peer.stamp) / 1000 * LIMITS.perSecond);
     peer.stamp = now;
-    if (peer.budget < 1) return;
-    peer.budget -= 1;
+    const cost = Math.ceil(text.length / LIMITS.chunk);
+    if (peer.budget < cost) return;
+    peer.budget -= cost;
 
     let m;
     try { m = JSON.parse(text); } catch { return; }
@@ -76,9 +80,13 @@ export class Room {
       peer.s = m.s;
       this.others(peer, { t: 'state', id: peer.id, s: m.s });
     } else if (m.t === 'ev' && m.e && typeof m.e === 'object') {
-      // Changing character is an event the room keeps, for later arrivals.
+      // Changing character or name is an event the room keeps, for later
+      // arrivals — and a name is passed on as cleaned here.
       if (m.e.k === 'who') peer.who = m.e.who === 'man' ? 'man' : 'woman';
-      this.others(peer, { t: 'ev', id: peer.id, e: m.e });
+      if (m.e.k === 'name') m.e = { k: 'name', name: (peer.name = clean(m.e.name, LIMITS.name) || peer.name) };
+      const to = this.peers.get(m.to);
+      if (to) { if (to !== peer && to.ready) this.safe(to, JSON.stringify({ t: 'ev', id: peer.id, e: m.e })); }
+      else if (m.to === undefined) this.others(peer, { t: 'ev', id: peer.id, e: m.e });
     }
   }
 

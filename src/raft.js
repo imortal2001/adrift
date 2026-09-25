@@ -407,10 +407,31 @@ export class Raft {
   }
 
   /**
+   * The piece at a place on the grid, as a mesh's userData.piece names it —
+   * for edits that arrive from the others, who name pieces by where they are.
+   * kind 'cell' and 'top' and 'object' take (cx, cz); 'edge' takes (ex, ez, es).
+   */
+  pieceAt(kind, a, b, c) {
+    const rec = kind === 'cell' ? this.cells.get(key(a, b))
+      : kind === 'edge' ? this.edges.get(ekey(a, b, c))
+      : kind === 'top' ? this.tops.get(key(a, b)) : this.objs.get(key(a, b));
+    if (!rec) return null;
+    return { id: kind === 'cell' ? 'foundation' : kind === 'top' ? 'roof' : rec.type, rec, kind };
+  }
+
+  /** Where a piece is, the other way: [kind, ...grid coordinates]. */
+  static where(piece) {
+    const r = piece.rec;
+    return piece.kind === 'edge' ? ['edge', r.ex, r.ez, r.es] : [piece.kind, r.cx, r.cz];
+  }
+
+  /**
    * Remove the piece a mesh belongs to. Returns a cost map to refund, or null.
    * Taking out a foundation also takes out whatever was resting on it.
+   * `force` takes a foundation out even if the raft would come apart — for
+   * matching someone else's raft, which is whole however it got that way.
    */
-  removePiece(piece) {
+  removePiece(piece, force = false) {
     const refund = {};
     const add = cost => { for (const k in cost) refund[k] = (refund[k] || 0) + cost[k]; };
     const drop = obj => this.group.remove(obj);   // geometry/material are shared caches
@@ -419,7 +440,7 @@ export class Raft {
 
     if (piece.kind === 'cell') {
       const { cx, cz } = piece.rec;
-      if (!this.cellRemovable(cx, cz)) return null;
+      if (!force && !this.cellRemovable(cx, cz)) return null;
 
       const top = this.tops.get(key(cx, cz));
       if (top) { drop(top.obj); this.tops.delete(key(cx, cz)); add(BUILDABLE_BY_ID.roof.cost); }
@@ -525,6 +546,86 @@ export class Raft {
         ? [o.cx, o.cz, o.type, 0, Math.round(o.fuel), o.lit ? 1 : 0]
         : [o.cx, o.cz, o.type, +o.water.toFixed(2)]),
     };
+  }
+
+  // ── playing together ─────────────────────────────────────────────────────
+  /** A deck object's changing state: [cx, cz, type, water, fuel, lit, spit]. */
+  objState(o) {
+    return [o.cx, o.cz, o.type, +o.water.toFixed(2), Math.round(o.fuel), o.lit ? 1 : 0,
+            (o.spitFish || []).map(f => [f.raw, +f.t.toFixed(1)])];
+  }
+
+  /**
+   * Set a deck object's state from objState(). The fish on a spit are the
+   * game's to hang (they are fish.js bodies): `spit(o, [[raw, t], …])`.
+   */
+  setObj(o, [, , , water, fuel, lit, fish], spit) {
+    if (!o) return;
+    if (o.type === 'collector') { o.water = Math.min(o.capacity, water || 0); this.refreshCollector(o); }
+    if (o.type === 'campfire') {
+      const was = o.lit;
+      o.fuel = fuel || 0;
+      o.lit = !!lit && o.fuel > 0;
+      if (was && !o.lit) this.wentOut.push(o);
+      spit?.(o, fish || []);
+    }
+  }
+
+  /** The whole raft, to send someone: what toJSON saves, with the fish on the fires. */
+  snapshot() {
+    const s = this.toJSON();
+    s.objs = [...this.objs.values()].map(o => this.objState(o));
+    return s;
+  }
+
+  /**
+   * Make this raft the one in a snapshot, changing only what differs: pieces
+   * it lacks go, pieces it has that this raft does not are built, and deck
+   * objects take on its state. Returns whether anything was built or taken
+   * away.
+   */
+  adopt(snap, spit) {
+    const want = {
+      cell: new Set((snap.cells || []).map(([cx, cz]) => key(cx, cz))),
+      edge: new Map((snap.edges || []).map(e => [ekey(e[0], e[1], e[2]), e[3]])),
+      top: new Set((snap.tops || []).map(([cx, cz]) => key(cx, cz))),
+      object: new Map((snap.objs || []).map(o => [key(o[0], o[1]), o[2]])),
+    };
+    let changed = false;
+    const take = (kind, rec) => {
+      const piece = this.pieceAt(kind, ...(kind === 'edge' ? [rec.ex, rec.ez, rec.es] : [rec.cx, rec.cz]));
+      if (piece) { this.removePiece(piece, true); changed = true; }
+    };
+    // What rests on the deck first, then the deck under it.
+    for (const [k, o] of [...this.objs]) if (want.object.get(k) !== o.type) take('object', o);
+    for (const [k, t] of [...this.tops]) if (!want.top.has(k)) take('top', t);
+    for (const [k, e] of [...this.edges]) if (want.edge.get(k) !== e.type) take('edge', e);
+    for (const [k, c] of [...this.cells]) if (!want.cell.has(k)) take('cell', c);
+
+    for (const [cx, cz] of snap.cells || []) {
+      if (!this.hasCell(cx, cz)) changed = this.place('foundation', { cx, cz, force: true }) || changed;
+    }
+    for (const [ex, ez, es, type] of snap.edges || []) {
+      if (!this.edges.has(ekey(ex, ez, es))) changed = this.place(type, { ex, ez, es }) || changed;
+    }
+    for (const [cx, cz] of snap.tops || []) {
+      if (!this.tops.has(key(cx, cz))) changed = this.place('roof', { cx, cz }) || changed;
+    }
+    for (const st of snap.objs || []) {
+      const [cx, cz, type] = st;
+      if (!this.objs.has(key(cx, cz))) changed = this.place(type, { cx, cz }) || changed;
+      this.setObj(this.objs.get(key(cx, cz)), st, spit);
+    }
+    return changed;
+  }
+
+  /** Everything off the deck, back to nothing — before loading a raft over it. */
+  clear() {
+    for (const m of [this.objs, this.tops, this.edges, this.cells]) {
+      for (const r of m.values()) this.group.remove(r.obj);
+      m.clear();
+    }
+    this.rebuildIndex();
   }
 
   load(data) {

@@ -9,12 +9,13 @@
 // room and passes their messages on; each browser draws the others from what
 // it hears. The world they stand in is the same world — the land, the reef,
 // the raft's place — because every copy of the game builds it the same way.
-// Sharing what changes in it (the raft's pieces, what floats past, the fish,
-// the dinosaurs, the time of day) is the next stage; the host, the first to
-// arrive, is the one whose world that will be.
+// The raft itself is the host's, shared (together.js); what floats past, the
+// fish, the dinosaurs and the time of day are still each player's own.
 
 import * as THREE from 'three';
 import { PlayerBody } from './body.js';
+import { waveHeight } from './ocean.js';
+import { WORLD } from './together.js';
 
 // Where the relay is. On this machine, the local stand-in; on the published
 // game, the Worker you deployed — set this to its address (server/README.md).
@@ -25,6 +26,9 @@ export const RELAY = LOCAL ? `ws://${location.hostname}:8787` : DEPLOYED_RELAY;
 const SEND_HZ = 12;            // your state, this many times a second
 const BEHIND = 0.12;           // others are drawn this far in the past, to interpolate
 const IDLE_SEND = 1.0;         // and resent this often even when nothing changed
+const SLEW = 1.5;              // a sea behind closes this much of the gap a second…
+const JUMP = 1.5;              // …or jumps, if it is this many seconds behind
+const NEAR = 0.2;              // and within this, it is the same sea
 
 const CODE_LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';       // no I, O, 0, 1
 export function newCode(n = 5) {
@@ -72,12 +76,14 @@ class Remote {
     net.scene.add(this.tag);
     this.snaps = [];          // [{at, s}] as they arrive
     this.held = undefined;
-    this.pose = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, state: 'deck' };
+    this.pose = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, state: 'deck', onLand: false };
     this.seen = false;
+    this.clock = null;        // their sea's clock, as last heard: {c, at}
   }
 
   hear(s) {
     if (!s || !Array.isArray(s.p)) return;
+    if (typeof s.c === 'number') this.clock = { c: s.c, at: performance.now() / 1000 };
     this.snaps.push({ at: performance.now() / 1000, s });
     if (this.snaps.length > 30) this.snaps.shift();
   }
@@ -94,12 +100,17 @@ class Remote {
     }
     const k = b.at > a.at ? THREE.MathUtils.clamp((now - a.at) / (b.at - a.at), 0, 1) : 1;
     const p = this.pose;
-    p.pos.set(a.s.p[0] + (b.s.p[0] - a.s.p[0]) * k,
-              a.s.p[1] + (b.s.p[1] - a.s.p[1]) * k,
-              a.s.p[2] + (b.s.p[2] - a.s.p[2]) * k);
+    const x = a.s.p[0] + (b.s.p[0] - a.s.p[0]) * k, z = a.s.p[2] + (b.s.p[2] - a.s.p[2]) * k;
+    // Each height as it stands here before the two are blended, so one on
+    // the deck and the next in the water (climbing out, jumping in) blend as
+    // heights, not as a height above the deck and one above the sea.
+    const ya = this.height(a.s, x, z), yb = this.height(b.s, x, z);
+    p.pos.set(x, ya + (yb - ya) * k, z);
     p.yaw = lerpAngle(a.s.y || 0, b.s.y || 0, k);
     p.pitch = (a.s.pi || 0) + ((b.s.pi || 0) - (a.s.pi || 0)) * k;
     p.state = { d: 'deck', a: 'air', s: 'swim' }[b.s.st] || 'deck';
+    // Head under here, they are swimming under water (body.js swims that differently).
+    p.submerged = p.state === 'swim' && p.pos.y + 1.62 < waveHeight(x, z, this.net.time);
     // Only a sudden leap (they respawned, or climbed aboard) is not smoothed.
     if (!this.seen) { this.body.lastPos.copy(p.pos); this.seen = true; }
     const held = b.s.h || null;
@@ -113,8 +124,29 @@ class Remote {
     this.tag.position.set(p.pos.x, p.pos.y + 2.05, p.pos.z);
   }
 
+  /**
+   * A sent height, here. On the raft it was sent above the deck (r 1), in the
+   * water above the sea (r 2): the deck and the sea are where this machine
+   * has them now, which is not quite where theirs had them — the host's
+   * shared clock (Net.seaTime) keeps the two seas close, not exact, and a height
+   * drawn a moment behind would otherwise be a moment's swell out.
+   */
+  height(s, x, z) {
+    if (s.r === 1) return s.p[1] + this.net.raft.deckY(x, z);
+    if (s.r === 2) return s.p[1] + waveHeight(x, z, this.net.time);
+    return s.p[1];
+  }
+
   event(e) {
     if (e.k === 'g') this.body.gesture(e.g);
+    else if (e.k === 'name' && e.name && e.name !== this.name) {
+      this.net.log(`${this.name} is now ${e.name}.`);
+      this.name = e.name;
+      this.dropTag();
+      this.tag = nameTag(e.name);
+      this.net.scene.add(this.tag);
+      this.net.onChange();
+    }
     else if (e.k === 'who' && e.who !== this.who) {
       this.who = e.who;
       this.body.wear(e.who, this.net.library);
@@ -124,6 +156,10 @@ class Remote {
   dispose() {
     this.body.hold(null, null);
     this.body.group.removeFromParent();
+    this.dropTag();
+  }
+
+  dropTag() {
     this.tag.removeFromParent();
     this.tag.material.map.dispose();
     this.tag.material.dispose();
@@ -136,9 +172,13 @@ export class Net {
    * @param library   the ModelLibrary, for their characters
    * @param cloneHeld (id) => a copy of an item's body, for their hands
    * @param log       (text, kind) => a line in the message log
+   * @param raft      the raft, which others stand on
+   * @param together  the shared raft (together.js): told of arrivals, and of world events
    */
-  constructor({ scene, library, cloneHeld, log }) {
+  constructor({ scene, library, cloneHeld, log, raft, together }) {
     this.scene = scene;
+    this.raft = raft;
+    this.together = together;
     this.library = library;
     this.cloneHeld = cloneHeld;
     this.log = log;
@@ -150,6 +190,7 @@ export class Net {
     this.sendIn = 0;
     this.idle = 0;
     this.last = '';
+    this.time = 0;              // this machine's sea clock (main.js's time)
     this.status = RELAY ? 'Not in a game' : 'Playing together is not set up on this server yet';
     this.onChange = () => {};
   }
@@ -177,6 +218,7 @@ export class Net {
       const was = this.connected || this.id !== null;
       this.clear();
       this.ws = null;
+      this.together?.exit();
       this.status = was ? `Lost the connection to ${this.code}` : `Could not reach the relay`;
       this.onChange();
     };
@@ -187,6 +229,7 @@ export class Net {
     this.ws = null;
     if (ws) ws.close();
     this.clear();
+    this.together?.exit();
     if (!quiet) { this.code = null; this.status = 'Not in a game'; this.onChange(); }
   }
 
@@ -205,11 +248,13 @@ export class Net {
       this.host = m.host;
       for (const p of m.peers) this.add(p);
       this.status = `In game ${this.code}`;
+      this.together?.enter(this.isHost);
       this.log(this.remotes.size ? `You join ${this.code}: ${[...this.remotes.values()].map(r => r.name).join(', ')} ${this.remotes.size === 1 ? 'is' : 'are'} here.`
                                  : `You are hosting ${this.code}. Share the invite link.`, 'good');
       this.onChange();
     } else if (m.t === 'join') {
       this.add(m);
+      this.together?.joined(m.id);
       this.log(`${m.name} comes aboard.`, 'good');
       this.onChange();
     } else if (m.t === 'leave') {
@@ -217,8 +262,9 @@ export class Net {
       if (r) { this.log(`${r.name} has gone.`); r.dispose(); this.remotes.delete(m.id); this.onChange(); }
     } else if (m.t === 'state') {
       this.remotes.get(m.id)?.hear(m.s);
-    } else if (m.t === 'ev') {
-      this.remotes.get(m.id)?.event(m.e);
+    } else if (m.t === 'ev' && m.e) {
+      if (WORLD.has(m.e.k)) this.together?.hear(m.e, m.id);
+      else this.remotes.get(m.id)?.event(m.e);
     } else if (m.t === 'host') {
       this.host = m.id;
       if (m.id === this.id) this.log('You are the host now.');
@@ -236,16 +282,46 @@ export class Net {
     this.remotes.set(p.id, r);
   }
 
-  /** Tell the others something happened: {k:'g', g:'thrust'}, {k:'who', who}. */
-  event(e) {
-    if (this.connected) this.ws.send(JSON.stringify({ t: 'ev', e }));
+  /** Go by another name, in the game you are in (or the next you join). */
+  rename(name) {
+    if (!name || name === this.name) return;
+    this.name = name;
+    this.event({ k: 'name', name });
+    this.onChange();
+  }
+
+  /** Tell the others something happened: {k:'g', g:'thrust'}, {k:'who', who} — or, with `to`, one of them. */
+  event(e, to) {
+    if (this.connected) this.ws.send(JSON.stringify(to === undefined ? { t: 'ev', e } : { t: 'ev', e, to }));
+  }
+
+  /**
+   * The sea's clock. Every machine's waves come from the time it has been
+   * running (ocean.js), so on its own each has a different sea — the raft
+   * riding a different swell, a swimmer on a different wave. Playing
+   * together, everyone's goes with whoever's is furthest on: a clock behind
+   * is eased up to it, or jumped if far behind. Only ever forward — the same
+   * clock times the game's cooldowns and saves, which a clock going back
+   * would stall. (Heard clocks are a moment old, so they are never ahead of
+   * the truth and two equal seas do not push each other on.)
+   */
+  seaTime(time, dt) {
+    if (!this.connected) return time;
+    const now = performance.now() / 1000;
+    let want = -Infinity;
+    for (const r of this.remotes.values()) if (r.clock) want = Math.max(want, r.clock.c + now - r.clock.at);
+    const gap = want - time;
+    if (!(gap > NEAR)) return time;
+    return gap > JUMP ? want : time + gap * Math.min(1, dt * SLEW);
   }
 
   /**
    * Each frame: send where you are (at SEND_HZ, and only when it changed,
-   * or now and then so a newcomer sees you), and draw the others.
+   * or now and then so a newcomer sees you), and draw the others. `time`
+   * is the sea's clock; the host's goes with what it sends.
    */
-  update(dt, player, held) {
+  update(dt, player, held, time) {
+    this.time = time;
     for (const r of this.remotes.values()) r.update(dt);
     if (!this.connected) return;
     this.sendIn -= dt;
@@ -253,14 +329,23 @@ export class Net {
     if (this.sendIn > 0) return;
     this.sendIn = 1 / SEND_HZ;
     const r2 = v => Math.round(v * 100) / 100;
-    const s = { p: [r2(player.pos.x), r2(player.pos.y), r2(player.pos.z)],
+    const { x, y, z } = player.pos;
+    // Over the raft, out of the water, height is sent above the deck; in the
+    // water, above the sea (see Remote.height).
+    const swim = player.state === 'swim';
+    const deck = !swim && !player.onLand && this.raft.solidAtWorld(x, z);
+    const h = deck ? y - this.raft.deckY(x, z) : swim ? y - waveHeight(x, z, time) : y;
+    const s = { p: [r2(x), r2(h), r2(z)],
                 y: Math.round(player.yaw * 1000) / 1000, pi: Math.round(player.pitch * 100) / 100,
                 st: { deck: 'd', air: 'a', swim: 's' }[player.state] || 'd', h: held || null };
+    if (deck) s.r = 1;
+    else if (swim) s.r = 2;
     const text = JSON.stringify({ t: 'state', s });
     if (text === this.last && this.idle < IDLE_SEND) return;
     this.last = text;
     this.idle = 0;
-    this.ws.send(text);
+    // The sea's clock rides along, but does not count as a change.
+    this.ws.send(JSON.stringify({ t: 'state', s: { ...s, c: Math.round(time * 100) / 100 } }));
   }
 
   /** Names in the game, you first. */

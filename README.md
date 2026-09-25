@@ -194,6 +194,7 @@ pause screen starts over.
 | `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
 | `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold. |
 | `src/net.js` | Playing together: joining a room through the relay, sending where you are and what you do, and drawing the others — their characters, smoothed between updates, holding what they hold, with a name over their heads. |
+| `src/together.js` | Playing together on one raft, the host's: your own put by while you are away from it, each change sent as it happens, and the host's copy settling anything contested. |
 | `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
 | `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current. |
@@ -752,11 +753,33 @@ world is the same for all of you without being sent — the land, reef and
 forest are built from the same code everywhere, and the raft sits at the
 same place.
 
-*What is not shared yet* — the next stage: the raft's pieces (each of you
-still builds your own, in the same spot), what floats past, the fish and the
-dinosaurs, a spear in flight, and the time of day. The first player in is
-the **host**, and it is their world those will be; if they leave, the next
-player in takes over.
+**One raft.** The first player in is the **host**, and everyone plays on
+the host's raft. Joining, your own raft is put by (fish on its fires go in
+your bag) and the host's takes its place; leaving, yours comes back as you
+left it — and it is always your own raft that your save keeps. On the shared
+raft, anyone can build, salvage, drink from a collector, feed or light a fire,
+and hang fish on it or take them off, and the others see it happen. What you
+build costs your own materials, salvaging refunds you, and cooked fish go to
+whoever takes them off the fire (`src/together.js`).
+
+Each change goes to the others as it happens. The host's raft settles
+anything contested: shortly after each change, and every twenty seconds
+regardless, the host sends it whole and the others' copies are brought into
+line with it — so two people building on one spot at once, or fires burning
+down and collectors filling at slightly different rates on each machine,
+never leave you on different rafts. If the host leaves, the next player in
+takes over, and the raft goes on.
+
+One sea, too. Every machine's waves come from how long it has been running,
+so on its own each would have a different swell — the raft riding it
+differently, a swimmer on a different wave. Playing together, everyone's sea
+keeps the time of whoever's is furthest on (a clock behind is eased or
+jumped forward, never back). And heights are sent from what they stand on —
+above the deck on the raft, above the sea in the water — so whatever small
+difference is left, the others stand on your deck and swim in your sea.
+
+*Not shared yet* — the next stage: what floats past, the fish and the
+dinosaurs, a spear in flight, and the time of day.
 
 On this machine, run the relay with `node server/dev-relay.mjs` and the game
 finds it. For the published game, deploy the relay to Cloudflare (free) and

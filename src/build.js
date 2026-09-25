@@ -95,6 +95,7 @@ export class BuildMode {
       return null;
     }
     this.ghostSig = '';     // force the ghost to re-evaluate against the new state
+    this.placedAt = this.target;
     return p;
   }
 
@@ -111,6 +112,6 @@ export class BuildMode {
     if (!refund) return { blocked: 'That piece cannot come out' };
     this.inv.refund(refund);
     this.clearGhost();
-    return { name: BUILDABLE_BY_ID[piece.id].name, refund };
+    return { name: BUILDABLE_BY_ID[piece.id].name, refund, piece };
   }
 }
