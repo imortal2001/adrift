@@ -284,6 +284,7 @@ export class Raft {
     this.aground = false;
     this.up = new THREE.Vector3(0, 1, 0);     // the deck's up, for the camera's sway
     this.follow = null;               // playing together, the host's pose: see steer()
+    this.jumpFrom = null;             // a pose it has just been put from, for carry()
     this._yaw = new THREE.Quaternion();
   }
 
@@ -326,6 +327,14 @@ export class Raft {
     p.x = this.x + dx * c + dz * s;
     p.z = this.z - dx * s + dz * c;
     return dh;
+  }
+
+  /** Was (x, z) on the deck where the raft was a frame ago — before carry() moves it? */
+  wasUnder(x, z) {
+    const { x: ox, z: oz, heading } = this.last;
+    const c = Math.cos(heading), s = Math.sin(heading);
+    const dx = x - ox, dz = z - oz;
+    return this.hasCell(Math.round((dx * c - dz * s) / CELL), Math.round((dx * s + dz * c) / CELL));
   }
 
   /** How fast it is going, m/s. */
@@ -371,9 +380,13 @@ export class Raft {
   steer(pose) {
     const [x, z, h] = pose;
     if (Math.hypot(x - this.x, z - this.z) > 8 || Math.abs(Math.atan2(Math.sin(h - this.heading), Math.cos(h - this.heading))) > 0.8) {
+      // Too far out to ease: put there — taking whoever is aboard with it
+      // (carry() works from where it was put from, this once).
+      const from = { x: this.x, z: this.z, heading: this.heading };
       this.setPose(pose);
-      return;
+      this.jumpFrom = from;
     }
+    // Eased onto from here on — this pose, not the one before a jump.
     this.follow = { pose, at: performance.now() / 1000 };
   }
 
@@ -397,7 +410,8 @@ export class Raft {
 
   /** Speed, turn and drag — and the wind in any raised sail; aground, it stops where it touched. */
   sail(dt, time) {
-    this.last = { x: this.x, z: this.z, heading: this.heading };
+    this.last = this.jumpFrom || { x: this.x, z: this.z, heading: this.heading };
+    this.jumpFrom = null;
     const raised = [...this.objs.values()].filter(o => o.type === 'sail' && o.raised).length;
     if (raised) {
       const w = windAt(time, this._wind ||= { x: 0, z: 0, strength: 0 });

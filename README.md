@@ -832,16 +832,22 @@ raft. The first player in is the **host**, whose game runs the world and whose
 copy of every raft counts. On the shared
 raft, anyone can build, salvage, drink from a collector, feed or light a fire,
 and hang fish on it or take them off, and the others see it happen. What you
-build costs your own materials, salvaging refunds you, and cooked fish go to
-whoever takes them off the fire (`src/together.js`).
+build costs your own materials, and whatever you salvage is yours — its
+materials come to you, whoever built it (and a fire's fish come with it).
+Cooked fish, likewise, go to whoever takes them off the fire. But a statue
+someone wakes at cannot be lifted or taken apart from under them
+(`src/together.js`, `src/main.js`).
 
 Each change goes to the others as it happens. The host's raft settles
 anything contested: shortly after each change, and every twenty seconds
 regardless, the host sends it whole and the others' copies are brought into
-line with it — so two people building on one spot at once, or fires burning
-down and collectors filling at slightly different rates on each machine,
-never leave you on different rafts. If the host leaves, the next player in
-takes over, and the raft goes on.
+line with it — so fires burning down and collectors filling at slightly
+different rates on each machine never leave you on different rafts. Two of
+you at one thing at once is the host's to settle too: two people building
+on one spot get one piece, and whoever lost is paid back; two hooks on one
+crate, or two hands at one fire, get one crate and one lot of fish, and
+whoever was slower is told so. If the host leaves, the next player in takes
+over — everyone is told who — and the raft goes on.
 
 One sea, too. Every machine's waves come from how long it has been running,
 so on its own each would have a different swell — the raft riding it

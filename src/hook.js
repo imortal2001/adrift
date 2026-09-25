@@ -87,6 +87,7 @@ export class Hook {
       if (!hit && (sinking || spent)) hit = debris.nearestTo(this.pos, CATCH_RADIUS * 1.4);
       if (hit) {
         hit.held = true;
+        hit.hookedAt = [hit.x, hit.z];     // where it was caught: where the others' copies of it still are
         this.target = hit;
         this.state = 'attached';
       } else if (sinking || spent) {

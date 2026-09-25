@@ -36,6 +36,7 @@ export class SharedWorld {
     this.in = 0;
     this.beat = 0;
     this.following = false;
+    this.nearHost = false;      // a guest, in the host's sea (not far off in a sea of their own)
     this.ghosts = null;         // the others' thrown spears (spear.js, ghost)
     this.thrown = new Map();    // "player:spear" -> a ghost spear
     this._eyes = [];
@@ -61,7 +62,7 @@ export class SharedWorld {
   }
 
   /** Hosting now (the host left): the world is this game's to run. */
-  hosting() { this.follow(false); for (const r of this.game.rafts.list) r.follow = null; }
+  hosting() { this.nearHost = false; this.follow(false); for (const r of this.game.rafts.list) r.follow = null; }
 
   /**
    * Someone arrived: your spears already out in the world — stuck in the
@@ -92,6 +93,7 @@ export class SharedWorld {
   follow(on) {
     const g = this.game;
     this.following = on;
+    if (!on) this.nearHost = false;
     g.wildlife.follow = on;
     g.fish.follow = on;
   }
@@ -99,7 +101,7 @@ export class SharedWorld {
   send(e) { if (this.net.connected) this.net.event(e); }
 
   // ── what you do ────────────────────────────────────────────────────────────
-  gathered(it) { this.send({ k: 'gather', i: this.game.debris.items.indexOf(it) }); }
+  gathered(it) { this.send({ k: 'gather', i: this.game.debris.items.indexOf(it), p: [Math.round(it.x * 10) / 10, Math.round(it.z * 10) / 10] }); }
 
   threw(s, from, dir, underwater, loft) {
     const r = v => Math.round(v * 1000) / 1000;
@@ -137,6 +139,7 @@ export class SharedWorld {
       const host = this.net.remotes.get(this.net.host);
       const near = !!host && Math.hypot(host.pose.pos.x - g.player.pos.x, host.pose.pos.z - g.player.pos.z) < 160;
       g.fish.follow = near;
+      this.nearHost = near;
       if (near) {
         if (e.w) g.whale.adopt(e.w);
         if (e.f) g.fish.setSchools(e.f);
@@ -156,8 +159,10 @@ export class SharedWorld {
     } else if (e.k === 'unstatue') {
       g.statues.remove(e.id);
     } else if (e.k === 'gather') {
+      // The same piece here — not whatever floats in that slot of a sea of your own.
       const it = g.debris.items[e.i];
-      if (it && !it.held) g.debris.harvest(it);
+      const same = it && (!Array.isArray(e.p) || Math.hypot(it.x - e.p[0], it.z - e.p[1]) < 6);
+      if (same && !it.held) g.debris.harvest(it);
     } else if (e.k === 'fish') {
       const f = g.fish.fish[e.i];
       if (f && !(f.caught > 0)) g.fish.take(f, true);

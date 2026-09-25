@@ -59,6 +59,20 @@ const PLAYER = (() => {
   } catch { return Math.random().toString(36).slice(2, 14); }
 })();
 
+export { PLAYER };
+
+// Who you are to the others: a tag made from PLAYER that cannot be turned
+// back into it (PLAYER is what a room keeps your record under, so it is not
+// handed round). Pieces you build, fish you hang and the statue you wake at
+// are marked with it, from one visit to the next.
+export const PUB = (() => {
+  let h = 0x811c9dc5, k = 0x01000193;
+  for (const c of 'adrift/' + PLAYER) { h ^= c.charCodeAt(0); h = Math.imul(h, k) >>> 0; }
+  let h2 = 0x9747b28c;
+  for (const c of PLAYER + '/tag') { h2 ^= c.charCodeAt(0); h2 = Math.imul(h2, 0x5bd1e995) >>> 0; }
+  return 'u' + h.toString(36) + h2.toString(36);
+})();
+
 const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* fine */ } },
@@ -329,7 +343,8 @@ class Remote {
   }
 
   event(e) {
-    if (e.k === 'g') this.body.gesture(e.g);
+    if (e.k === 'pub' && typeof e.pub === 'string') this.pub = e.pub.slice(0, 24);
+    else if (e.k === 'g') this.body.gesture(e.g);
     else if (e.k === 'chat' && e.text) {
       const text = String(e.text).replace(/[\u0000-\u001f]/g, '').slice(0, SAY);
       this.say(text);
@@ -524,6 +539,7 @@ export class Net {
       // What the room kept: its world, and you in it (either may be null — a new room, a new face).
       this.together?.enter(this.isHost, { world: m.world ?? null, me: m.me ?? null });
       const names = [...this.remotes.values()].map(r => r.name).join(', ');
+      this.event({ k: 'pub', pub: PUB });               // who you are, to everyone here
       if (this.retrying) this.log(`Back in ${this.code}.`, 'good');
       else this.log(this.remotes.size ? `You join ${this.code}: ${names} ${this.remotes.size === 1 ? 'is' : 'are'} here.`
                                       : `You are hosting ${this.code}. Share the invite link.`, 'good');
@@ -531,6 +547,7 @@ export class Net {
       this.onChange();
     } else if (m.t === 'join') {
       this.add(m);
+      this.event({ k: 'pub', pub: PUB }, m.id);          // who you are, to the newcomer
       this.together?.joined(m.id);
       this.log(m.back ? `${m.name} is back.` : `${m.name} comes aboard.`, 'good');
       this.onChange();
@@ -546,6 +563,7 @@ export class Net {
     } else if (m.t === 'host') {
       this.host = m.id;
       if (m.id === this.id) { this.log('You are the host now.'); this.together?.hosting(); }
+      else if (this.remotes.get(m.id)) this.log(`${this.remotes.get(m.id).name} is the host now.`);
       this.onChange();
     } else if (m.t === 'full') {
       this.status = `${this.code} is full`;
@@ -636,6 +654,12 @@ export class Net {
     this.idle = 0;
     // The sea's clock rides along, but does not count as a change.
     this.ws.send(JSON.stringify({ t: 'state', s: { ...s, c: Math.round(time * 100) / 100 } }));
+  }
+
+  /** The one of the others with this tag (PUB), if they are here. */
+  byPub(pub) {
+    for (const r of this.remotes.values()) if (r.pub === pub) return r;
+    return null;
   }
 
   /** Names in the game, you first. */

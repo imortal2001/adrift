@@ -13,7 +13,7 @@ import { Underwater } from './underwater.js';
 import { Viewmodel, THRUST_REACH, COOKED } from './viewmodel.js';
 import { CameraRig } from './camera.js';
 import { PlayerBody } from './body.js';
-import { Net, newCode, cleanCode } from './net.js';
+import { Net, newCode, cleanCode, PUB } from './net.js';
 import { Together } from './together.js';
 import { pickStart, WAKING } from './spawn.js';
 import { Statues, newStatueId, scatter } from './statue.js';
@@ -112,6 +112,10 @@ class Game {
     this.statues = new Statues(this.scene);
     this.registered = null;          // {id, world} or {raft, cx, cz, world}: world null for your own, else the room's code
     this.found = new Set();          // the ids of the statues you have come across
+    // Who wakes where in this world (not only you): a statue's key — its id,
+    // or r:<raft>:<cx>,<cz> on a deck — to a Map of tag -> name. One that
+    // someone else wakes at stays where it is.
+    this.wakers = new Map();
     this.player.onDeath = () => this.respawn();
     this.debris = new DebrisField(this.scene, this.raft);
     // Seed the wildlife around a point well inland from the nearest coast.
@@ -162,6 +166,7 @@ class Game {
     this.build.rafts = this.rafts;
     this.build.newRaft = () => !this.onDeck() && !this.raft.nearestDeck(this.player.pos.x, this.player.pos.z, 5);
     this.build.onNewRaft = r => { this.setRaft(r); this.hud.log('You lay the first foundation of a new raft.', 'good'); };
+    this.build.guard = piece => this.salvageGuard(piece);
 
     this.ray = new THREE.Raycaster();
     this.tmpDir = new THREE.Vector3();
@@ -489,7 +494,24 @@ class Game {
     this.hud.refreshInventory(this.inv);
   }
 
+  /**
+   * Gather a piece of flotsam. Playing together, the host settles it (two
+   * hooks on one crate get one crate): a guest in the host's sea asks, and is
+   * handed what it gives — or told someone was quicker. Far off, in a sea of
+   * your own, it is yours to take.
+   */
   gather(it) {
+    if (this.net.connected && !this.net.isHost && this.together.world.nearHost) {
+      // Where it floats in the host's sea: a hooked piece has come your way only here.
+      const i = this.debris.items.indexOf(it), [x, z] = it.hookedAt || [it.x, it.z];
+      it.hookedAt = null;
+      this.net.event({ k: 'claimgather', i, p: [Math.round(x * 10) / 10, Math.round(z * 10) / 10] }, this.net.host);
+      this.debris.harvest(it);                   // gone here at once; what it gives comes from the host
+      return;
+    }
+    it.takenAt = this.time;
+    it.takenBy = null;
+    it.hookedAt = null;
     this.together.world.gathered(it);
     const { label, yield: y } = this.debris.harvest(it);
     const parts = [];
@@ -846,17 +868,40 @@ class Game {
     });
   }
 
+  /**
+   * Take the cooked fish off a fire: they are whoever takes them's, whoever
+   * hung them. Playing together that is the host's to settle — two hands
+   * reaching for one fish get one fish — so a guest asks, and the host hands
+   * them over (or says someone was quicker).
+   */
   takeCooked(o) {
+    if (this.net.connected && !this.net.isHost) {
+      this.net.event({ k: 'claimfish', ri: this.raft.id, cx: o.cx, cz: o.cz }, this.net.host);
+      return;
+    }
+    this.settleCooked(this.raft, o, null);
+  }
+
+  /** Hosting, or alone: a fire's cooked fish to whoever took them off — `taker` (a Remote), or null for you. */
+  settleCooked(raft, o, taker) {
     const done = o.spitFish.filter(f => f.t >= FIRE.cook);
-    for (const f of done) {
-      this.inv.add(f.done, 1);
-      this.hotbar.takeFish(f.done);
-      this.unhang(f);
+    if (!done.length) {
+      if (taker) this.net.event({ k: 'grant', none: true, items: {}, note: 'Someone else took the fish off first.' }, taker.id);
+      return;
     }
     o.spitFish = o.spitFish.filter(f => f.t < FIRE.cook);
     this.layoutSpit(o);
-    this.together.touched(o);
-    this.hud.log(`You take ${this.describeCatch(done)} off the fire, cooked.`, 'good');
+    for (const f of done) this.unhang(f);
+    const what = this.describeCatch(done);
+    if (taker) {
+      const items = {};
+      for (const f of done) items[f.done] = (items[f.done] || 0) + 1;
+      this.net.event({ k: 'grant', items, note: `You take ${what} off the fire, cooked.` }, taker.id);
+    } else {
+      for (const f of done) { this.inv.add(f.done, 1); this.hotbar.takeFish(f.done); }
+      this.hud.log(`You take ${what} off the fire, cooked.`, 'good');
+    }
+    this.together.touched(o, raft);
     this.hud.refreshInventory(this.inv);
   }
 
@@ -1029,12 +1074,14 @@ class Game {
 
   register(s) {
     this.registered = { id: s.id, world: this.world };
+    this.setWake(s.id);
     this.markMine();
     this.hud.log('This statue is where you will wake, now, if you die.', 'good');
   }
 
   registerAboard(o) {
     this.registered = { raft: true, cx: o.cx, cz: o.cz, world: this.world };
+    this.setWake(this.deckKey(this.raft, o.cx, o.cz));
     this.markMine();
     this.hud.log('This statue is where you will wake, now — aboard, wherever the raft is.', 'good');
   }
@@ -1042,7 +1089,8 @@ class Game {
   // ── a room's world: kept on the relay ──────────────────────────────────────
   /** The world as it stands, for the room to keep: the rafts, the statues, the time of day. */
   worldJSON() {
-    return { v: 1, rafts: this.rafts.toJSON(), statues: this.statues.toJSON(), sky: [+this.sky.time.toFixed(1), this.sky.day] };
+    return { v: 1, rafts: this.rafts.toJSON(), statues: this.statues.toJSON(), sky: [+this.sky.time.toFixed(1), this.sky.day],
+             wakers: this.wakersJSON() };
   }
 
   /** You, in the room's world. */
@@ -1083,6 +1131,7 @@ class Game {
   leaveRoom() {
     if (!this.room) return;
     this.room = null;
+    this.wakers = new Map();
     this.clearSpits();
     if (!this.loadSave()) this.newStart();
     this.refreshAll();
@@ -1091,6 +1140,7 @@ class Game {
 
   /** A new room's world: no rafts yet, the statues scattered, morning of the first day. */
   freshWorld() {
+    this.wakers = new Map();
     this.rafts.load([]);
     this.raft = null;
     this.setRaft(this.rafts.make());
@@ -1105,6 +1155,7 @@ class Game {
     this.raft = null;
     this.setRaft(this.rafts.list[0] || this.rafts.make());
     this.statues.load(w.statues);
+    this.loadWakers(w.wakers);
     if (Array.isArray(w.sky)) [this.sky.time, this.sky.day] = w.sky;
   }
 
@@ -1165,6 +1216,52 @@ class Game {
       this.player.standAt(st.x, st.z, st.yaw);
     }
     for (const line of WAKING[st.kind]) this.hud.log(line);
+  }
+
+  // ── who is who, playing together ───────────────────────────────────────────
+  deckKey(raft, cx, cz) { return `r:${raft.id}:${cx},${cz}`; }
+
+  /** Who else (not you) wakes at this statue: a name, or null. */
+  otherWaker(key) {
+    const w = key && this.wakers.get(key);
+    if (!w) return null;
+    for (const [tag, name] of w) if (tag !== PUB) return name || 'Someone';
+    return null;
+  }
+
+  unwake(key, tag) {
+    const w = this.wakers.get(key);
+    if (!w) return;
+    w.delete(tag);
+    if (!w.size) this.wakers.delete(key);
+  }
+
+  /** You wake at `key` now (or nowhere: null) — and the others hear of it. */
+  setWake(key) {
+    const prev = [...this.wakers].find(([, w]) => w.has(PUB))?.[0] ?? null;
+    if (prev === key) return;
+    if (prev) this.unwake(prev, PUB);
+    if (key) { if (!this.wakers.has(key)) this.wakers.set(key, new Map()); this.wakers.get(key).set(PUB, this.net.name || ''); }
+    if (this.net.connected) this.net.event({ k: 'wake', key, prev, name: this.net.name || '' });
+  }
+
+  wakersJSON() { return Object.fromEntries([...this.wakers].map(([k, w]) => [k, Object.fromEntries(w)])); }
+  loadWakers(o) {
+    this.wakers = new Map(Object.entries(o || {}).filter(([, w]) => w && typeof w === 'object')
+      .map(([k, w]) => [k, new Map(Object.entries(w))]));
+  }
+
+  /**
+   * Why this piece may not be taken apart, if it may not: a statue someone
+   * else wakes at — or the square it stands on — stays. Anything else can
+   * come off, and what it gives is whoever salvages it's, whoever built it.
+   */
+  salvageGuard(piece) {
+    const r = this.raft;
+    const at = piece.kind === 'cell' ? r.objs.get(`${piece.rec.cx},${piece.rec.cz}`) : piece.id === 'statue' ? piece.rec : null;
+    if (at?.type !== 'statue') return null;
+    const who = this.otherWaker(this.deckKey(r, at.cx, at.cz));
+    return who ? `${who} wakes at the statue there — it stays.` : null;
   }
 
   refreshAll() {
@@ -1257,6 +1354,58 @@ class Game {
       if (f && r.body.heldId === 'spear') r.body.skewer(this.fish.bodyFor(f));
       return true;
     }
+    // Handed things (what you gathered, fish off a fire, a piece of yours
+    // someone took apart) — or your materials back, for a piece someone
+    // else built on that spot first.
+    if (e.k === 'grant' || e.k === 'refund') {
+      const items = e.k === 'refund' ? e.cost : e.items;
+      // Paid back for a piece that did not go: the host's next copy of the rafts is the right one.
+      if (e.k === 'refund') this.together.edited = -Infinity;
+      for (const [id, n] of Object.entries(items || {})) {
+        if (!ITEMS[id] || !(n > 0)) continue;
+        this.inv.add(id, Math.min(40, n | 0));
+        if (fishOf(id)) this.hotbar.takeFish(id); else this.hotbar.autoAssign(id);
+      }
+      const note = e.k === 'refund' ? `Someone built there first — your materials for the ${String(e.name || 'piece').toLowerCase()} are back.`
+                                    : String(e.note || '').slice(0, 160);
+      if (note) this.hud.log(note, e.none ? 'bad' : 'good');
+      this.hud.refreshInventory(this.inv);
+      this.hud.refreshHotbar(this.hotbar, this.inv);
+      this.hud.refreshCraft(this.inv);
+      return true;
+    }
+    if (e.k === 'claimfish') {
+      if (!this.net.isHost) return true;
+      const raft = this.rafts.byId(e.ri);
+      const o = raft?.objs.get(`${e.cx},${e.cz}`);
+      if (o?.type === 'campfire') this.settleCooked(raft, o, r);
+      return true;
+    }
+    if (e.k === 'claimgather') {
+      if (!this.net.isHost) return true;
+      const it = this.debris.items[e.i];
+      const near = it && !it.held && Array.isArray(e.p) && Math.hypot(it.x - e.p[0], it.z - e.p[1]) < 6;
+      if (!near || this.time - (it.takenAt ?? -99) < 2) {
+        const who = near ? it.takenBy ?? this.net.name : null;
+        this.net.event({ k: 'grant', none: true, items: {}, note: `${who || 'Someone else'} got to it first.` }, r.id);
+        return true;
+      }
+      it.takenAt = this.time;
+      it.takenBy = r.name;
+      this.together.world.gathered(it);
+      const { label, yield: y } = this.debris.harvest(it);
+      this.net.event({ k: 'grant', items: y, note: `${label}: ${Object.entries(y).map(([id, n]) => `${n} ${ITEMS[id].name}`).join(', ')}` }, r.id);
+      return true;
+    }
+    if (e.k === 'wake') {
+      if (!r.pub) return true;
+      if (typeof e.prev === 'string') this.unwake(e.prev, r.pub);
+      if (typeof e.key === 'string') {
+        if (!this.wakers.has(e.key)) this.wakers.set(e.key, new Map());
+        this.wakers.get(e.key).set(r.pub, String(e.name || r.name || '').slice(0, 20));
+      }
+      return true;
+    }
     return false;
   }
 
@@ -1297,13 +1446,17 @@ class Game {
     const piece = hits[0]?.object.userData.piece;
     if (piece?.id === 'statue') {
       const mine = this.myStatue()?.o === piece.rec;
-      return { prompt: mine ? 'Your statue — you wake here, aboard · <b>X</b> lift it' : '<b>E</b> make this where you wake · <b>X</b> lift it',
+      const keeper = this.otherWaker(this.deckKey(this.raft, piece.rec.cx, piece.rec.cz));
+      const lift = keeper ? ` · ${keeper} wakes here${mine ? ' too' : ''}` : ' · <b>X</b> lift it';
+      return { prompt: mine ? `Your statue — you wake here, aboard${lift}` : `<b>E</b> make this where you wake${lift}`,
                act: mine ? null : () => this.registerAboard(piece.rec) };
     }
     const statue = this.statues.pick(eye, dir);
     if (statue) {
       const mine = this.myStatue()?.s === statue;
-      return { prompt: mine ? 'Your statue — where you wake · <b>X</b> lift it' : '<b>E</b> make this where you wake · <b>X</b> lift it',
+      const keeper = this.otherWaker(statue.id);
+      const lift = keeper ? ` · ${keeper} wakes here${mine ? ' too' : ''}` : ' · <b>X</b> lift it';
+      return { prompt: mine ? `Your statue — where you wake${lift}` : `<b>E</b> make this where you wake${lift}`,
                act: mine ? null : () => this.register(statue) };
     }
     if (piece?.id === 'collector') {
@@ -1523,7 +1676,7 @@ class Game {
     const pl = this.player;
     pl.drift ||= new THREE.Vector3();
     pl.drift.set(0, 0, 0);
-    if (pl.state !== 'swim' && !pl.onLand && this.raft.solidAtWorld(pl.pos.x, pl.pos.z)) {
+    if (pl.state !== 'swim' && !pl.onLand && this.raft.wasUnder(pl.pos.x, pl.pos.z)) {
       const x0 = pl.pos.x, z0 = pl.pos.z;
       pl.yaw += this.raft.carry(pl.pos);
       pl.drift.set(pl.pos.x - x0, 0, pl.pos.z - z0);
@@ -1615,13 +1768,15 @@ class Game {
 
     // Salvage works whether or not build mode is on.
       const standing = input.pressed('KeyX') && this.statues.pick(eye, dir);
-      if (standing) {
+      const keeper = standing && this.otherWaker(standing.id);
+      if (keeper) this.hud.log(`${keeper} wakes at this statue — it stays.`, 'bad');
+      else if (standing) {
         // Taken up again, to set up somewhere else.
         this.statues.remove(standing.id);
         this.together.world.statueDown(standing);
         this.inv.add('statue', 1);
         this.hotbar.autoAssign('statue');
-        if (this.registered?.id === standing.id) this.registered = null;
+        if (this.registered?.id === standing.id) { this.registered = null; this.setWake(null); }
         this.hud.log('You lift the statue. Carry it, and click to set it down somewhere else — on land, or on the raft.', 'good');
         this.hud.refreshInventory(this.inv);
       } else if (input.pressed('KeyX')) {
@@ -1631,7 +1786,7 @@ class Game {
         else if (r) {
           this.together.took(r.piece);
           // A statue comes back to your hands (its "cost" is itself); yours no longer is.
-          if (r.refund.statue && this.registered?.raft && !this.myStatue()) this.registered = null;
+          if (r.refund.statue && this.registered?.raft && !this.myStatue()) { this.registered = null; this.setWake(null); }
           this.hud.log(r.piece.id === 'statue' ? 'You unlash the statue and lift it.' : `Salvaged ${r.name}.`, 'good');
           this.hud.refreshInventory(this.inv);
         }

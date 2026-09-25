@@ -3,8 +3,10 @@
 // relay between visits (main.js enterRoom) — with its rafts: any number of
 // them, and anyone can board, build on and paddle any. Your own world waits
 // at home. What each of you pays for and takes away is your own — building
-// costs your planks, salvaging refunds you, cooked fish go in the bag of
-// whoever takes them off the fire.
+// costs your planks, whatever you salvage is yours, whoever built it, and
+// cooked fish go in the bag of whoever takes them off the fire. Two of you at one thing at once (the same spot
+// to build on, the same crate, the same fish on a fire) is the host's to
+// settle: one gets it, and the other is told (or paid back).
 //
 // Every change goes to the others as it happens, naming its raft: a piece
 // built (the first of a new raft carries where that raft is), a piece taken
@@ -16,6 +18,7 @@
 // one spot at once, and fires burning down at slightly different rates.
 
 import { Raft } from './raft.js';
+import { BUILDABLE_BY_ID } from './items.js';
 import { SharedWorld, WORLD_EVENTS } from './sharedworld.js';
 
 const SETTLE = 1.5;     // the host sends the rafts this long after a change…
@@ -52,7 +55,7 @@ export class Together {
     this.send(e);
   }
   took(piece) { this.send({ k: 'take', ri: this.raft.id, at: Raft.where(piece) }); }
-  touched(o) { this.send({ k: 'obj', ri: this.raft.id, o: this.raft.objState(o) }); }
+  touched(o, r = this.raft) { this.send({ k: 'obj', ri: r.id, o: r.objState(o) }); }
 
   send(e) {
     if (!this.net.connected) return;
@@ -77,7 +80,7 @@ export class Together {
 
   /** Someone arrived: the host hands them the rafts. */
   joined(id) {
-    if (this.net.isHost) this.net.event({ k: 'raft', rs: this.snapshot(), st: this.game.statues.toJSON() }, id);
+    if (this.net.isHost) this.net.event({ k: 'raft', rs: this.snapshot(), st: this.game.statues.toJSON(), wk: this.game.wakersJSON() }, id);
     this.world.joined(id);
   }
 
@@ -113,6 +116,7 @@ export class Together {
       if (this.net.isHost || !Array.isArray(e.rs) || (!this.fresh && now() - this.edited < OWN)) return;
       this.adoptRafts(e.rs, spit);
       if (Array.isArray(e.st)) this.adoptStatues(e.st);
+      if (e.wk) this.game.loadWakers(e.wk);
       if (this.fresh) {
         this.fresh = false;
         const g = this.game, p = g.player;
@@ -121,7 +125,12 @@ export class Together {
         else if (p.state !== 'swim' && !p.onLand && g.raft.size) p.respawnOnRaft();
       }
     } else if (e.k === 'place' && e.t) {
-      this.raftFor(e)?.place(e.id, e.t);
+      const ok = this.raftFor(e)?.place(e.id, e.t);
+      // Hosting, and it would not go — someone got there first: whoever sent
+      // it has paid for nothing, so the host hands back what it cost.
+      if (!ok && this.net.isHost && from !== undefined && BUILDABLE_BY_ID[e.id]) {
+        this.net.event({ k: 'refund', cost: BUILDABLE_BY_ID[e.id].cost, name: BUILDABLE_BY_ID[e.id].name }, from);
+      }
     } else if (e.k === 'take' && Array.isArray(e.at)) {
       const r = this.raftFor(e);
       const piece = r?.pieceAt(...e.at);
@@ -190,7 +199,7 @@ export class Together {
     this.every -= dt;
     if (this.settle !== null) this.settle -= dt;
     if (this.every <= 0 || (this.settle !== null && this.settle <= 0)) {
-      this.net.event({ k: 'raft', rs: this.snapshot(), st: this.game.statues.toJSON() });
+      this.net.event({ k: 'raft', rs: this.snapshot(), st: this.game.statues.toJSON(), wk: this.game.wakersJSON() });
       this.settle = null;
       this.every = EVERY;
     }

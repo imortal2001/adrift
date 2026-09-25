@@ -168,6 +168,11 @@ export class BuildMode {
     if (piece.kind === 'cell' && !this.raft.cellRemovable(piece.rec.cx, piece.rec.cz)) {
       return { blocked: 'That foundation is holding the rest of the raft together' };
     }
+    // Playing together, the game may say it stays: a statue someone else
+    // wakes at (main.js salvageGuard). Otherwise what comes off is yours,
+    // whoever built it.
+    const blocked = this.guard?.(piece);
+    if (blocked) return { blocked };
     const refund = this.raft.removePiece(piece);
     if (!refund) return { blocked: 'That piece cannot come out' };
     this.inv.refund(refund);

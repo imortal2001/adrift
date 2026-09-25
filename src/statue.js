@@ -4,7 +4,8 @@
 // press E and it is yours to wake at: die, and you come to beside it rather
 // than back where you first came ashore. Each player has one at a time (the
 // last they registered at). Any of them can be lifted (X), carried, and set
-// up somewhere else — on land, or on the raft's deck, where it sails with it.
+// up somewhere else — on land, or on the raft's deck, where it sails with it —
+// except one someone else wakes at (main.js wakers).
 // You can carve your own, too.
 //
 // Carved in code: a plinth of lashed logs, a tapering body with arms folded
