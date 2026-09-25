@@ -70,6 +70,7 @@ export class Together {
   /** Someone arrived: the host hands them the raft. */
   joined(id) {
     if (this.net.isHost) this.net.event({ k: 'raft', r: this.raft.snapshot() }, id);
+    this.world.joined(id);
   }
 
   /** Out of the game, however that happened: back to your own raft. */

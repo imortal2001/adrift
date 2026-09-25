@@ -117,6 +117,53 @@ function speechBubble(text) {
 
 const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
+// Which way someone is from where you face, as an arrow: ↑ ahead, ↓ behind.
+const ARROWS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
+export function bearing(from, yaw, to) {
+  const ang = Math.atan2(to.x - from.x, to.z - from.z);       // world: 0 is +Z
+  const ahead = Math.atan2(-Math.sin(yaw), -Math.cos(yaw));    // you face -Z at yaw 0
+  let rel = ahead - ang;                                      // + is to your right
+  rel = Math.atan2(Math.sin(rel), Math.cos(rel));
+  return ARROWS[(Math.round(rel / (Math.PI / 4)) + 8) % 8];
+}
+
+// What is on the end of someone's line: a float (the rod) or the hook.
+const LINE_SEGS = 10;
+function lineEnd(kind) {
+  const g = new THREE.Group();
+  if (kind === 1) {
+    const hook = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.34, 7),
+                                new THREE.MeshStandardMaterial({ color: 0x8a8f94, roughness: 0.5, metalness: 0.5 }));
+    g.add(hook);
+  } else {
+    const top = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+                               new THREE.MeshStandardMaterial({ color: 0xd9412b, roughness: 0.6 }));
+    const bottom = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 6, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+                                  new THREE.MeshStandardMaterial({ color: 0xf2eee4, roughness: 0.6 }));
+    g.add(top, bottom);
+  }
+  return g;
+}
+
+/** Where someone is pointing: a column of light, a ring, and their name, for a while. */
+const POINT_TIME = 9;
+function pointMarker(name) {
+  const g = new THREE.Group();
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 14, 8, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0x8fe3ff, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+  beam.position.y = 7;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.75, 32),
+    new THREE.MeshBasicMaterial({ color: 0x8fe3ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.05;
+  const tag = nameTag(name);
+  tag.position.y = 14.5;
+  tag.material.depthTest = false;
+  g.add(beam, ring, tag);
+  g.userData = { beam, ring, tag, base: tag.scale.clone() };
+  return g;
+}
+
 /** Another player, as this browser draws them. */
 class Remote {
   constructor(net, id, name, who) {
@@ -128,7 +175,9 @@ class Remote {
     this.who = who;
     this.tag = nameTag(name);
     net.scene.add(this.tag);
+    this.tagBase = this.tag.scale.clone();
     this.snaps = [];          // [{at, s}] as they arrive
+    this.line = null;         // their rod's line or hook's rope, when it is out: {kind, rope, end}
     this.held = undefined;
     this.pose = { pos: new THREE.Vector3(), yaw: 0, pitch: 0, state: 'deck', onLand: false };
     this.seen = false;
@@ -177,10 +226,61 @@ class Remote {
     this.body.update(dt, p);
     this.tag.visible = true;
     this.tag.position.set(p.pos.x, p.pos.y + 2.05, p.pos.z);
+    // Far off, a name stays big enough to read, and shows through what is
+    // in the way — it is how you find each other.
+    const far = this.net.eye ? this.net.eye.distanceTo(this.tag.position) : 0;
+    this.tag.scale.copy(this.tagBase).multiplyScalar(Math.max(1, far / 14));
+    this.tag.material.depthTest = far < 30;
+    this.drawLine(a.s.ln, b.s.ln, k);
     if (this.bubble) {
       if (performance.now() / 1000 > this.bubbleUntil) this.dropBubble();
       else this.bubble.position.set(p.pos.x, p.pos.y + 2.25 + this.bubble.scale.y / 2, p.pos.z);
     }
+  }
+
+  /**
+   * Their line, if one is out: from the rod's tip (or the hand, for the
+   * hook) to where they have the float or the hook, sagging a little.
+   */
+  drawLine(la, lb, k) {
+    if (!Array.isArray(lb)) { this.dropLine(); return; }
+    const kind = lb[3] === 1 ? 1 : 0;
+    if (this.line && this.line.kind !== kind) this.dropLine();
+    if (!this.line) {
+      const rope = new THREE.Line(new THREE.BufferGeometry().setFromPoints(
+        Array.from({ length: LINE_SEGS + 1 }, () => new THREE.Vector3())),
+        new THREE.LineBasicMaterial({ color: kind === 1 ? 0xd8c79a : 0xe8e4da }));
+      rope.frustumCulled = false;
+      const end = lineEnd(kind);
+      this.net.scene.add(rope, end);
+      this.line = { kind, rope, end };
+    }
+    const e = this.line.end.position;
+    if (Array.isArray(la) && (la[3] === 1 ? 1 : 0) === kind) {
+      e.set(la[0] + (lb[0] - la[0]) * k, la[1] + (lb[1] - la[1]) * k, la[2] + (lb[2] - la[2]) * k);
+    } else e.set(lb[0], lb[1], lb[2]);
+    const start = this._start ||= new THREE.Vector3();
+    const held = this.body.held;
+    if (kind === 0 && held && this.body.heldId === 'rod') held.localToWorld(start.set(0, 1.98, 0));
+    else if (held) start.copy(this.body.gripPos);
+    else start.copy(this.pose.pos).y += 1.3;
+    const pos = this.line.rope.geometry.attributes.position;
+    const span = start.distanceTo(e), sag = Math.min(1.2, span * 0.06);
+    for (let i = 0; i <= LINE_SEGS; i++) {
+      const t = i / LINE_SEGS;
+      pos.setXYZ(i, start.x + (e.x - start.x) * t, start.y + (e.y - start.y) * t - Math.sin(Math.PI * t) * sag,
+                 start.z + (e.z - start.z) * t);
+    }
+    pos.needsUpdate = true;
+    if (kind === 1) this.line.end.lookAt(start);
+  }
+
+  dropLine() {
+    if (!this.line) return;
+    this.line.rope.removeFromParent();
+    this.line.rope.geometry.dispose();
+    this.line.end.removeFromParent();
+    this.line = null;
   }
 
   /** Something they said, over their head for a while. */
@@ -214,6 +314,13 @@ class Remote {
 
   event(e) {
     if (e.k === 'g') this.body.gesture(e.g);
+    else if (e.k === 'point' && Array.isArray(e.p) && e.p.length === 3 && e.p.every(Number.isFinite)) {
+      const at = new THREE.Vector3(...e.p);
+      this.net.mark(at, this.name);
+      const me = this.net.me;
+      const how = me ? ` — ${Math.round(Math.hypot(at.x - me.pos.x, at.z - me.pos.z))} m ${bearing(me.pos, me.yaw, at)}` : '';
+      this.net.log(`${this.name} points${how}.`, 'chat', 7000);
+    }
     else if (e.k === 'chat' && e.text) {
       const text = String(e.text).replace(/[\u0000-\u001f]/g, '').slice(0, SAY);
       this.say(text);
@@ -238,6 +345,7 @@ class Remote {
     this.body.group.removeFromParent();
     this.dropTag();
     this.dropBubble();
+    this.dropLine();
   }
 
   dropTag() {
@@ -256,8 +364,16 @@ export class Net {
    * @param raft      the raft, which others stand on
    * @param together  the shared raft (together.js): told of arrivals, and of world events
    */
-  constructor({ scene, library, cloneHeld, log, raft, together }) {
+  /**
+   * @param onEvent   (e, remote) => true if the game took it: things that
+   *                  are for you rather than about them — a gift, a point
+   */
+  constructor({ scene, library, cloneHeld, log, raft, together, onEvent }) {
     this.scene = scene;
+    this.onEvent = onEvent;
+    this.eye = null;            // where you look from, for how big their names are
+    this.me = null;             // you: {pos, yaw}, for which way they are from you
+    this.points = [];           // markers where someone pointed
     this.raft = raft;
     this.together = together;
     this.library = library;
@@ -370,6 +486,7 @@ export class Net {
   }
 
   clear() {
+    for (const p of [...this.points]) this.dropPoint(p);
     for (const r of this.remotes.values()) r.dispose();
     this.remotes.clear();
     this.id = null;
@@ -402,8 +519,9 @@ export class Net {
     } else if (m.t === 'state') {
       this.remotes.get(m.id)?.hear(m.s);
     } else if (m.t === 'ev' && m.e) {
+      const r = this.remotes.get(m.id);
       if (WORLD.has(m.e.k)) this.together?.hear(m.e, m.id);
-      else this.remotes.get(m.id)?.event(m.e);
+      else if (r && !this.onEvent?.(m.e, r)) r.event(m.e);
     } else if (m.t === 'host') {
       this.host = m.id;
       if (m.id === this.id) { this.log('You are the host now.'); this.together?.hosting(); }
@@ -459,8 +577,16 @@ export class Net {
    * or now and then so a newcomer sees you), and draw the others. `time`
    * is the sea's clock; the host's goes with what it sends.
    */
-  update(dt, player, held, time) {
+  /**
+   * @param line  what is on the end of your line, if anything: [x, y, z, kind]
+   *              — kind 0 the rod's float, 1 the hook
+   * @param eye   where you look from
+   */
+  update(dt, player, held, time, line = null, eye = null) {
     this.time = time;
+    this.eye = eye;
+    this.me = player;
+    this.tickPoints(dt);
     for (const r of this.remotes.values()) r.update(dt);
     if (!this.connected) return;
     this.sendIn -= dt;
@@ -477,6 +603,7 @@ export class Net {
     const s = { p: [r2(x), r2(h), r2(z)],
                 y: Math.round(player.yaw * 1000) / 1000, pi: Math.round(player.pitch * 100) / 100,
                 st: { deck: 'd', air: 'a', swim: 's' }[player.state] || 'd', h: held || null };
+    if (line) s.ln = [r2(line[0]), r2(line[1]), r2(line[2]), line[3]];
     if (deck) s.r = 1;
     else if (swim) s.r = 2;
     if (player.onLand && !swim) s.l = 1;         // on land: prey, to the host's dinosaurs
@@ -489,9 +616,55 @@ export class Net {
   }
 
   /** Names in the game, you first. */
+  /** Names in the game, you first; the others with how far off they are, and which way. */
   crew() {
     if (!this.connected) return [];
     const mark = id => (id === this.host ? ' (host)' : '');
-    return [`${this.name}${mark(this.id)} — you`, ...[...this.remotes.values()].map(r => `${r.name}${mark(r.id)}`)];
+    const where = r => {
+      if (!this.me || !r.body.visible) return '';
+      const d = Math.hypot(r.pose.pos.x - this.me.pos.x, r.pose.pos.z - this.me.pos.z);
+      return d < 4 ? ' · here' : ` · ${Math.round(d)} m ${bearing(this.me.pos, this.me.yaw, r.pose.pos)}`;
+    };
+    return [`${this.name}${mark(this.id)} — you`, ...[...this.remotes.values()].map(r => `${r.name}${mark(r.id)}${where(r)}`)];
+  }
+
+  // ── pointing ───────────────────────────────────────────────────────────────
+  /** Point somewhere: a marker there, for you and for the others. */
+  point(at) {
+    if (!this.connected) return false;
+    this.mark(at, this.name);
+    const r = v => Math.round(v * 10) / 10;
+    this.event({ k: 'point', p: [r(at.x), r(at.y), r(at.z)] });
+    return true;
+  }
+
+  mark(at, name) {
+    // One marker a person: pointing again moves it.
+    const old = this.points.find(p => p.name === name);
+    if (old) this.dropPoint(old);
+    const obj = pointMarker(name);
+    obj.position.copy(at);
+    this.scene.add(obj);
+    this.points.push({ name, obj, t: POINT_TIME });
+  }
+
+  tickPoints(dt) {
+    for (const p of [...this.points]) {
+      p.t -= dt;
+      if (p.t <= 0) { this.dropPoint(p); continue; }
+      const u = p.obj.userData, fade = Math.min(1, p.t / 1.5);
+      u.beam.material.opacity = 0.55 * fade;
+      u.ring.material.opacity = 0.8 * fade;
+      u.ring.scale.setScalar(1 + 0.25 * Math.sin(p.t * 5));
+      u.tag.material.opacity = fade;
+      const far = this.eye ? this.eye.distanceTo(p.obj.position) : 0;
+      u.tag.scale.copy(u.base).multiplyScalar(Math.max(1, far / 14));
+    }
+  }
+
+  dropPoint(p) {
+    p.obj.removeFromParent();
+    p.obj.traverse(o => { o.geometry?.dispose(); if (o.material) { o.material.map?.dispose(); o.material.dispose(); } });
+    this.points.splice(this.points.indexOf(p), 1);
   }
 }

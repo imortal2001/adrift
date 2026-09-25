@@ -120,7 +120,8 @@ class Game {
     this.net = new Net({ scene: this.scene, library: this.viewmodel.library,
                          cloneHeld: id => this.viewmodel.cloneBody(id),
                          log: (text, kind, ms) => this.hud.log(text, kind, ms),
-                         raft: this.raft, together: this.together });
+                         raft: this.raft, together: this.together,
+                         onEvent: (e, r) => this.fromCrew(e, r) });
     // Outside first person, a line hangs from the rod in the body's hand,
     // not the invisible one at your eye.
     this.viewmodel.tipOutside = (id, out) => {
@@ -365,6 +366,7 @@ class Game {
       [...$('crew').querySelectorAll('div')].forEach((d, i) => { d.textContent = crew[i]; });
     };
     this.net.onChange = refresh;
+    this.refreshCrew = refresh;          // and now and then, for how far off everyone is
     refresh();
     const code = cleanCode(new URLSearchParams(location.search).get('room'));
     if (code.length >= 4 && this.net.available) { $('mpCode').value = code; go(code); }
@@ -635,6 +637,7 @@ class Game {
     }
     this.fish.take(f);
     this.viewmodel.skewer(this.fish.bodyFor(f));
+    this.net.event({ k: 'caught', i: this.fish.fish.indexOf(f) });   // on the spear they see you hold
     if (!this.view.first) this.body.skewer(this.fish.bodyFor(f));   // on the spear you can see
     this.addCatch(f.sp.key);
     this.hud.log(`You spear a ${f.sp.name}.`, 'good');
@@ -867,10 +870,92 @@ class Game {
     return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
   }
 
+  // ── the others ─────────────────────────────────────────────────────────────
+  /** Another player under the crosshair, within `reach`. */
+  crewAt(eye, dir, reach) {
+    let best = null, bestD = reach;
+    const c = this._crewV ||= new THREE.Vector3();
+    for (const r of this.net.remotes.values()) {
+      if (!r.body.visible) continue;
+      c.copy(r.pose.pos).y += r.pose.state === 'swim' ? 1.4 : 1.1;     // the chest (a swimmer's head)
+      const along = c.clone().sub(eye).dot(dir);
+      if (along < 0 || along > bestD) continue;
+      const off = c.clone().sub(eye).addScaledVector(dir, -along).length();
+      if (off < 0.55) { best = r; bestD = along; }
+    }
+    return best;
+  }
+
+  /** One of what is in hand, to someone else. */
+  give(mate, id) {
+    if (!this.net.connected || !this.inv.remove(id, 1)) return;
+    this.net.event({ k: 'give', id }, mate.id);
+    if (fishOf(id)) this.hotbar.refillFish(this.inv);
+    this.body.gesture('toss');                    // handed over, underarm
+    this.net.event({ k: 'g', g: 'toss' });
+    this.hud.log(`You give ${mate.name} 1 ${ITEMS[id].name}.`, 'good');
+    this.hud.refreshInventory(this.inv);
+    this.hud.refreshHotbar(this.hotbar, this.inv);
+  }
+
+  /** Something the others did that is yours to deal with (net.js onEvent). */
+  fromCrew(e, r) {
+    if (e.k === 'give') {
+      if (!ITEMS[e.id]) return true;
+      this.inv.add(e.id, 1);
+      this.hotbar.autoAssign(e.id);
+      this.hud.log(`${r.name} gives you 1 ${ITEMS[e.id].name}.`, 'good');
+      this.hud.refreshInventory(this.inv);
+      this.hud.refreshHotbar(this.hotbar, this.inv);
+      this.hud.refreshCraft(this.inv);
+      return true;
+    }
+    if (e.k === 'caught') {
+      const f = this.fish.fish[e.i];
+      if (f && r.body.heldId === 'spear') r.body.skewer(this.fish.bodyFor(f));
+      return true;
+    }
+    return false;
+  }
+
+  /** Where the end of your line is, if one is out: the rod's float, or the hook. [x, y, z, kind] */
+  lineOut() {
+    const f = this.fishing.float;
+    if (f.visible) return [f.position.x, f.position.y, f.position.z, 0];
+    const h = this.hook;
+    if (h.state !== 'idle' && h.head.visible) return [h.head.position.x, h.head.position.y, h.head.position.z, 1];
+    return null;
+  }
+
+  /**
+   * P: point at what you are looking at — the ground, the water, the raft —
+   * for the others to see. Found by stepping along the view until it meets
+   * the land or the sea.
+   */
+  pointAt(eye, dir) {
+    const p = eye.clone(), step = dir.clone().multiplyScalar(0.5);
+    for (let i = 0; i < 500; i++) {
+      p.add(step);
+      const ground = this.terrain.clearanceAt(p.x, p.z);
+      const sea = this.raft.solidAtWorld(p.x, p.z) ? this.raft.deckY(p.x, p.z) : waveHeight(p.x, p.z, this.time);
+      if (p.y <= Math.max(ground, sea)) { p.y = Math.max(ground, sea); break; }
+    }
+    if (this.net.point(p)) this.hud.log('You point.', 'chat', 3000);
+  }
+
   // ── what is under the crosshair ────────────────────────────────────────────
   /** @returns {{prompt:string, act:Function}|null} */
   findInteraction(eye, dir) {
     const reach = this.player.state === 'swim' ? 4.2 : 3.6;
+    // Someone else, close enough to hand something to.
+    const mate = this.crewAt(eye, dir, 3.2);
+    if (mate) {
+      const id = this.hotbar.held;
+      if (id && this.inv.has(id)) {
+        return { prompt: `<b>E</b> give ${ITEMS[id].name.toLowerCase()} to ${mate.name}`, act: () => this.give(mate, id) };
+      }
+      return { prompt: `${mate.name} — hold something to give it`, act: null };
+    }
     const spear = this.spears.pick(eye, dir, reach);
     if (spear) {
       return { prompt: '<b>E</b> take your spear', act: () => this.retrieveSpear(spear) };
@@ -974,7 +1059,7 @@ class Game {
       // Playing together, the sea's clock keeps going, paused or not, so
       // the others' seas are not held back by yours.
       if (this.net.connected) this.time = this.net.seaTime(this.time + dt, dt);
-      this.net.update(dt, this.player, this.body.heldId, this.time);
+      this.net.update(dt, this.player, this.body.heldId, this.time, this.lineOut(), this.camera.position);
       this.together.update(dt);
       this.renderer.render(this.scene, this.camera);
       input.endFrame();
@@ -1137,8 +1222,9 @@ class Game {
         } else if (input.clicked(0) && !act?.drill) this.useHeld(eye, dir);
       }
 
-      // Playing together: say something.
+      // Playing together: say something, or point.
     if (!panelOpen && !this.chatting && (input.pressed('Enter') || input.pressed('NumpadEnter'))) this.openChat?.();
+    if (!panelOpen && !this.chatting && !this.admin && this.net.connected && input.pressed('KeyP')) this.pointAt(eye, dir);
 
     // Salvage works whether or not build mode is on.
       if (input.pressed('KeyX')) {
@@ -1202,7 +1288,8 @@ class Game {
       && !(held === 'spear' && !this.viewmodel.current) ? held : null;
     if (inHand !== this.body.heldId) this.body.hold(inHand, inHand ? this.viewmodel.cloneBody(inHand) : null);
     this.body.update(dt, this.player);
-    this.net.update(dt, this.player, inHand, this.time);
+    this.net.update(dt, this.player, inHand, this.time, this.lineOut(), this.camera.position);
+    if (this.net.connected && (this.crewIn = (this.crewIn ?? 0) - dt) <= 0) { this.crewIn = 0.5; this.refreshCrew?.(); }
     this.together.update(dt);
     if (this.pendingThrow != null && (this.pendingThrow -= dt) <= 0) {
       this.pendingThrow = null;
@@ -1249,6 +1336,7 @@ class Game {
       this.hud.log(`Loaded sea life models (${u.meshes} bodies).`, 'good');
     }
     for (const k of this.wildlife.kills.splice(0)) {
+      this.together.world.killed(k);
       if (k.pos.distanceTo(this.player.pos) < 150) {
         this.hud.log(`A ${k.hunter} brings down a ${k.victim}.`);
       }

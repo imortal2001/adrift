@@ -24,7 +24,7 @@ import { DAY_SECONDS } from './sky.js';
 const EVERY = 1 / 3;           // the host tells the others how things stand this often…
 const SLOW = 3;                // …and where the flotsam and the fish schools are, every this many
 
-export const WORLD_EVENTS = ['world', 'gather', 'fish', 'spear', 'sk', 'spearBack', 'bite'];
+export const WORLD_EVENTS = ['world', 'gather', 'fish', 'spear', 'sk', 'spearBack', 'bite', 'kill', 'spears'];
 
 export class SharedWorld {
   constructor(game) {
@@ -60,6 +60,25 @@ export class SharedWorld {
 
   /** Hosting now (the host left): the world is this game's to run. */
   hosting() { this.follow(false); }
+
+  /**
+   * Someone arrived: your spears already out in the world — stuck in the
+   * sand, in the deck, floating, still on their way — go to them, with what
+   * is on them.
+   */
+  joined(id) {
+    const list = this.game.spears.list.map(s => {
+      const p = s.body.getWorldPosition(new THREE.Vector3());
+      const a = new THREE.Vector3(0, 1, 0).applyQuaternion(s.body.getWorldQuaternion(new THREE.Quaternion()));
+      const r = v => Math.round(v * 1000) / 1000;
+      return { s: s.id, p: p.toArray().map(r), a: a.toArray().map(r), w: s.where, st: s.state,
+               v: s.vel.toArray().map(r), f: s.catch.map(f => f.key) };
+    });
+    if (list.length) this.net.event({ k: 'spears', list }, id);
+  }
+
+  /** A kill the host's animals made: news to everyone. */
+  killed(k) { if (this.net.isHost) this.send({ k: 'kill', h: k.hunter, v: k.victim, p: [Math.round(k.pos.x), Math.round(k.pos.z)] }); }
 
   /** Someone left: their spears go with them. */
   left(id) {
@@ -117,6 +136,27 @@ export class SharedWorld {
       const k = `${from}:${e.s}`;
       this.ghosts?.drop(this.thrown.get(k));
       this.thrown.delete(k);
+    } else if (e.k === 'spears' && Array.isArray(e.list)) {
+      this.ghosts ||= new ThrownSpears(g.scene, g.terrain, g.raft, g.fish, g.spears.makeBody, true);
+      for (const t of e.list) {
+        if (!Array.isArray(t.p) || !Array.isArray(t.a) || this.thrown.has(`${from}:${t.s}`)) continue;
+        const s = this.ghosts.throw(new THREE.Vector3(...t.p), new THREE.Vector3(...t.a).normalize(), false, false);
+        const flying = t.st === 'flying' && Array.isArray(t.v);
+        if (flying) s.vel.set(...t.v); else s.vel.set(0, 0, 0);
+        s.state = flying ? 'flying' : t.st === 'floating' ? 'floating' : 'stuck';
+        s.where = t.w;
+        this.ghosts.place(s);
+        if (t.w === 'deck') g.raft.group.attach(s.body);
+        for (const key of t.f || []) {
+          const sp = g.fish.species(key);
+          const body = sp && g.fish.displayBody(key, (sp.length[0] + sp.length[1]) / 2);
+          if (body) this.ghosts.skewer(s, body);
+        }
+        this.thrown.set(`${from}:${t.s}`, s);
+      }
+    } else if (e.k === 'kill' && Array.isArray(e.p)) {
+      if (this.net.isHost) return;
+      g.wildlife.kills.push({ hunter: String(e.h), victim: String(e.v), pos: new THREE.Vector3(e.p[0], g.player.pos.y, e.p[1]) });
     } else if (e.k === 'bite' && typeof e.damage === 'number') {
       g.wildlife.events.push({ damage: Math.min(60, e.damage), label: String(e.label || 'animal') });
     }

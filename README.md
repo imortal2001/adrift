@@ -749,6 +749,14 @@ back on your own raft. Closing the page or pressing **Leave** is leaving, and
 the others see you have gone. A game you were in lately has a **Rejoin**
 button on the splash screen.
 
+Look at someone close by and **E** hands them one of what you are holding.
+**P** points where you are looking — a column of light with your name, for
+everyone, for a few seconds. The crew list says how far off each of the others
+is and which way (↑ ahead, ↓ behind), and a name far away stays readable and
+shows through what is in the way. You see the others' lines out too — the
+rod's float, the hook on its rope — a fish on the spear they thrust with, the
+spears they threw before you joined, and the dinosaurs' kills wherever you are.
+
 You see each other as you are: where you stand or swim, which way you face,
 walking, running, jumping, treading water, woman or man, what is in your
 hand, and each thrust, throw, strike and swing — the same body and motion
