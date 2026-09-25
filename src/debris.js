@@ -33,6 +33,8 @@ function shapes() {
     metal: std(t.metal, { roughness: 0.6, metalness: 0.4 }),
     palm:  std(t.palm, { side: THREE.DoubleSide, roughness: 0.75 }),
     husk:  std(null, { color: 0x6d4a2b, roughness: 0.9 }),
+    bamboo: std(null, { color: 0xb09a68, roughness: 0.75 }),
+    rope:  std(null, { color: 0xb39360, roughness: 0.95 }),
   };
 
   const put = (g, m, x, y, z, rx = 0, ry = 0, rz = 0) => {
@@ -79,6 +81,20 @@ function shapes() {
       g.add(put(c, M.metal, 0, 0, 0));
       const r = new THREE.TorusGeometry(0.34, 0.035, 6, 16);
       for (const d of [-0.28, 0.28]) g.add(put(r, M.metal, d, 0, 0, 0, Math.PI / 2, 0));
+      return g;
+    },
+    // A few canes, lashed in a bundle, washed off somewhere.
+    bamboo() {
+      const g = new THREE.Group();
+      for (let i = 0; i < 4; i++) {
+        const c = new THREE.CylinderGeometry(0.055, 0.05, 2.2 + Math.random() * 0.6, 7);
+        c.rotateZ(Math.PI / 2);
+        g.add(put(c, M.bamboo, (Math.random() - 0.5) * 0.4, (i % 2) * 0.09, (i - 1.5) * 0.11, 0, (Math.random() - 0.5) * 0.04, 0));
+      }
+      // Two lashings, snug round the bundle: wide across it, flat over it.
+      const band = new THREE.TorusGeometry(0.23, 0.014, 4, 14);
+      band.scale(1, 0.46, 1);
+      for (const d of [-0.55, 0.55]) g.add(put(band, M.rope, d, 0.045, 0, 0, Math.PI / 2, 0));
       return g;
     },
     crate() {

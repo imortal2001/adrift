@@ -538,7 +538,8 @@ export class Net {
       this.status = `In game ${this.code}`;
       // What the room kept: its world, and you in it (either may be null — a new room, a new face).
       this.together?.enter(this.isHost, { world: m.world ?? null, me: m.me ?? null });
-      const names = [...this.remotes.values()].map(r => r.name).join(', ');
+      const all = [...this.remotes.values()].map(r => r.name);
+      const names = all.length > 1 ? `${all.slice(0, -1).join(', ')} and ${all.at(-1)}` : all[0];
       this.event({ k: 'pub', pub: PUB });               // who you are, to everyone here
       if (this.retrying) this.log(`Back in ${this.code}.`, 'good');
       else this.log(this.remotes.size ? `You join ${this.code}: ${names} ${this.remotes.size === 1 ? 'is' : 'are'} here.`
@@ -549,7 +550,7 @@ export class Net {
       this.add(m);
       this.event({ k: 'pub', pub: PUB }, m.id);          // who you are, to the newcomer
       this.together?.joined(m.id);
-      this.log(m.back ? `${m.name} is back.` : `${m.name} comes aboard.`, 'good');
+      this.log(m.back ? `${m.name} is back.` : `${m.name} joins.`, 'good');
       this.onChange();
     } else if (m.t === 'leave') {
       const r = this.remotes.get(m.id);

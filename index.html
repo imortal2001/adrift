@@ -152,7 +152,9 @@
   .packslot .ps em{font-style:italic;opacity:.35}
 
   /* ---------- build bar ---------- */
-  #buildbar{position:absolute;left:50%;bottom:154px;transform:translateX(-50%);display:none;gap:6px;padding:7px}
+  /* Ten pieces: on a narrow screen it goes to two rows, growing upwards. */
+  #buildbar{position:absolute;left:50%;bottom:154px;transform:translateX(-50%);display:none;gap:6px;padding:7px;
+    flex-wrap:wrap;justify-content:center;width:max-content;max-width:calc(100vw - 36px)}
   #buildbar.open{display:flex}
 
   /* ---------- fishing ---------- */

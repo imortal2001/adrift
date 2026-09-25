@@ -197,7 +197,7 @@ pause screen starts over.
 | `src/net.js` | Playing together: joining a room through the relay, sending where you are and what you do, and drawing the others — their characters, smoothed between updates, holding what they hold, with a name over their heads. |
 | `src/sharedworld.js` | Playing together in one world, the host's: the time of day, the flotsam, the fish schools, the whale and the dinosaurs, a catch or a gather gone for everyone, the others' spears in flight, a bite on a guest sent to them. |
 | `src/spawn.js` | Where a new castaway comes to: a beach, the open sea, a square of wreckage or a small raft — never inland — and what they are told. |
-| `src/statue.js` | The statues: carved in code, scattered over the land to be found, lifted and set up on land or on the deck, registered at to wake beside when you die. |
+| `src/statue.js` | The statues — respawn points: carved in code, standing here and there over the land, lifted and set up on land or on the deck, registered at to wake beside when you die. |
 | `src/together.js` | Playing together on one raft, the host's: your own put by while you are away from it, each change sent as it happens, and the host's copy settling anything contested. |
 | `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
@@ -292,7 +292,7 @@ animals are:
 | | |
 |---|---|
 | Canopy | **giant redwoods** (~55 m, buttressed, crowns in the top half, some hung with vines) and **araucarias** (monkey puzzles: a tall grey trunk under a flat umbrella crown) |
-| Understorey | **tree ferns**, **cycads**, **shrubs**, stands of **giant horsetail** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
+| Understorey | **tree ferns**, **cycads**, **shrubs**, stands of **giant horsetail** and groves of **bamboo** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
 | Ground | **ferns** thick on the forest floor; **grass** in the open, **tall grass** on the plains, **reeds** at the water |
 | Deadfall | **fallen logs** (mossy, snapped at one end, ferns growing out of them), **stumps** with their roots, **fallen branches** |
 | Rock | **boulders**, **crags** heaped on the slopes and escarpments, and **spires** — sea stacks and lone pillars on the plains |
@@ -745,10 +745,29 @@ four pallets. Wherever it was is your starting point. From a beach or the sea,
 the first foundation is laid on the water wherever you aim the hammer — deep
 enough to float it — and the raft grows from there.
 
-**Statues** stand all over the land — two dozen of them, on beaches, in the
-forest, up on the hills, well apart — carved long ago and waiting to be found;
-the log counts the ones you come across. **E** at one makes it where you wake:
-die, and you come to beside it. Any statue can be lifted (**X**) and carried,
+**A raft is made of whatever floats.** There are four foundations, and one
+raft can mix them square by square (`src/raft.js`, `src/items.js`):
+
+| Foundation | Cost | What it is |
+|---|---|---|
+| **Plank** | 2 planks | planks over three float logs — the raft you may start on |
+| **Bamboo** | 4 bamboo, 1 rope | fifteen poles lashed side by side, two cross-poles on top, four thick canes under it |
+| **Log** | 4 wood, 1 rope | driftwood and palm trunks side by side, two bars lashed across them |
+| **Barrel** | 2 scrap, 1 plank | a deck of seven boards on two stringers, lashed down onto two barrels |
+
+They look like what they are made of and handle the same. Poles and logs
+run the length of a square, and where one square's meet the next is set per
+row by the boundary between them, so both sides agree: the joints are
+staggered like a real raft's and the ends at its edges are ragged. Bamboo
+comes from the **bamboo groves** along the river banks (E harvests 4) and from
+**bundles of it adrift** (2).
+
+**Statues are respawn points, nothing more.** Two dozen stand here and there
+over the land — on beaches, in the forest, up on the hills, well apart —
+carved long ago. **E** at one makes it where you wake: die, and you come to
+beside it; registering at another replaces it. They unlock nothing and you
+need none to get on: the game is surviving, exploring, gathering and
+building, and a statue just saves you the trip back. Any statue can be lifted (**X**) and carried,
 and a click sets it down again: on open ground, or on a free square of the
 raft's deck, where it is lashed down and sails with you — register at that one
 and you wake aboard, wherever the raft has got to. You can carve your own,

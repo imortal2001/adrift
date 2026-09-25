@@ -391,7 +391,7 @@ export class Player {
     if (this.thirst <= 0) drain += 1.1;
     if (this.breath <= 0) drain += 7;
     if (drain > 0) this.health = Math.max(0, this.health - dt * drain);
-    else if (this.hunger > 30 && this.thirst > 30) this.health = Math.min(100, this.health + dt * 0.5);
+    else if (this.health > 0 && this.hunger > 30 && this.thirst > 30) this.health = Math.min(100, this.health + dt * 0.5);
 
     if (this.health <= 0) {
       this.deaths++;

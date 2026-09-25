@@ -44,7 +44,9 @@ the whole repository as a website instead: say no.
 
 Each room keeps its world in its Durable Object's own storage (the host's
 game sends it every ten seconds or so, and each player their own record), so
-a world lasts when nobody is in it. On the free plan that storage is ample for
+a world lasts when nobody is in it. It is written no more than once every
+1.5 seconds per player — the newest waiting its turn, and written at once
+when they leave, so what they last sent is what is kept. On the free plan that storage is ample for
 a few worlds: a world is tens of kilobytes.
 
 The free plan is enough for a small game. As Cloudflare's free tier stood

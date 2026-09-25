@@ -1,8 +1,10 @@
 // ── Statues ──────────────────────────────────────────────────────────────────
-// Figures carved long ago, standing alone all over the land — on beaches, in
-// the forest, up on the hills — to be found (scatter()). Stand at one and
-// press E and it is yours to wake at: die, and you come to beside it rather
-// than back where you first came ashore. Each player has one at a time (the
+// Places to wake. Figures carved long ago stand here and there over the land
+// — on beaches, in the forest, up on the hills (scatter()) — and one is a
+// checkpoint, nothing more: stand at it and press E and it is yours to wake
+// at: die, and you come to beside it rather than back where you first came
+// ashore. They unlock nothing and lead nowhere; the game is surviving,
+// exploring, gathering and building. Each player has one at a time (the
 // last they registered at). Any of them can be lifted (X), carried, and set
 // up somewhere else — on land, or on the raft's deck, where it sails with it —
 // except one someone else wakes at (main.js wakers).
@@ -129,9 +131,9 @@ export class Statues {
 
   toJSON() { return this.list.map(s => [s.id, +s.x.toFixed(2), +s.z.toFixed(2), +s.yaw.toFixed(3)]); }
 
-  /** Statues within `r` of p that are not in `found` yet. */
-  near(p, r, found) {
-    return this.list.filter(s => !found.has(s.id) && Math.hypot(s.x - p.x, s.z - p.z) < r);
+  /** Statues within `r` of p. */
+  near(p, r) {
+    return this.list.filter(s => Math.hypot(s.x - p.x, s.z - p.z) < r);
   }
 
   load(list) {
@@ -149,7 +151,7 @@ export const newStatueId = () => Math.random().toString(36).slice(2, 10);
 
 /**
  * Where the statues of a new world stand: `n` of them over the whole land,
- * a few near the coast (so the first is not too far to find) and the rest
+ * a few near the coast (so there is one to wake at not far from the sea) and the rest
  * anywhere — forest, hillside, inland — each well apart from the next.
  */
 export function scatter(n = 24) {

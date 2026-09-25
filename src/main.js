@@ -35,7 +35,7 @@ const SPIT_Y = 0.77;                 // the spit's cross-stick, above the campfi
 
 // What the admin "give" buttons hand over. Enough to build without grinding,
 // not so much that the numbers stop being readable.
-const ADMIN_MATERIALS = { wood: 50, plank: 50, rope: 50, leaf: 50, scrap: 50, coconut: 10 };
+const ADMIN_MATERIALS = { wood: 50, plank: 50, rope: 50, leaf: 50, scrap: 50, bamboo: 50, coconut: 10 };
 const ADMIN_EQUIPMENT = ['hammer', 'hook', 'spear', 'rod'];
 
 /**
@@ -110,8 +110,8 @@ class Game {
     // Where you came to (spawn.js) and the statue you wake at (statue.js).
     this.start = null;
     this.statues = new Statues(this.scene);
-    this.registered = null;          // {id, world} or {raft, cx, cz, world}: world null for your own, else the room's code
-    this.found = new Set();          // the ids of the statues you have come across
+    this.registered = null;          // {id, world} or {raft: raft id, cx, cz, world}: world null for your own, else the room's code
+    this.statueTip = false;          // told, this session, what a statue is for
     // Who wakes where in this world (not only you): a statue's key — its id,
     // or r:<raft>:<cx>,<cz> on a deck — to a Map of tag -> name. One that
     // someone else wakes at stays where it is.
@@ -958,10 +958,9 @@ class Game {
     if (this.raft.size) { st.raft = this.raft.id; this.player.respawnOnRaft(); }
     else this.player.standAt(st.x, st.z, st.yaw);
     for (const line of WAKING[st.kind]) this.hud.log(line);
-    // Statues stand all over the land, to be found.
+    // Statues stand here and there over the land: places to wake, if you die.
     this.statues.clear();
     for (const s of scatter()) this.statues.add(s);
-    this.found = new Set();
     this.registered = null;
   }
 
@@ -976,8 +975,11 @@ class Game {
     const r = this.registered;
     if (!r || (r.world ?? null) !== this.world) return null;
     if (r.raft) {
-      const o = this.raft.objs.get(`${r.cx},${r.cz}`);
-      return o?.type === 'statue' ? { o } : null;
+      // On the deck of the raft it was registered on — not whichever you are on now.
+      // (An older save said only `true`: the raft you are on, then.)
+      const raft = typeof r.raft === 'string' ? this.rafts.byId(r.raft) : this.raft;
+      const o = raft?.objs.get(`${r.cx},${r.cz}`);
+      return o?.type === 'statue' ? { o, raft } : null;
     }
     const s = this.statues.find(r.id);
     return s ? { s } : null;
@@ -987,19 +989,19 @@ class Game {
   markMine() {
     const m = this.myStatue();
     this.statues.mark(m?.s?.id ?? null);
-    for (const o of this.raft.objs.values()) {
+    for (const r of this.rafts.list) for (const o of r.objs.values()) {
       if (o.type === 'statue') o.obj.getObjectByName('garland').visible = o === m?.o;
     }
   }
 
-  /** Statues you come near are found — the ones that were standing out there, not those carved since. */
+  /**
+   * A statue is a place to wake, nothing more — not something to collect.
+   * The first one you come near with nowhere to wake yet says what it is for.
+   */
   lookForStatues() {
-    for (const s of this.statues.near(this.player.pos, 10, this.found)) {
-      this.found.add(s.id);
-      if (!s.id.startsWith('w')) continue;
-      const n = [...this.found].filter(id => id.startsWith('w')).length;
-      this.hud.log(`You find a statue, standing alone — carved long ago. (${n} found)`, 'good');
-    }
+    if (this.statueTip || this.myStatue() || !this.statues.near(this.player.pos, 8).length) return;
+    this.statueTip = true;
+    this.hud.log('A carved statue. E at it to make it where you wake if you die — rather than back where you first came to.');
   }
 
   /**
@@ -1009,7 +1011,8 @@ class Game {
   respawn() {
     const mine = this.myStatue();
     if (mine?.o) {
-      // Aboard, beside it — wherever the raft has got to.
+      // Aboard, beside it — wherever that raft has got to.
+      this.setRaft(mine.raft);
       const o = mine.o, p = this.player;
       const at = this.raft.cellWorld(o.cx, o.cz);
       const side = this.raft.toWorld(o.cx * 2 + 0.7, o.cz * 2 + 0.5);
@@ -1080,7 +1083,7 @@ class Game {
   }
 
   registerAboard(o) {
-    this.registered = { raft: true, cx: o.cx, cz: o.cz, world: this.world };
+    this.registered = { raft: this.raft.id, cx: o.cx, cz: o.cz, world: this.world };
     this.setWake(this.deckKey(this.raft, o.cx, o.cz));
     this.markMine();
     this.hud.log('This statue is where you will wake, now — aboard, wherever the raft is.', 'good');
@@ -1097,7 +1100,7 @@ class Game {
   meJSON() {
     return { v: 1, character: this.character, inv: this.carried(false), hotbar: this.hotbar.toJSON(),
              player: this.player.toJSON(), start: this.start, registered: this.registered,
-             found: [...this.found], goals: [...this.goalsDone] };
+             goals: [...this.goalsDone] };
   }
 
   /** To the relay: you, and (hosting) the world. */
@@ -1167,7 +1170,6 @@ class Game {
     this.player.load(me.player);
     this.start = me.start || pickStart();
     this.registered = me.registered || null;
-    this.found = new Set(me.found || []);
     for (const g of me.goals || []) this.goalsDone.add(g);
     if (me.character && me.character !== this.character) this.dress(me.character);
     const w = me.player || {};
@@ -1196,10 +1198,11 @@ class Game {
     Object.assign(this.player, { health: 100, hunger: 100, thirst: 100 });
     const st = this.start = pickStart();
     this.registered = null;
-    this.found = new Set();
     const heading = Math.random() * Math.PI * 2;
+    // The empty raft you were given coming in will do; there is no need of two.
+    const blank = () => (this.raft && !this.raft.size && this.rafts.list.includes(this.raft) ? this.raft : this.rafts.make());
     if (st.kind === 'raft' || st.kind === 'debris') {
-      const r = this.rafts.make();
+      const r = blank();
       r.setPose([st.x, st.z, heading]);
       if (st.kind === 'raft') r.startingRaft();
       else r.place('foundation', { cx: 0, cz: 0, force: true });
@@ -1210,7 +1213,7 @@ class Game {
     } else {
       // A raft of your own is not built yet: one to build, offshore.
       const at = st.kind === 'shore' ? st.sea : st;
-      const r = this.rafts.make();
+      const r = blank();
       r.setPose([at.x, at.z, heading]);
       this.setRaft(r);
       this.player.standAt(st.x, st.z, st.yaw);
@@ -1312,7 +1315,13 @@ class Game {
   // ── the others ─────────────────────────────────────────────────────────────
   /** Another player under the crosshair, within `reach`. */
   crewAt(eye, dir, reach) {
-    let best = null, bestD = reach;
+    // Not through something nearer: a sail, a fire, a statue or a wall in front of them.
+    this.ray.set(eye, dir);
+    this.ray.far = reach;
+    const hit = this.ray.intersectObjects(this.raft.pickables, false)
+      .find(h => h.object.userData.piece?.kind === 'object' || h.object.userData.piece?.id === 'wall');
+    this.ray.far = Infinity;
+    let best = null, bestD = hit ? hit.distance : reach;
     const c = this._crewV ||= new THREE.Vector3();
     for (const r of this.net.remotes.values()) {
       if (!r.body.visible) continue;
@@ -1741,6 +1750,8 @@ class Game {
           if (act.act && input.pressed('KeyE')) act.act();
         } else if (this.player.state === 'swim' && this.raft.nearestDeck(this.player.pos.x, this.player.pos.z, 2.1)) {
           prompt = '<b>Space</b> climb aboard';
+        } else if (this.hotbar.held === 'statue' && this.inv.has('statue')) {
+          prompt = '<b>Click</b> set the statue up — on level ground, or a free square of deck';
         } else if (this.hotbar.held === 'paddle' && this.inv.has('paddle') && this.onDeck()) {
           prompt = `<b>Hold click</b> paddle · <b>right-click</b> back-paddle — ${this.raft.speed.toFixed(1)} m/s` +
                    (this.raft.aground ? ' · aground' : '');
@@ -1882,26 +1893,26 @@ class Game {
     });
     // Report any species that upgraded itself to a glTF body.
     for (const u of this.wildlife.upgraded.splice(0)) {
-      this.hud.log(`Loaded ${u.key} model (${u.count} animals, ${u.clips} clips).`, 'good');
+      console.info(`Loaded ${u.key} model (${u.count} animals, ${u.clips} clips).`);
     }
     for (const id of this.viewmodel.upgraded.splice(0)) {
-      this.hud.log(`Loaded ${ITEMS[id].name.toLowerCase()} model.`, 'good');
+      console.info(`Loaded ${ITEMS[id].name.toLowerCase()} model.`);
     }
     for (const u of this.fish.upgraded.splice(0)) {
       this.viewmodel.dropFishBodies();      // a fish in hand was the stand-in body
-      this.hud.log(`Loaded sea life models (${u.meshes} bodies).`, 'good');
+      console.info(`Loaded sea life models (${u.meshes} bodies).`);
     }
     for (const k of this.wildlife.kills.splice(0)) {
       this.together.world.killed(k);
       if (k.pos.distanceTo(this.player.pos) < 150) {
-        this.hud.log(`A ${k.hunter} brings down a ${k.victim}.`);
+        this.hud.log(`A ${k.hunter.toLowerCase()} brings down a ${k.victim.toLowerCase()}.`);
       }
     }
     if (bites.length && this.time > this.lastBite + 0.8) {
       this.lastBite = this.time;
       const worst = bites.reduce((a, b) => (b.damage > a.damage ? b : a));
       this.player.health = Math.max(0, this.player.health - worst.damage);
-      this.hud.log(`The ${worst.label} tears into you.`, 'bad');
+      this.hud.log(`The ${worst.label.toLowerCase()} tears into you.`, 'bad');
     }
 
     this.hud.updateVitals(this.player);
@@ -1978,7 +1989,6 @@ class Game {
         statues: this.statues.toJSON(),
         start: this.start,
         registered: this.registered,
-        found: [...this.found],
         scattered: true,
         inv,
         hotbar: this.hotbar.toJSON(),
@@ -2007,7 +2017,6 @@ class Game {
     // A save from before statues stood about the land gets them now.
     if (!d.scattered) for (const s of scatter()) this.statues.add(s);
     this.registered = d.registered || null;
-    this.found = new Set(d.found || []);
     this.markMine();
     this.inv = Inventory.fromJSON(d.inv || {});
     this.hotbar = Hotbar.fromJSON(d.hotbar);

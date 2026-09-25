@@ -9,6 +9,8 @@ export const ITEMS = {
   plank:   { name: 'Plank',   tool: false },
   rope:    { name: 'Rope',    tool: false },
   leaf:    { name: 'Palm',    tool: false },
+  // Hollow and sealed at every joint: it floats better than any timber.
+  bamboo:  { name: 'Bamboo',  tool: false },
   scrap:   { name: 'Scrap',   tool: false },
   coconut: { name: 'Coconut', tool: false, action: 'eat',
              hint: 'Click to eat' },
@@ -119,8 +121,16 @@ export const RECIPES = [
 //   'top'    → the roof slot above an existing cell
 //   'object' → the middle of an existing cell
 export const BUILDABLES = [
+  // Four ways to make a 2m square of raft, from whatever there is — they
+  // look like what they are made of; they float and handle the same.
   { id: 'foundation', name: 'Foundation', kind: 'cell',   cost: { plank: 2 },
-    desc: 'Extend the deck by one 2m square.' },
+    desc: 'Extend the deck by one 2m square: planks over three float logs.' },
+  { id: 'bamboo_floor', name: 'Bamboo foundation', kind: 'cell', cost: { bamboo: 4, rope: 1 },
+    desc: 'A 2m square of bamboo poles lashed side by side, cross-poles on top.' },
+  { id: 'log_floor',  name: 'Log foundation', kind: 'cell', cost: { wood: 4, rope: 1 },
+    desc: 'A 2m square of driftwood and palm trunks, lashed together.' },
+  { id: 'barrel_floor', name: 'Barrel foundation', kind: 'cell', cost: { scrap: 2, plank: 1 },
+    desc: 'A 2m square of plank deck lashed down onto two barrels.' },
   { id: 'railing',    name: 'Railing',    kind: 'edge',   cost: { plank: 1 },
     desc: 'Waist-high. Stops you walking into the sea.' },
   { id: 'wall',       name: 'Wall',       kind: 'edge',   cost: { plank: 2 },
@@ -147,6 +157,7 @@ export const DEBRIS_KINDS = {
   flotsam: { label: 'Flotsam',   yield: { plank: 1, wood: 1 },  weight: 14 },
   palm:    { label: 'Palm frond',yield: { leaf: 2 },            weight: 24 },
   barrel:  { label: 'Barrel',    yield: { scrap: 2 },           weight: 13 },
+  bamboo:  { label: 'Bamboo',    yield: { bamboo: 2 },          weight: 12 },
   crate:   { label: 'Crate',     yield: { plank: 2, scrap: 1 }, weight: 9  },
   coconut: { label: 'Coconut',   yield: { coconut: 1 },         weight: 10 },
 };

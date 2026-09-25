@@ -62,7 +62,11 @@ export class SharedWorld {
   }
 
   /** Hosting now (the host left): the world is this game's to run. */
-  hosting() { this.nearHost = false; this.follow(false); for (const r of this.game.rafts.list) r.follow = null; }
+  hosting() {
+    this.nearHost = false;
+    this.follow(false);
+    for (const r of this.game.rafts.list) r.settle();
+  }
 
   /**
    * Someone arrived: your spears already out in the world — stuck in the
@@ -129,10 +133,10 @@ export class SharedWorld {
       if (!this.following) this.follow(true);
       this.following = true;
       if (Array.isArray(e.sky)) this.setSky(e.sky);
-      // Every raft's pose: [[id, pose], …] (an older host: just the one).
-      if (Array.isArray(e.rp) && Array.isArray(e.rp[0])) {
-        for (const [id, pose] of e.rp) g.rafts.byId(id)?.steer(pose);
-      } else if (Array.isArray(e.rp)) g.raft.steer(e.rp);
+      // Every raft's pose: [[id, pose], …] — none at all, before anyone has built one.
+      if (Array.isArray(e.rp)) {
+        for (const rp of e.rp) if (Array.isArray(rp)) g.rafts.byId(rp[0])?.steer(rp[1]);
+      }
       if (e.b) g.wildlife.adopt(e.b);
       // The sea about you is the host's only if you are about the host: far
       // apart, each of you has your own flotsam, fish and whale.

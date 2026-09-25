@@ -139,29 +139,55 @@ export class Room {
     }
   }
 
-  /** {t:'keep', w} from the host, {t:'keepme', r} from anyone: kept for next time. */
+  /**
+   * {t:'keep', w} from the host, {t:'keepme', r} from anyone: kept for next
+   * time. No more than one write each per keepEvery — but never by dropping
+   * one: the newest waits and goes when that time is up (or when they leave),
+   * so the last word before leaving is always the one kept.
+   */
   async keep(peer, text, now) {
     if (!peer.ready) return;
     let m;
     try { m = JSON.parse(text); } catch { return; }
+    let slot, key, value;
     if (m.t === 'keep' && peer.id === this.host && m.w && typeof m.w === 'object') {
-      if (now - (peer.keptWorld || 0) < LIMITS.keepEvery) return;
-      const w = JSON.stringify(m.w);
-      if (w.length > LIMITS.world) return;
-      peer.keptWorld = now;
-      this.world = w;
-      await this.store.put('world', w);
+      value = JSON.stringify(m.w);
+      if (value.length > LIMITS.world) return;
+      slot = 'world'; key = 'world';
+      this.world = value;                    // a newcomer gets it at once, written or not
     } else if (m.t === 'keepme' && peer.pid && m.r && typeof m.r === 'object') {
-      if (now - (peer.keptMe || 0) < LIMITS.keepEvery) return;
-      const r = JSON.stringify(m.r);
-      if (r.length > LIMITS.record) return;
-      peer.keptMe = now;
-      await this.store.put(`p:${peer.pid}`, r);
-    }
+      value = JSON.stringify(m.r);
+      if (value.length > LIMITS.record) return;
+      slot = 'me'; key = `p:${peer.pid}`;
+    } else return;
+    peer.pending ||= {};
+    peer.kept ||= {};
+    peer.timers ||= {};
+    peer.pending[slot] = { key, value };
+    const wait = LIMITS.keepEvery - (now - (peer.kept[slot] || 0));
+    if (wait <= 0) return this.write(peer, slot, now);
+    peer.timers[slot] ||= setTimeout(() => {
+      peer.timers[slot] = null;
+      this.write(peer, slot, Date.now()).catch(() => {});
+    }, wait);
+  }
+
+  /** What is waiting to be kept for this player, written now. */
+  async write(peer, slot, now) {
+    const p = peer.pending?.[slot];
+    if (!p) return;
+    peer.pending[slot] = null;
+    peer.kept[slot] = now;
+    await this.store.put(p.key, p.value);
   }
 
   leave(peer) {
     if (!peer || !this.peers.delete(peer.id)) return;
+    // Whatever they last asked to have kept, kept now.
+    for (const slot of ['world', 'me']) {
+      if (peer.timers?.[slot]) { clearTimeout(peer.timers[slot]); peer.timers[slot] = null; }
+      this.write(peer, slot, Date.now()).catch(() => {});
+    }
     if (peer.ready) this.others(peer, { t: 'leave', id: peer.id, bye: !!peer.bye });
     if (peer.ready && !peer.bye && peer.tok) {
       // Remembered a while, so coming back reads as coming back.

@@ -17,6 +17,7 @@ import { BUILDABLE_BY_ID, FIRE } from './items.js';
 import { buildCampfire, updateFire, tickFire } from './fire.js';
 import { heightAt } from './terrain.js';
 import { statueBody } from './statue.js';
+import { mergeGeometries } from '../vendor/jsm/utils/BufferGeometryUtils.js';
 
 export const CELL = 2;
 export const DECK_Y = 0;        // walkable surface, in raft-local space
@@ -48,6 +49,8 @@ export function windAt(time, out = { x: 0, z: 0, strength: 0 }) {
   return out;
 }
 const UP = new THREE.Vector3(0, 1, 0);
+/** A square's type as saved: a foundation of some kind, or the plank one. */
+const cellType = t => (BUILDABLE_BY_ID[t]?.kind === 'cell' ? t : 'foundation');
 const key = (cx, cz) => `${cx},${cz}`;
 const ekey = (cx, cz, s) => `${cx},${cz},${s}`;
 const NEIGHBOURS = [[0, -1], [1, 0], [0, 1], [-1, 0]];   // side 0,1,2,3
@@ -77,6 +80,12 @@ function mats() {
     roof:  std(t.roof),
     plank: std(t.plank),
     log:   std(t.log, { roughness: 0.95 }),
+    // The other foundations: coloured per vertex (each pole, log, board and
+    // barrel its own shade), over the bark, plank and metal where they have one.
+    bamboo: std(null, { vertexColors: true, roughness: 0.78 }),
+    logv:   std(t.log, { vertexColors: true, roughness: 0.95 }),
+    plankv: std(t.plank, { vertexColors: true }),
+    barrel: std(t.metal, { vertexColors: true, roughness: 0.55, metalness: 0.3 }),
     cloth: std(t.cloth, { roughness: 0.9, side: THREE.DoubleSide }),
     metal: std(t.metal, { roughness: 0.62, metalness: 0.45 }),
     stone: std(null, { color: 0x6d7175, roughness: 0.95 }),
@@ -97,6 +106,208 @@ function mesh(g, m, x, y, z) {
   return o;
 }
 
+// ── the foundations' makings ─────────────────────────────────────────────────
+// A bamboo, log or barrel square is one merged mesh, coloured per vertex, and
+// the same wherever it is built: its shape comes from where it is on the
+// grid. Poles and logs run along x, and where one square's meets the next
+// is set per row by the boundary between them — so both sides agree, the
+// joints are staggered like a real raft's, and the ends at the raft's edge
+// are ragged.
+
+/** A small, seeded random: the same numbers for the same seed, everywhere. */
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const hash2 = (a, b, c = 0) => (Math.imul(a | 0, 73856093) ^ Math.imul(b | 0, 19349663) ^ Math.imul(c | 0, 83492791)) >>> 0;
+
+/** Where row `row` of a square's poles meets the next square's, along x: boundary `bx` is between cells bx-1 and bx. */
+function joint(bx, cz, row, lo, hi, salt) {
+  return bx * CELL - CELL / 2 + lo + seeded(hash2(bx, cz, row * 31 + salt))() * (hi - lo);
+}
+
+/** Paint every vertex of a geometry one colour — or its cut ends another. */
+function paint(g, hex, ends = null) {
+  const n = g.attributes.position.count, a = new Float32Array(n * 3);
+  const c = new THREE.Color(hex), e = ends === null ? c : new THREE.Color(ends);
+  a.fill(0);
+  for (let i = 0; i < n; i++) c.toArray(a, i * 3);
+  if (ends !== null && g.index && g.groups.length > 1) {
+    // A cylinder's groups: its side, then its two caps.
+    for (const grp of g.groups.slice(1)) {
+      for (let k = grp.start; k < grp.start + grp.count; k++) e.toArray(a, g.index.getX(k) * 3);
+    }
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+  return g;
+}
+
+/**
+ * A pole from x0 to x1 (along x, or along z with `alongZ`), radius r, its
+ * centre at the other two coordinates. `nodes`: darker, slightly swollen
+ * rings every that many metres — bamboo's joints, or a palm trunk's scars.
+ */
+function pole(x0, x1, r, a, y, { alongZ = false, hex, ends = null, nodes = 0, seg = 8, wobble = 0, rand = null } = {}) {
+  const len = x1 - x0, mid = (x0 + x1) / 2;
+  const rows = nodes ? Math.max(1, Math.round(len / nodes)) * 2 : 1;
+  const g = new THREE.CylinderGeometry(r, r * (1 - wobble), len, seg, rows, false);
+  paint(g, hex, ends);
+  if (nodes) {
+    // Every other ring of vertices is a joint.
+    const pos = g.attributes.position, col = g.attributes.color;
+    for (let i = 0; i < pos.count; i++) {
+      const ring = Math.round((pos.getY(i) / len + 0.5) * rows);
+      if (ring % 2 || ring === 0 || ring === rows) continue;
+      if (Math.abs(pos.getX(i)) + Math.abs(pos.getZ(i)) < 1e-6) continue;       // a cap's middle
+      pos.setX(i, pos.getX(i) * 1.1); pos.setZ(i, pos.getZ(i) * 1.1);
+      col.setXYZ(i, col.getX(i) * 0.62, col.getY(i) * 0.6, col.getZ(i) * 0.55);
+    }
+  }
+  if (rand) g.rotateY(rand() * Math.PI * 2);       // no two with their seams in a line
+  if (alongZ) { g.rotateX(Math.PI / 2); g.translate(a, y, mid); }
+  else { g.rotateZ(Math.PI / 2); g.translate(mid, y, a); }
+  return g;
+}
+
+/** A rope lashing: a few turns round a pole along z (or x), at (x, y, z). */
+function lashing(x, y, z, r, { alongX = false, hex = 0xb39360 } = {}) {
+  const parts = [];
+  for (const d of [-0.022, 0, 0.022]) {
+    const t = new THREE.TorusGeometry(r + 0.012, 0.011, 4, 12);
+    if (alongX) t.rotateY(Math.PI / 2);
+    t.translate(x + (alongX ? d : 0), y, z + (alongX ? 0 : d));
+    parts.push(paint(t, hex));
+  }
+  return parts;
+}
+
+const merged = parts => {
+  const g = mergeGeometries(parts.map(p => p.index ? p.toNonIndexed() : p), false);
+  for (const p of parts) p.dispose();
+  g.computeBoundingSphere();
+  return g;
+};
+
+// Weathered cane, straw to grey-brown — and the odd greener one.
+const BAMBOO = [0xb49a6c, 0xa68c62, 0x9c8e76, 0xbca774, 0x8f7a58, 0xa3a06e];
+
+function bambooGeometry(cx, cz) {
+  const rand = seeded(hash2(cx, cz, 1));
+  const parts = [];
+  // The deck: fifteen poles side by side, their tops the walking surface.
+  const rows = 15, pitch = CELL / rows;
+  for (let i = 0; i < rows; i++) {
+    const r = pitch / 2 - 0.002 - rand() * 0.008;
+    const z = -CELL / 2 + pitch * (i + 0.5);
+    const x0 = joint(cx, cz, i, -0.12, 0.34, 7) - cx * CELL, x1 = joint(cx + 1, cz, i, -0.12, 0.34, 7) - cx * CELL;
+    parts.push(pole(x0, x1, r, z, -r, { hex: BAMBOO[(rand() * BAMBOO.length) | 0], ends: 0xd8c79a,
+                                         nodes: 0.42 + rand() * 0.12, rand }));
+  }
+  // Under it, four thick canes across: what it floats on.
+  for (const x of [-0.72, -0.24, 0.24, 0.72]) {
+    parts.push(pole(-CELL / 2 + 0.01, CELL / 2 - 0.01, 0.085, x + (rand() - 0.5) * 0.06, -0.125 - 0.085,
+                    { alongZ: true, hex: BAMBOO[(rand() * BAMBOO.length) | 0], ends: 0xd8c79a, nodes: 0.5, rand }));
+  }
+  // On top, two cross-poles lashed down every few canes.
+  for (const x of [-0.56, 0.56]) {
+    const xx = x + (rand() - 0.5) * 0.05;
+    parts.push(pole(-CELL / 2 + 0.002, CELL / 2 - 0.002, 0.04, xx, 0.012,
+                    { alongZ: true, hex: BAMBOO[(rand() * BAMBOO.length) | 0], ends: 0xd8c79a, nodes: 0.45, rand }));
+    for (const z of [-0.8, -0.27, 0.27, 0.8]) parts.push(...lashing(xx, 0.012, z, 0.04));
+  }
+  return merged(parts);
+}
+
+// Tints over the bark texture (so near white): driftwood silvered and
+// brown, and palm trunks, paler and ringed; rope, pale, as the bark would
+// otherwise darken it.
+const DRIFT = [0xf2e9dc, 0xdccfbc, 0xfff6e8, 0xcfc2ae];
+const PALM = [0xfff4dd, 0xf4ead2];
+const LOG_ENDS = 0xffe6c2, LOG_ROPE = 0xffe2a8;
+
+function logGeometry(cx, cz) {
+  const rand = seeded(hash2(cx, cz, 2));
+  const parts = [];
+  const rows = 5, pitch = CELL / rows;
+  for (let i = 0; i < rows; i++) {
+    const r = pitch / 2 - 0.004 - rand() * 0.03;
+    const z = -CELL / 2 + pitch * (i + 0.5);
+    const x0 = joint(cx, cz, i, -0.08, 0.3, 11) - cx * CELL, x1 = joint(cx + 1, cz, i, -0.08, 0.3, 11) - cx * CELL;
+    const palm = rand() < 0.45;
+    parts.push(pole(x0, x1, r, z, -r, { hex: (palm ? PALM : DRIFT)[(rand() * 2) | 0], ends: LOG_ENDS,
+                                         nodes: palm ? 0.16 : 0, seg: 10, wobble: palm ? 0 : 0.08, rand }));
+  }
+  // Two bars across, lashed to every log.
+  for (const x of [-0.6, 0.6]) {
+    const xx = x + (rand() - 0.5) * 0.08;
+    parts.push(pole(-CELL / 2 + 0.002, CELL / 2 - 0.002, 0.055, xx, 0.0, { alongZ: true, hex: DRIFT[(rand() * 4) | 0], ends: LOG_ENDS, seg: 7, rand }));
+    for (let i = 0; i < rows; i++) parts.push(...lashing(xx, 0.0, -CELL / 2 + pitch * (i + 0.5), 0.055, { hex: LOG_ROPE }));
+  }
+  return merged(parts);
+}
+
+// Barrels as they come out of the sea: rust, faded paint.
+const DRUMS = [0x8a3b26, 0x2f5d8a, 0x56663a, 0xa0522d, 0x7d7f7a];
+
+function barrelDeckGeometry(cx, cz) {
+  const rand = seeded(hash2(cx, cz, 3));
+  const parts = [];
+  // Seven boards across two stringers.
+  const boards = 7, w = 0.26, gap = (CELL - 0.02 - boards * w) / (boards - 1);
+  for (let i = 0; i < boards; i++) {
+    const z = -CELL / 2 + 0.01 + w / 2 + i * (w + gap);
+    const b = new THREE.BoxGeometry(CELL - 0.012 - rand() * 0.03, 0.06, w - 0.01);
+    const shade = 0.82 + rand() * 0.22;
+    paint(b, new THREE.Color(1, 1, 1).multiplyScalar(shade).getHex());
+    b.rotateY((rand() - 0.5) * 0.02);
+    b.translate((rand() - 0.5) * 0.02, -0.03, z);
+    parts.push(b);
+  }
+  for (const x of [-0.62, 0.62]) {
+    const s = new THREE.BoxGeometry(0.1, 0.1, CELL - 0.04);
+    paint(s, 0xb8b0a4);
+    s.translate(x, -0.11, 0);
+    parts.push(s);
+  }
+  return merged(parts);
+}
+
+function barrelGeometry(cx, cz) {
+  const rand = seeded(hash2(cx, cz, 4));
+  const parts = [];
+  for (const z of [-0.5, 0.5]) {
+    const hex = DRUMS[(rand() * DRUMS.length) | 0], r = 0.34, len = 1.5;
+    const zz = z + (rand() - 0.5) * 0.06, xx = (rand() - 0.5) * 0.12, y = -0.16 - r;
+    const drum = new THREE.CylinderGeometry(r, r, len, 16, 1, false);
+    paint(drum, hex, new THREE.Color(hex).multiplyScalar(0.8).getHex());
+    drum.rotateZ(Math.PI / 2);
+    drum.translate(xx, y, zz);
+    parts.push(drum);
+    // Its hoops, and a rope round it and the stringers at each end.
+    for (const d of [-0.5, 0, 0.5]) {
+      const h = new THREE.TorusGeometry(r + 0.012, 0.022, 5, 18);
+      paint(h, new THREE.Color(hex).multiplyScalar(0.55).getHex());
+      h.rotateY(Math.PI / 2);
+      h.translate(xx + d * len * 0.5, y, zz);
+      parts.push(h);
+    }
+    for (const d of [-0.42, 0.42]) {
+      const rope = new THREE.TorusGeometry(r + 0.03, 0.013, 4, 18);
+      rope.scale(1, 1.15, 1);            // up round the stringer, under the boards
+      paint(rope, 0xb39360);
+      rope.rotateY(Math.PI / 2);
+      rope.translate(xx + d, y, zz);
+      parts.push(rope);
+    }
+  }
+  return merged(parts);
+}
+
 // ── piece builders ───────────────────────────────────────────────────────────
 // Each builder returns a group already placed in raft-local space. `M` resolves
 // materials, so the build ghost can swap every surface for translucent blue.
@@ -112,6 +323,25 @@ const BUILD = {
       return c;
     });
     for (const off of [-0.62, 0, 0.62]) g.add(mesh(logG, M('log'), x, -0.31, z + off));
+    return g;
+  },
+
+  bamboo_floor(t, M) {
+    const g = new THREE.Group();
+    g.add(mesh(geo(`bamboo:${t.cx},${t.cz}`, () => bambooGeometry(t.cx, t.cz)), M('bamboo'), t.cx * CELL, 0, t.cz * CELL));
+    return g;
+  },
+
+  log_floor(t, M) {
+    const g = new THREE.Group();
+    g.add(mesh(geo(`logs:${t.cx},${t.cz}`, () => logGeometry(t.cx, t.cz)), M('logv'), t.cx * CELL, 0, t.cz * CELL));
+    return g;
+  },
+
+  barrel_floor(t, M) {
+    const g = new THREE.Group();
+    g.add(mesh(geo(`deck:${t.cx},${t.cz}`, () => barrelDeckGeometry(t.cx, t.cz)), M('plankv'), t.cx * CELL, 0, t.cz * CELL));
+    g.add(mesh(geo(`drums:${t.cx},${t.cz}`, () => barrelGeometry(t.cx, t.cz)), M('barrel'), t.cx * CELL, 0, t.cz * CELL));
     return g;
   },
 
@@ -378,6 +608,8 @@ export class Raft {
    * was going and is eased onto where that says it now is.
    */
   steer(pose) {
+    // Nothing but a whole pose: a raft put at NaN is lost for good.
+    if (!Array.isArray(pose) || pose.length < 6 || !pose.every(Number.isFinite)) return;
     const [x, z, h] = pose;
     if (Math.hypot(x - this.x, z - this.z) > 8 || Math.abs(Math.atan2(Math.sin(h - this.heading), Math.cos(h - this.heading))) > 0.8) {
       // Too far out to ease: put there — taking whoever is aboard with it
@@ -388,6 +620,22 @@ export class Raft {
     }
     // Eased onto from here on — this pose, not the one before a jump.
     this.follow = { pose, at: performance.now() / 1000 };
+  }
+
+  /**
+   * Stop following the host (this game is the host now): put where the old
+   * host last said it was by now — taking whoever is aboard with it — and go
+   * on from there.
+   */
+  settle() {
+    const f = this.follow;
+    this.follow = null;
+    if (!f) return;
+    const [x, z, h, vx, vz, spin] = f.pose;
+    const t = Math.min(1, performance.now() / 1000 - f.at);
+    const from = { x: this.x, z: this.z, heading: this.heading };
+    this.setPose([x + vx * t, z + vz * t, h + spin * t, vx, vz, spin]);
+    this.jumpFrom = from;
   }
 
   /** Put the group where the pose says (no heave or tilt): before update() has run. */
@@ -615,7 +863,7 @@ export class Raft {
 
     let rec;
     if (b.kind === 'cell') {
-      rec = { cx: t.cx, cz: t.cz, obj };
+      rec = { cx: t.cx, cz: t.cz, type: id, obj };      // type: what the square is made of
       this.cells.set(key(t.cx, t.cz), rec);
     } else if (b.kind === 'edge') {
       rec = { ex: t.ex, ez: t.ez, es: t.es, type: id, obj };
@@ -692,7 +940,7 @@ export class Raft {
       : kind === 'edge' ? this.edges.get(ekey(a, b, c))
       : kind === 'top' ? this.tops.get(key(a, b)) : this.objs.get(key(a, b));
     if (!rec) return null;
-    return { id: kind === 'cell' ? 'foundation' : kind === 'top' ? 'roof' : rec.type, rec, kind };
+    return { id: kind === 'top' ? 'roof' : rec.type || (kind === 'cell' ? 'foundation' : rec.type), rec, kind };
   }
 
   /** Where a piece is, the other way: [kind, ...grid coordinates]. */
@@ -733,7 +981,7 @@ export class Raft {
         if (!supported) { drop(e.obj); this.edges.delete(ekey(a, b, c)); add(BUILDABLE_BY_ID[e.type].cost); }
       }
       drop(piece.rec.obj);
-      add(BUILDABLE_BY_ID.foundation.cost);
+      add(BUILDABLE_BY_ID[piece.rec.type || 'foundation'].cost);
     } else if (piece.kind === 'edge') {
       const { ex, ez, es, type } = piece.rec;
       this.edges.delete(ekey(ex, ez, es));
@@ -823,7 +1071,7 @@ export class Raft {
     for (const [cx, cz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
       const obj = BUILD.foundation({ cx, cz }, k => mats()[k]);
       this.group.add(obj);
-      const rec = { cx, cz, obj };
+      const rec = { cx, cz, type: 'foundation', obj };
       this.cells.set(key(cx, cz), rec);
       obj.traverse(m => { if (m.isMesh) m.userData.piece = { id: 'foundation', rec, kind: 'cell' }; });
     }
@@ -833,7 +1081,7 @@ export class Raft {
   toJSON() {
     return {
       pose: [+this.x.toFixed(2), +this.z.toFixed(2), +this.heading.toFixed(4)],
-      cells: [...this.cells.values()].map(c => [c.cx, c.cz]),
+      cells: [...this.cells.values()].map(c => (c.type && c.type !== 'foundation' ? [c.cx, c.cz, c.type] : [c.cx, c.cz])),
       edges: [...this.edges.values()].map(e => [e.ex, e.ez, e.es, e.type]),
       tops:  [...this.tops.values()].map(t => [t.cx, t.cz]),
       objs:  [...this.objs.values()].map(o => o.type === 'campfire'
@@ -883,7 +1131,7 @@ export class Raft {
    */
   adopt(snap, spit) {
     const want = {
-      cell: new Set((snap.cells || []).map(([cx, cz]) => key(cx, cz))),
+      cell: new Map((snap.cells || []).map(([cx, cz, type]) => [key(cx, cz), cellType(type)])),
       edge: new Map((snap.edges || []).map(e => [ekey(e[0], e[1], e[2]), e[3]])),
       top: new Set((snap.tops || []).map(([cx, cz]) => key(cx, cz))),
       object: new Map((snap.objs || []).map(o => [key(o[0], o[1]), o[2]])),
@@ -897,10 +1145,10 @@ export class Raft {
     for (const [k, o] of [...this.objs]) if (want.object.get(k) !== o.type) take('object', o);
     for (const [k, t] of [...this.tops]) if (!want.top.has(k)) take('top', t);
     for (const [k, e] of [...this.edges]) if (want.edge.get(k) !== e.type) take('edge', e);
-    for (const [k, c] of [...this.cells]) if (!want.cell.has(k)) take('cell', c);
+    for (const [k, c] of [...this.cells]) if (want.cell.get(k) !== (c.type || 'foundation')) take('cell', c);
 
-    for (const [cx, cz] of snap.cells || []) {
-      if (!this.hasCell(cx, cz)) changed = this.place('foundation', { cx, cz, force: true }) || changed;
+    for (const [cx, cz, type] of snap.cells || []) {
+      if (!this.hasCell(cx, cz)) changed = this.place(cellType(type), { cx, cz, force: true }) || changed;
     }
     for (const [ex, ez, es, type] of snap.edges || []) {
       if (!this.edges.has(ekey(ex, ez, es))) changed = this.place(type, { ex, ez, es }) || changed;
@@ -929,7 +1177,7 @@ export class Raft {
   load(data) {
     // Where it was left: before anything asks where its deck is.
     if (Array.isArray(data.pose)) this.setPose(data.pose);
-    for (const [cx, cz] of data.cells || []) this.place('foundation', { cx, cz, force: true });
+    for (const [cx, cz, type] of data.cells || []) this.place(cellType(type), { cx, cz, force: true });
     for (const [ex, ez, es, type] of data.edges || []) this.place(type, { ex, ez, es });
     for (const [cx, cz] of data.tops || []) this.place('roof', { cx, cz });
     for (const [cx, cz, type, water, fuel, lit] of data.objs || []) {

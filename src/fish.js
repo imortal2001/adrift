@@ -56,6 +56,11 @@ const BED_CLEARANCE = 0.55;    // how close a fish gets to the sand, or to the
 
 const CURRENT = new THREE.Vector2(0.60, 0.80).normalize();
 
+// The shallowest sea bed each kind of school will be over — its centre may
+// not drift, or be put back, anywhere shallower (and never, so, over land).
+const SHALLOWEST = { surface: -3.2, mid: -6, reef: -4, sand: -2.5, raft: -2.4, deep: -20 };
+const RETRY = 2;                 // s: a school with no water near enough tries again this often
+
 // Where a school lives. `reef` schools ride the sea bed at a fixed hover, so
 // they follow the coral up and over the heads instead of swimming through it;
 // the open-water zones hold a depth band instead.
@@ -374,16 +379,26 @@ export class FishSchools {
   respawn(school, initial = false) {
     const min = initial ? 8 : SPAWN_MIN;
     const kind = school.kind;
+    school.ashore = false;
     if (kind === 'raft') {
       const r = this.raftPos();
-      const a = Math.random() * Math.PI * 2;
-      school.wander = a;
-      school.center.set(r.x + Math.cos(a) * school.ring, rand(...school.zone.band), r.z + Math.sin(a) * school.ring);
+      // Round the raft — on the side with water under it, if it is near the shore.
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const a = Math.random() * Math.PI * 2;
+        const x = r.x + Math.cos(a) * school.ring, z = r.z + Math.sin(a) * school.ring;
+        if (heightAt(x, z) > SHALLOWEST.raft) continue;
+        school.wander = a;
+        school.center.set(x, rand(...school.zone.band), z);
+        return;
+      }
+      this.strand(school);
       return;
     }
-    const tries = kind === 'reef' || kind === 'sand' || kind === 'deep' ? 24 : 1;
+    // Every kind looks for water deep enough for it; none nearby (you are
+    // far inland), and the school waits, out of sight, and tries again.
+    const tries = 24;
     for (let attempt = 0; attempt < tries; attempt++) {
-      const last = attempt === tries - 1;
+      const last = false;
       const a = Math.random() * Math.PI * 2;
       const d = kind === 'deep' ? rand(...school.zone.range) : rand(min, SPAWN_MAX);
       // Round the raft, wherever it has got to.
@@ -408,15 +423,33 @@ export class FishSchools {
         school.floor = bed;
         school.center.set(x, bed + school.hover, z);
       } else {
+        const bed = heightAt(x, z);
+        if (bed > SHALLOWEST[kind]) continue;
+        // In its band, and clear of the bottom where the band runs into it.
         const [top, bottom] = school.zone.band;
-        school.center.set(x, rand(bottom, top), z);
+        school.center.set(x, rand(Math.max(bottom, bed + 1.5), top), z);
       }
       return;
     }
+    this.strand(school);
   }
+
+  /** No water for this school near enough: it keeps out of sight until there is. */
+  strand(school) {
+    school.ashore = true;
+    school.retry = RETRY;
+  }
+
+  /** Is there sea under (x, z), deep enough for a school of this kind? */
+  wet(kind, x, z) { return heightAt(x, z) <= SHALLOWEST[kind]; }
 
   update(dt, time, playerPos) {
     for (const s of this.schools) {
+      if (s.ashore) {
+        // Waiting for water near enough — unless the host says where it is.
+        if (!this.follow && (s.retry -= dt) <= 0) this.respawn(s);
+        continue;
+      }
       s.wander += dt * s.wanderSpeed;
       // A frightened school moves off from what frightened it, as a body,
       // and only drifts back into its old habits once the alarm has passed.
@@ -434,14 +467,23 @@ export class FishSchools {
         const r = this.raftPos();
         const a = s.wander * 0.9;
         this._tgt.set(r.x + Math.cos(a) * s.ring, s.center.y, r.z + Math.sin(a) * s.ring);
-        s.center.lerp(this._tgt, Math.min(1, dt * (s.alarm > 0 ? 0.1 : 0.8)));
+        // A raft run up on the shore has no water round it for them: they leave.
+        if (!this.follow && !this.wet('raft', r.x, r.z)) { this.strand(s); continue; }
+        // Round it only where there is water: they hold off the beach side.
+        if (this.wet('raft', this._tgt.x, this._tgt.z)) s.center.lerp(this._tgt, Math.min(1, dt * (s.alarm > 0 ? 0.1 : 0.8)));
         const [top, bottom] = s.zone.band;
         s.center.y = THREE.MathUtils.clamp(s.center.y + Math.sin(s.wander * 0.7) * 0.3 * dt, bottom, top);
         continue;
       }
       const roam = s.roam;
+      const px = s.center.x, pz = s.center.z;
       s.center.x += (CURRENT.x * DRIFT + Math.cos(s.wander) * 0.4) * roam * dt;
       s.center.z += (CURRENT.y * DRIFT + Math.sin(s.wander * 0.8) * 0.4) * roam * dt;
+      // Never into the shallows, and never up the beach: it turns back instead.
+      if (!this.wet(s.kind, s.center.x, s.center.z) && this.wet(s.kind, px, pz)) {
+        s.center.x = px; s.center.z = pz;
+        s.wander += Math.PI;
+      }
 
       if (s.kind === 'sand') {
         s.floor = heightAt(s.center.x, s.center.z);
@@ -478,6 +520,7 @@ export class FishSchools {
       // Speared: keep the slot, draw nothing, and put a replacement back into
       // the school once the timer is up — but only out of sight, so a fish
       // never pops into existence in front of you.
+      if (s.ashore) { g.mesh.setMatrixAt(f.index, HIDDEN); continue; }
       if (f.caught > 0) {
         f.caught -= dt;
         if (f.caught <= 0 && s.center.distanceTo(playerPos) < RESPAWN_HIDDEN) f.caught = 2;
@@ -570,7 +613,15 @@ export class FishSchools {
       const cap = f.speed * (f.fright > 0 ? st.burst * 1.1 : 2.6);
       if (spd > cap) f.vel.multiplyScalar(cap / spd);
 
+      const ox = f.pos.x, oz = f.pos.z;
       f.pos.addScaledVector(f.vel, dt);
+      // No fish where there is no water to swim in — up the beach, or over
+      // a reef flat too shallow to cover it: it turns back, towards its school.
+      if (heightAt(f.pos.x, f.pos.z) > -1.1) {
+        f.pos.x = ox; f.pos.z = oz;
+        this._v.set(s.center.x - ox, 0, s.center.z - oz).normalize();
+        f.vel.x = this._v.x * f.speed * 0.5; f.vel.z = this._v.z * f.speed * 0.5;
+      }
 
       // Never break the surface, and never sink into the sand.
       const ceiling = waveHeight(f.pos.x, f.pos.z, time) - SURFACE_CLEARANCE;
@@ -648,7 +699,7 @@ export class FishSchools {
   /** Where each school is: [x, y, z, alarm], in school order — the same on every machine. */
   schoolState() {
     const r = v => Math.round(v * 10) / 10;
-    return this.schools.map(s => [r(s.center.x), r(s.center.y), r(s.center.z), s.alarm > 0 ? r(s.alarm) : 0]);
+    return this.schools.map(s => [r(s.center.x), r(s.center.y), r(s.center.z), s.alarm > 0 ? r(s.alarm) : 0, s.ashore ? 1 : 0]);
   }
 
   /**
@@ -660,8 +711,12 @@ export class FishSchools {
     list.forEach((st, i) => {
       const s = this.schools[i];
       if (!s || !Array.isArray(st)) return;
-      const [x, y, z, alarm] = st;
-      const d = Math.hypot(x - s.center.x, z - s.center.z);
+      const [x, y, z, alarm, ashore] = st;
+      // The host has no water for it: out of sight here too, until it has.
+      if (ashore) { s.ashore = true; s.retry = RETRY; return; }
+      const was = s.ashore;
+      s.ashore = false;
+      const d = was ? Infinity : Math.hypot(x - s.center.x, z - s.center.z);
       if (d > 12) {
         s.center.set(x, y, z);
         for (const f of s.members) f.pos.set(x, y, z).add(f.offset);

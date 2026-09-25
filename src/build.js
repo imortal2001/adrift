@@ -121,7 +121,7 @@ export class BuildMode {
     }
     const along = THREE.MathUtils.clamp(t > 0 ? t * flat : 1.8, 1.8, REACH);
     const x = origin.x + dir.x / flat * along, z = origin.z + dir.z / flat * along;
-    if (id !== 'foundation') { this.clearGhost(); return 'Lay a foundation first — the raft starts with one'; }
+    if (BUILDABLE_BY_ID[id]?.kind !== 'cell') { this.clearGhost(); return 'Lay a foundation first — the raft starts with one'; }
     if (heightAt(x, z) > -0.6) { this.clearGhost(); return 'Too shallow here — it would sit on the bottom'; }
     r.setPose([x, z, Math.atan2(-dir.x, -dir.z)]);
     this.target = { cx: 0, cz: 0, ex: 0, ez: 0, es: 0, dist: t };

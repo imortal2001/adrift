@@ -608,10 +608,11 @@ export async function loadRegistry() {
       variants: b.id === 'campfire' ? [{ id: 'lit', label: 'Lit' }, { id: 'unlit', label: 'Unlit' }] : null,
       async build(variant) {
         const raft = new Raft(scratch);
-        raft.place('foundation', { cx: 0, cz: 0, force: true });
+        // A foundation of any kind is shown alone; everything else on a plank one.
+        raft.place(b.kind === 'cell' ? b.id : 'foundation', { cx: 0, cz: 0, force: true });
         const t = { cx: 0, cz: 0, ex: 0, ez: 0, es: 1, force: true };
         let obj;
-        if (b.id === 'foundation') obj = raft.cells.values().next().value.obj;
+        if (b.kind === 'cell') obj = raft.cells.values().next().value.obj;
         else {
           raft.place(b.id, t);
           obj = ({ edge: raft.edges, top: raft.tops, object: raft.objs })[b.kind].values().next().value?.obj;
