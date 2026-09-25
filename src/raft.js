@@ -16,6 +16,7 @@ import { textures } from './textures.js';
 import { BUILDABLE_BY_ID, FIRE } from './items.js';
 import { buildCampfire, updateFire, tickFire } from './fire.js';
 import { heightAt } from './terrain.js';
+import { archLegsNear } from './caves.js';
 import { statueBody } from './statue.js';
 import { mergeGeometries } from '../vendor/jsm/utils/BufferGeometryUtils.js';
 
@@ -32,6 +33,7 @@ const STROKE = 0.46;            // m/s a stroke adds, on the four-cell raft you 
 const DRAG = 0.42;              // of its speed, lost a second
 const SPIN_DRAG = 0.95;         // of its turn, lost a second
 const TOP_SPEED = 2.4;          // m/s
+const _legs = [];
 const DRAUGHT = 0.55;           // how far under the water it reaches: shallower than this is aground
 const SAIL_PUSH = 0.62;         // m/s² a raised sail gives the four-cell raft, in a fresh wind
 
@@ -652,6 +654,7 @@ export class Raft {
       const lx = cell.cx * CELL, lz = cell.cz * CELL;
       const wx = x + lx * c + lz * s, wz = z - lx * s + lz * c;
       if (heightAt(wx, wz) > -DRAUGHT) return true;
+      if (archLegsNear(wx, wz, CELL * 0.7, _legs).length) return true;      // a sea arch's leg
     }
     return false;
   }

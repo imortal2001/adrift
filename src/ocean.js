@@ -86,7 +86,7 @@ void main(){
 
 const frag = /* glsl */`
 uniform float uTime, uFogDensity, uNight;
-uniform float uUnderwater, uUnderDensity;
+uniform float uUnderwater, uUnderDensity, uShade;
 uniform vec3 uSunDir, uSunColor, uSkyTop, uSkyHorizon, uDeep, uShallow, uFog, uUnderFog;
 varying vec3 vWorld;
 varying float vHeight;
@@ -124,7 +124,7 @@ void main(){
     float dens = mix(uFogDensity * 3.0, uUnderDensity, uUnderwater);
     vec3 into = mix(uDeep * 0.75, uUnderFog, uUnderwater);
     float f = 1.0 - exp(-pow(dist * dens, 2.0));
-    gl_FragColor = vec4(mix(col, into, clamp(f, 0.0, 1.0)), 1.0);
+    gl_FragColor = vec4(mix(col, into, clamp(f, 0.0, 1.0)) * uShade, 1.0);
     return;
   }
 
@@ -151,7 +151,7 @@ void main(){
 
   float f = 1.0 - exp(-pow(dist * uFogDensity, 2.2));
   col = mix(col, uFog, clamp(f, 0.0, 1.0));
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(col * uShade, 1.0);
 }`;
 
 export class Ocean {
@@ -175,6 +175,9 @@ export class Ocean {
       uUnderwater:  { value: 0 },
       uUnderDensity:{ value: 0.045 },
       uUnderFog:    { value: new THREE.Color(0x11536b) },
+      // Set by main.js from caves.js: how much daylight reaches the camera —
+      // in a sea cave, the water is as dark as the rock round it.
+      uShade:       { value: 1 },
     };
 
     this.mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({

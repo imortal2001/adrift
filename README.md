@@ -79,7 +79,7 @@ code and models, runs on this machine only, and has its own
 | Arrow keys | also turn the view |
 | `Space` | jump — and climb aboard when you are in the water |
 | `V` | change the view: first person → third (behind you) → second (facing you) |
-| `E` | gather the debris you are looking at, drink from a collector — or a river, lake or pool ashore — grab a crab, take back a thrown spear; at a campfire, cook the raw fish in hand, take fish that are done, or feed it wood |
+| `E` | gather the debris you are looking at, drink from a collector — or a river, lake, pool or cave spring ashore — grab a crab, take back a thrown spear, chip flint out of a cave wall; at a campfire, cook the raw fish in hand, take fish that are done, feed it wood, light your torch in it, or strike a spark into it with the fire striker |
 | `1`–`5`, wheel | pick a hotbar slot |
 | Left-click | use whatever is in your hands |
 | `I` | pack — register tools and items into the five slots |
@@ -108,6 +108,8 @@ instead of a key per tool:
 | Bow drill | **hold** at an unlit campfire to saw up an ember — it takes 1 Palm for tinder |
 | Spear | a thrust that skewers the fish on the crosshair; **right-click throws it** — pull it back out with `E` |
 | Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
+| Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes, and goes out if you put it away or get in the water — keeping what it had left |
+| Fire striker | nothing in hand — `E` at an unlit campfire strikes a spark into it (1 Palm for tinder), at once |
 | Material, or nothing | nothing |
 
 Build mode is no longer a toggle: it is simply *holding the hammer*. Take out
@@ -210,6 +212,7 @@ pause screen starts over.
 | `src/reef.js` | What lives on the sea bed: coral, sponges, anemones, seagrass, kelp, urchins, starfish, giant clams and rock, plus the surge that bends the soft ones. |
 | `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Used by the reef. |
 | `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers, and the falls and lakes on them), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
+| `src/caves.js` | Caves, sea caves, sea arches and rock shelves: where they are (surveyed from the land), their meshes, the dark inside them, and the floors and walls you walk on and within there; flint to chip, and the springs. |
 | `src/waterfall.js` | The lakes' still water, cut to their shores, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
 | `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks. |
@@ -291,6 +294,34 @@ nothing lines up in rows:
   everything else. And it is
   fresh: look at any river, lake or pool and **E** drinks (+30 thirst). The
   sea is salt.
+- **Caves and overhangs** (`src/caves.js`) — what a heightfield cannot be.
+  Found once, from the land itself, the same on every machine:
+  - **Caves** (8), at the foot of the cliffs inland — none by the landing
+    beach. A mouth under a hood of rock, a tunnel three metres wide winding
+    twenty-odd metres back into the hill, and a chamber at the end with
+    stalactites, and a **spring pool** in it to drink from (**E**). Past the
+    first few metres it is black: the daylight — sun, moon and sky — falls
+    away with how far in you are, and only a **torch** lights it. Low on the
+    walls, deep in, is **flint** (**E** chips it out; it comes back in a
+    while), and nowhere else has it. The mouths are too narrow for a
+    dinosaur: nothing that is hunting you will follow you in.
+  - **Sea caves** (3), at the waterline under the sea cliffs: swim in under
+    the arch of the mouth, and at the back is a shingle beach to climb out
+    on, flint in the walls. The sea inside is as dark as the rock — and it
+    puts a torch out.
+  - **Sea arches** (3), in the shallows off the cliffs, to swim or sail
+    under; their legs are solid to you and to the raft.
+  - **Rock shelves** (11), ledges out from the lips of the cliffs, to walk
+    out onto or under.
+
+  Each is its own mesh; the heightfield is left as it is. A cave is a tube of
+  rock set into the hill with the ground above it untouched; where it comes
+  out through the cliff face, the terrain's shader throws that bit of the
+  ground away (`CAVE_CUT`, the nearest mouths) so the mouth opens, and the
+  tube's outer skin is what shows round the cut. Inside, its floor and walls
+  are what you stand on and walk within — `floorAt()` and `clampInCave()`,
+  asked by the player before the ground is — and the third-person camera
+  keeps inside it too.
 
 It is streamed in **64m chunks** around whoever is looking: fine near you,
 progressively coarser out to about 450m, rebuilt two chunks per frame so
@@ -298,8 +329,10 @@ walking never stutters, and disposed once out of range. Normals are sampled
 across the chunk edges and each chunk hangs a skirt, so there are no seams.
 Beyond the chunks the **far land** takes over: the whole continent at 16 m, in
 two sheets — the ground, and the forest canopy as a lumpy shell over it — each
-sunk out of sight inside the square the chunks draw for real. That is what you
-see of the far coast and the range from the raft.
+sunk out of sight inside the square the chunks draw for real (and well inside
+it, not drawn at all — sunk only a little, it would run through the hills, and
+the caves in them). That is what you see of the far coast and the range from
+the raft.
 
 The ground's colour comes from what the land is — sand, straw on the plains,
 leaf litter and moss under the canopy, mud and pebbles on the river banks,

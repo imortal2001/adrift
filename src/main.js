@@ -21,12 +21,14 @@ import { Statues, newStatueId, scatter } from './statue.js';
 import { ThrownSpears, travelTime } from './spear.js';
 import { Fishing } from './fishing.js';
 import { Terrain, heightAt as landHeight, coastDistance, CHUNK, landAt, freshWaterAt } from './terrain.js';
+import { Caves } from './caves.js';
+import { FLAME } from './viewmodel.js';
 import { Wildlife } from './wildlife.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { BuildMode } from './build.js';
-import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, fishItem, fishOf, foodOf, cookedItem, isCooked } from './items.js';
+import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, TORCH, fishItem, fishOf, foodOf, cookedItem, isCooked } from './items.js';
 import { Hotbar, SLOTS } from './hotbar.js';
 
 const SAVE_KEY = 'adrift.save.v2';
@@ -106,6 +108,17 @@ class Game {
     this.hotbar = new Hotbar();
     // Terrain first: the player and the fish both collide against its reef.
     this.terrain = new Terrain(this.scene);
+    // Before the first chunk is built: they keep their plants out of the cave mouths.
+    this.caves = new Caves(this.scene);
+    // A torch's light — yours, and one each for two of the others. Always in
+    // the scene, dark until lit: adding a light later would make every
+    // material in the world recompile at the moment you lit it.
+    this.torch = { lit: false, fuel: 0 };
+    this.torchLights = [0, 1, 2].map(() => {
+      const l = new THREE.PointLight(0xffa35a, 0, 20, 2);
+      this.scene.add(l);
+      return l;
+    });
     this.terrain.shareSky(this.ocean.uniforms);
     this.player = new Player(this.eye, this.raft, this.terrain);
     // Where you came to (spawn.js) and the statue you wake at (statue.js).
@@ -586,6 +599,12 @@ class Game {
       case 'drill':
         this.hud.log('Hold click at an unlit campfire to drill an ember.');
         break;
+      case 'torch':
+        this.clickTorch();
+        break;
+      case 'strike':
+        this.hud.log('Look at an unlit campfire and press E to strike a spark into it. With the striker in your pack, a torch lights anywhere.');
+        break;
       default:
         this.hud.log(`${ITEMS[id].name} is raw material — nothing to do with it in hand.`);
     }
@@ -745,6 +764,10 @@ class Game {
           ? { prompt: `<b>E</b> lay wood in the burnt-out fire${cooking}`, act: () => this.feedFire(o) }
           : { prompt: `Burnt out — it needs Wood before it will light again${cooking}`, act: null };
       }
+      if (held === 'striker' && this.inv.has('striker')) {
+        if (!this.inv.has('leaf')) return { prompt: 'You need 1 Palm as tinder to catch the spark', act: null };
+        return { prompt: '<b>E</b> strike a spark into the tinder (1 Palm)', act: () => this.strikeFire(o) };
+      }
       if (held === 'bowdrill' && this.inv.has('bowdrill')) {
         if (!this.inv.has('leaf')) return { prompt: 'You need 1 Palm as tinder to catch the ember', act: null };
         const p = this.drill?.rec === o ? this.drill.p : 0;
@@ -754,6 +777,9 @@ class Game {
       }
       return { prompt: (this.inv.has('bowdrill') ? 'Unlit — take out the bow drill to light it'
                                                  : 'Unlit — craft a bow drill (C) to light it') + cooking, act: null };
+    }
+    if (held === 'torch' && this.inv.has('torch') && !this.torch.lit) {
+      return { prompt: `<b>E</b> light your torch${cooking}`, act: () => this.lightTorch('at the fire') };
     }
     const raw = fishOf(held) && !isCooked(held) && this.inv.has(held) ? held : null;
     if (raw && o.spitFish.length < FIRE.spit) {
@@ -770,6 +796,86 @@ class Game {
   anyRawFish() {
     for (const [id, n] of this.inv.slots) if (n > 0 && fishOf(id) && !isCooked(id)) return id;
     return null;
+  }
+
+  /** A spark from the striker catches in the tinder: lit at once, no sawing. */
+  strikeFire(o) {
+    if (!this.inv.remove('leaf', 1)) return;
+    o.lit = true;
+    this.together.touched(o);
+    this.useAnim('eat');
+    this.hud.log('Flint on iron: a shower of sparks, and the palm fibre catches. The fire is lit.', 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  // ── the torch ──────────────────────────────────────────────────────────────
+  /** Click with a torch in hand: light it, if there is the means. */
+  clickTorch() {
+    if (this.torch.lit) {
+      this.hud.log(`Your torch is burning — about ${Math.ceil(this.torch.fuel / 60)} minute${this.torch.fuel > 60 ? 's' : ''} left in it.`);
+      return;
+    }
+    if (this.player.state === 'swim') { this.hud.log('Not in the water — it would only go straight out.'); return; }
+    if (this.inv.has('striker')) { this.lightTorch('with the striker'); return; }
+    this.hud.log('Light it at a burning campfire (look at the fire, E) — or craft a fire striker from cave flint, to light it anywhere.');
+  }
+
+  lightTorch(how) {
+    if (!this.inv.has('torch')) return;
+    // A torch put away keeps what it had left; a spent one, a new torch.
+    if (this.torch.fuel <= 0) this.torch.fuel = TORCH.burn;
+    this.torch.lit = true;
+    this.useAnim('eat');
+    this.hud.log(how === 'with the striker' ? 'Sparks from the striker, and the palm fibre flares: your torch is lit.'
+                                            : 'You hold the torch in the flames until it catches.', 'good');
+  }
+
+  /** Once a frame: the torch burns down, goes out in the water, and gives its light. */
+  updateTorch(dt, held) {
+    const t = this.torch;
+    if (t.lit && held !== 'torch') t.lit = false;                       // put away: out
+    if (t.lit && this.player.state === 'swim') {
+      t.lit = false;
+      this.hud.log('The water hisses over your torch, and it is out.', 'bad');
+    }
+    if (t.lit && (t.fuel -= dt) <= 0) {
+      t.lit = false;
+      t.fuel = 0;
+      this.inv.remove('torch', 1);
+      this.hud.log(this.inv.has('torch') ? 'Your torch burns down and gutters out. You have another.' : 'Your torch burns down and gutters out.', 'bad');
+      this.hud.refreshInventory(this.inv);
+      this.hud.refreshHotbar(this.hotbar, this.inv);
+    }
+    FLAME.uTime.value = this.time;
+    const flicker = 0.82 + 0.1 * Math.sin(this.time * 17.3) * Math.sin(this.time * 7.1 + 1) + 0.08 * Math.sin(this.time * 31);
+    // Where the flame is: up at your right hand, a little ahead.
+    const mine = this.torchLights[0], p = this.player, yaw = p.yaw;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    mine.position.set(p.pos.x + fx * 0.45 + rx * 0.3, p.pos.y + 1.75, p.pos.z + fz * 0.45 + rz * 0.3);
+    mine.intensity = t.lit ? 11 * flicker : 0;
+    this.viewmodel.glow.intensity = t.lit && this.view.first ? 1.6 * flicker : 0;
+    // The others' torches, as many as there are lights for.
+    let k = 1;
+    for (const r of this.net.remotes?.values?.() || []) {
+      if (k >= this.torchLights.length) break;
+      if (r.held !== 'torch_lit' || !r.body?.visible) continue;
+      this.torchLights[k].position.copy(r.body.gripPos).y += 0.45;
+      this.torchLights[k++].intensity = 11 * flicker;
+    }
+    for (; k < this.torchLights.length; k++) this.torchLights[k].intensity = 0;
+  }
+
+  /** Chip a flint face off a cave wall. */
+  chipFlint(f) {
+    const n = this.caves.chip(f);
+    this.inv.add('flint', n);
+    this.hotbar.autoAssign('flint');
+    this.useAnim('eat');
+    this.hud.log(`You work ${n === 1 ? 'a nodule of flint' : 'two nodules of flint'} out of the rock.` +
+                 (this.inv.count('flint') === n && !this.inv.has('striker') ? ' Struck on scrap iron, flint makes fire — see crafting (C).' : ''), 'good');
+    this.hud.refreshInventory(this.inv);
+    this.hud.refreshHotbar(this.hotbar, this.inv);
+    this.hud.refreshCraft(this.inv);
   }
 
   /** The ember catches: the fire is lit, and the tinder is gone. */
@@ -1218,7 +1324,7 @@ class Game {
       p.pos.set(at.x, raft.deckY(at.x, at.z), at.z);
       p.state = 'deck'; p.onLand = false; p.vel.set(0, 0, 0); p.vy = 0;
       if (Number.isFinite(w.localYaw)) p.yaw = w.localYaw + raft.heading;
-    } else if (w.where && w.where !== 'deck' && Array.isArray(w.pos)) this.player.standAt(w.pos[0], w.pos[2], w.yaw);
+    } else if (w.where && w.where !== 'deck' && Array.isArray(w.pos)) this.player.standAt(w.pos[0], w.pos[2], w.yaw, w.pos[1]);
     else this.respawn();
     this.markMine();
   }
@@ -1546,6 +1652,13 @@ class Game {
       };
     }
 
+    // In a cave: flint in the walls to chip out, and the spring to drink from.
+    if (this.player.cave) {
+      const flint = this.caves.pickFlint(eye, dir);
+      if (flint) return { prompt: '<b>E</b> chip out the flint', act: () => this.chipFlint(flint) };
+      if (this.caves.pickSpring(eye, dir)) return { prompt: '<b>E</b> drink from the spring', act: () => this.drinkFresh('the spring') };
+    }
+
     // Fresh water under the crosshair — a river, a lake, the pool under a
     // fall: drink. (The sea is salt: that is what the collector is for.)
     const fresh = this.freshLookedAt(eye, dir);
@@ -1766,6 +1879,7 @@ class Game {
     const dir = this.player.forward(this.tmpDir);
     // Stream terrain around whoever is looking at it, then run the ecosystem.
     this.terrain.update(dt, this.player.pos, this.time, this.sky.night);
+    this.caves.update(dt, this.player.pos);
     this.wildlife.setPlayerPos(this.player.pos);
     this.wildlife.update(dt, this.time, this.player,
                          this.player.state === 'deck' && this.player.onLand);
@@ -1898,13 +2012,28 @@ class Game {
     const light = this.underwater.update(dt, lens, submerged, depth, this.sky,
                                          this.scene, this.sky.night);
     this.hud.setUnderwater(submerged, submerged ? 1 - light : 0);
+    // In a cave, the daylight falls away with how far in you are: the sky's
+    // light, the moon's, and what lights your hands (caves.js has the rock's).
+    const day = this.caves.daylightAt(lens);
+    this.sky.hemi.intensity *= day;
+    this.sky.moon.intensity *= day;
+    this.viewmodel.shade = day;
+    this.ocean.uniforms.uShade.value = day;
+    if (this.player.cave && day < 0.25 && !this.torch.lit && !this.saidDark) {
+      this.saidDark = true;
+      this.hud.log('Past the first few metres it is black. A torch would light the way in — Wood and Palm, crafting (C). ' +
+                   'Nothing that hunts you out there can follow you in here.');
+    }
 
     // After underwater.update(), which has just dimmed the lights the tool
     // copies — so what is in your hand goes dark and blue with the world.
     const held = this.hotbar.held;
+    this.updateTorch(dt, held);
+    // A lit torch is a body of its own — flame and all — in your hand, on your body and in the others' view.
+    const shown = held === 'torch' && this.torch.lit ? 'torch_lit' : held;
     this.viewmodel.update(dt, {
       drift: this.player.drift,
-      held,
+      held: shown,
       owned: !!held && this.inv.has(held),
       hidden: held === 'hook' && this.hook.busy,     // it is out on the line
     });
@@ -1912,7 +2041,7 @@ class Game {
     const outside = !this.view.first;
     this.body.visible = outside;
     const inHand = held && this.inv.has(held) && !(held === 'hook' && this.hook.busy)
-      && !(held === 'spear' && !this.viewmodel.current) ? held : null;
+      && !(held === 'spear' && !this.viewmodel.current) ? shown : null;
     if (inHand !== this.body.heldId) this.body.hold(inHand, inHand ? this.viewmodel.cloneBody(inHand) : null);
     this.body.update(dt, this.player);
     this.net.update(dt, this.player, inHand, this.time, this.lineOut(), this.camera.position);
@@ -2092,7 +2221,7 @@ class Game {
     // Back where you were: on the deck (wherever it has got to), or ashore or
     // in the water where you left off.
     const was = d.player?.where, pos = d.player?.pos;
-    if (was && was !== 'deck' && Array.isArray(pos)) this.player.standAt(pos[0], pos[2], d.player.yaw);
+    if (was && was !== 'deck' && Array.isArray(pos)) this.player.standAt(pos[0], pos[2], d.player.yaw, pos[1]);
     else if (this.raft.size) this.player.respawnOnRaft();
     else this.player.standAt(this.origin.x, this.origin.z, this.origin.yaw);
     this.sky.time = d.time ?? this.sky.time;

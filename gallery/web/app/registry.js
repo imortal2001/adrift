@@ -40,7 +40,8 @@ import { REEF_ANIMALS, turtleBody, rayBody, octopusBody, Crabs, OCTO_SHADES } fr
 import { octopusModel, rayModel, shelledModel, seaTurtleModel } from '/src/reefmodels.js';
 import { SPECIES as FLORA, speciesMesh, setFloraTime } from '/src/flora.js';
 import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE } from '/src/items.js';
-import { POSES, Viewmodel } from '/src/viewmodel.js';
+import { POSES, Viewmodel, FLAME } from '/src/viewmodel.js';
+import { CAVES, ARCH_LIST, SHELF_LIST, survey as surveyCaves, caveGeometry, archGeometry, shelfGeometry, caveMaterial } from '/src/caves.js';
 import { Fishing } from '/src/fishing.js';
 import { Hook } from '/src/hook.js';
 import { DebrisField } from '/src/debris.js';
@@ -65,10 +66,9 @@ export const CATEGORIES = [
  * delete a line when the thing arrives.
  */
 export const GAPS = [
-  { category: 'animals', name: 'Land animals (not dinosaurs)', note: 'Nothing but dinosaurs lives on the continent.' },
+  { category: 'animals', name: 'Land animals (not dinosaurs)', note: 'Nothing but dinosaurs, tortoises and pond turtles lives on the continent — no mammals.' },
   { category: 'animals', name: 'Birds and flying animals', note: 'There is nothing in the air at all — no gulls over the sea, no pterosaurs.' },
-  { category: 'equipment', name: 'Survival gear', note: 'No water bottle, knife, net, torch, or armour.' },
-  { category: 'terrain', name: 'Caves and overhangs', note: 'Terrain is one heightfield: cliffs are steep, but nothing overhangs.' },
+  { category: 'equipment', name: 'Survival gear', note: 'No water bottle, knife, net, or armour.' },
   { category: 'objects', name: 'Shipwrecks and weather', note: 'Deliberately out of scope for the prototype (see README).' },
 ];
 
@@ -471,6 +471,7 @@ export async function loadRegistry() {
   // ── equipment ──
   const held = await heldBodies();
   for (const [id, pose] of Object.entries(POSES)) {
+    if (id === 'torch_lit') continue;                 // the torch's card shows it lit
     const hasModel = !!pose.model && manifest.has(pose.model);
     add({
       id: `held-${id}`, name: ITEMS[id]?.name || cap(id), category: 'equipment',
@@ -482,10 +483,15 @@ export async function loadRegistry() {
       facts: [['In hand', ITEMS[id]?.hint || 'nothing to do with it — a material, carried'],
               ...(id === 'fish' ? [['In play', 'every fish is its own item and is held as its own species; this is the stand-in for one the schools cannot draw']] : []),
               ['Frame', id === 'bowdrill' ? 'its own: the bow across, the spindle down, as held' : 'stands along +Y, origin at the grip']],
-      variants: hasModel ? [{ id: 'model', label: 'glTF model' }, { id: 'fallback', label: 'Built-in fallback' }] : null,
+      variants: hasModel ? [{ id: 'model', label: 'glTF model' }, { id: 'fallback', label: 'Built-in fallback' }]
+              : id === 'torch' ? [{ id: 'lit', label: 'Burning' }, { id: 'unlit', label: 'Unlit' }] : null,
       async build(variant) {
         let obj = null;
         if (hasModel && variant !== 'fallback') obj = (await lib.get(pose.model))?.scene.clone(true);
+        if (id === 'torch' && variant !== 'unlit') {
+          obj = held.torch_lit.clone(true);
+          return { object: rest(shadows(obj)), update: (dt, time) => { FLAME.uTime.value = time; } };
+        }
         obj ||= held[id].clone(true);
         // The game holds tools along +Y. For display they lie on the floor,
         // working end to the right, the way you would lay one out on a bench;
@@ -647,6 +653,106 @@ export async function loadRegistry() {
         frame: { center: V(0, f.height / 2, 4), size: V(f.width + 12, f.height + 4, 16) },
         update: (dt, time) => w.update(dt, time, null),
       };
+    },
+  });
+
+  // ── caves and overhangs (src/caves.js): the ones the survey finds in the world ──
+  surveyCaves();
+  const rockWith = (geo, opts = {}) => {
+    const m = new THREE.Mesh(geo, caveMaterial());
+    m.castShadow = m.receiveShadow = true;
+    return m;
+  };
+  const seaSheet = (w, d) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2),
+      new THREE.MeshStandardMaterial({ color: 0x1d6f86, transparent: true, opacity: 0.55, roughness: 0.2, depthWrite: false }));
+    return m;
+  };
+  for (const kind of ['land', 'sea']) {
+    const c = CAVES.find(x => x.kind === kind);
+    const n = CAVES.filter(x => x.kind === kind).length;
+    add({
+      id: `cave-${kind}`, name: kind === 'land' ? 'Cave' : 'Sea cave', category: 'terrain', group: 'Caves & overhangs',
+      kind: 'built in code', backdrop: 'studio', source: 'src/caves.js · caveGeometry() · survey()',
+      facts: c ? [
+        ['In the world', `${n}, ${kind === 'land' ? 'at the foot of the cliffs inland — none near the landing beach' : 'at the waterline under the sea cliffs'}`],
+        ['This one', `at ${Math.round(c.mouth.x)}, ${Math.round(c.mouth.z)}: ${Math.round(c.o.tunnel)} m of tunnel, ${(c.o.width * 2).toFixed(1)} m wide, to a chamber ${Math.round(c.o.room * 2)} m across`],
+        ['Inside', kind === 'land' ? 'a spring pool in the chamber to drink from, flint in the walls, stalactites — and dark past the first few metres'
+                                   : 'you swim in; at the back a shingle beach to climb out on, flint in the walls, dark'],
+        ['In play', 'a torch lights it; dinosaurs will not follow you in; your torch goes out in the water'],
+        ['How it is made', 'a tube of rock set into the hill, the terrain cut away where it comes out of the cliff face; its floor and walls are what you walk on inside'],
+      ] : [['In the world', 'none: the survey found nowhere for one']],
+      variants: [{ id: 'whole', label: 'The whole tube' }, { id: 'cutaway', label: 'Cut away' }],
+      async build(variant) {
+        if (!c) return { object: null, missing: `the survey found no ${kind} cave` };
+        const open = variant === 'cutaway';
+        const g = new THREE.Group(), inner = new THREE.Group();
+        inner.add(rockWith(caveGeometry(c, { open })));
+        if (open && c.spring) {
+          const w = new THREE.Mesh(new THREE.CircleGeometry(c.spring.r * 0.97, 28).rotateX(-Math.PI / 2),
+            new THREE.MeshStandardMaterial({ color: 0x2c4a4c, roughness: 0.14, transparent: true, opacity: 0.7 }));
+          w.position.set(c.spring.x, c.spring.level, c.spring.z);
+          inner.add(w);
+        }
+        if (open) {
+          const flint = new THREE.MeshStandardMaterial({ color: 0x33333a, roughness: 0.25, metalness: 0.2 });
+          for (const f of c.flint) {
+            const m = new THREE.Mesh(new THREE.IcosahedronGeometry(f.size, 1), flint);
+            m.position.set(f.x, f.y, f.z);
+            inner.add(m);
+          }
+        }
+        if (kind === 'sea') { const sea = seaSheet(c.bound.r * 2.2, c.bound.r * 2.2); sea.position.set(c.bound.x, 0, c.bound.z); inner.add(sea); }
+        inner.position.set(-c.bound.x, -c.mouth.y, -c.bound.z);
+        g.add(inner);
+        const r = c.bound.r;
+        return { object: g, ground: false, keepHeight: true,
+                 frame: { center: V(0, 1.5, 0), size: V(r * 1.6, open ? 3 : 6, r * 1.6) },
+                 view: { yaw: Math.atan2(c.mouth.x - c.bound.x, c.mouth.z - c.bound.z) + 0.5, pitch: open ? 0.95 : 0.35 } };
+      },
+    });
+  }
+  add({
+    id: 'sea-arch', name: 'Sea arch', category: 'terrain', group: 'Caves & overhangs',
+    kind: 'built in code', backdrop: 'studio', source: 'src/caves.js · archGeometry() · survey()',
+    facts: [['In the world', `${ARCH_LIST.length}, in the shallows off the sea cliffs`],
+            ['Size', ARCH_LIST[0] ? `${Math.round(Math.hypot(ARCH_LIST[0].b.x - ARCH_LIST[0].a.x, ARCH_LIST[0].b.z - ARCH_LIST[0].a.z))} m foot to foot, ${Math.round(ARCH_LIST[0].top)} m over the sea` : '—'],
+            ['In play', 'swim or sail under it; its legs are solid to you and to the raft']],
+    async build() {
+      const A = ARCH_LIST[0];
+      if (!A) return { object: null, missing: 'the survey found nowhere for an arch' };
+      const g = new THREE.Group(), inner = new THREE.Group();
+      inner.add(rockWith(archGeometry(A)));
+      const sea = seaSheet(40, 40);
+      sea.position.set(A.x, 0, A.z);
+      inner.add(sea);
+      inner.position.set(-A.x, 0, -A.z);
+      g.add(inner);
+      return { object: g, ground: false, keepHeight: true, frame: { center: V(0, A.top * 0.45, 0), size: V(24, A.top + 4, 12) },
+               view: { yaw: Math.atan2(A.nx, A.nz), pitch: 0.12 } };
+    },
+  });
+  add({
+    id: 'rock-shelf', name: 'Rock shelf', category: 'terrain', group: 'Caves & overhangs',
+    kind: 'built in code', backdrop: 'studio', source: 'src/caves.js · shelfGeometry() · survey()',
+    facts: [['In the world', `${SHELF_LIST.length}, jutting from the lips of the cliffs inland`],
+            ['Size', SHELF_LIST[0] ? `${SHELF_LIST[0].d.toFixed(1)} m out from the lip, ${SHELF_LIST[0].w.toFixed(1)} m across` : '—'],
+            ['In play', 'walk out onto it, or under it; its top is a floor like any other']],
+    async build() {
+      const sh = SHELF_LIST[0];
+      if (!sh) return { object: null, missing: 'the survey found nowhere for a shelf' };
+      const g = new THREE.Group(), inner = new THREE.Group();
+      inner.add(rockWith(shelfGeometry(sh)));
+      // The cliff it comes out of, as a plain face.
+      const face = new THREE.Mesh(new THREE.BoxGeometry(sh.w + 4, 8, 3), new THREE.MeshStandardMaterial({ color: 0x6e6962, roughness: 0.95 }));
+      face.position.set(sh.x - sh.ox * 2.2, sh.top - 4, sh.z - sh.oz * 2.2);
+      face.rotation.y = sh.yaw;
+      face.castShadow = face.receiveShadow = true;
+      inner.add(face);
+      inner.position.set(-sh.x, -sh.top + 4, -sh.z);
+      g.add(inner);
+      return { object: g, ground: false, keepHeight: true, frame: { center: V(sh.ox * sh.d * 0.4, 3, sh.oz * sh.d * 0.4), size: V(sh.w + 4, 8, sh.d + 4) },
+               view: { yaw: sh.yaw + 0.9, pitch: 0.2 } };
     },
   });
 

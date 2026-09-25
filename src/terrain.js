@@ -25,6 +25,50 @@ export const WORLD = {
 };
 
 export const CHUNK = 64;
+
+// ── cave mouths (caves.js) ───────────────────────────────────────────────────
+// The heightfield has no holes, so where a cave's tube comes out through the
+// cliff face the ground is not drawn: the terrain's shader throws away what is
+// inside the mouth — an elliptical capsule from the mouth a few metres in,
+// above the tube's floor. caves.js fills these in each frame, nearest first.
+export const CAVE_CUT = {
+  uCutA: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },   // mouth end: centre, half-width
+  uCutB: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },   // inner end: centre, half-height
+  uCutF: { value: Array.from({ length: 8 }, () => new THREE.Vector2()) },   // the floor at each end
+  uCutN: { value: 0 },
+};
+// Round the nearest caves, the far land is not drawn at all (buildFar): the
+// coarse sheet of it runs through the hills — through the caves in them.
+export const CAVE_FAR = { uCaveFar: { value: Array.from({ length: 4 }, () => new THREE.Vector3(0, 0, -1)) } };  // x, z, radius
+// And no flowers, trees or vines in them: { x, z, r } (caves.js survey()).
+export const CAVE_MOUTHS = [];
+const nearCaveMouth = (x, z) => CAVE_MOUTHS.some(m => Math.hypot(x - m.x, z - m.z) < m.r);
+
+function applyCaveCut(material) {
+  const prev = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (prev) prev(shader, renderer);
+    Object.assign(shader.uniforms, CAVE_CUT);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform vec4 uCutA[8];
+        uniform vec4 uCutB[8];
+        uniform vec2 uCutF[8];
+        uniform int uCutN;`)
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        for (int i = 0; i < 8; i++) {
+          if (i >= uCutN) break;
+          vec3 a = uCutA[i].xyz, ab = uCutB[i].xyz - a;
+          float t = clamp(dot(vDetailPos - a, ab) / dot(ab, ab), 0.0, 1.0);
+          vec3 o = vDetailPos - (a + ab * t);
+          vec2 e = vec2(length(o.xz) / uCutA[i].w, o.y / uCutB[i].w);
+          if (dot(e, e) < 1.0 && vDetailPos.y > mix(uCutF[i].x, uCutF[i].y, t) + 0.25) discard;
+        }`);
+  };
+  const key = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () => `cavecut-${key ? key() : ''}`;
+  return material;
+}
 const VIEW_CHUNKS = 7;                     // ~450m of terrain around the viewer
 const LOD_SEGMENTS = [64, 32, 16, 8, 8];   // by chunk-distance band
 const REEF_LOD = 1;                        // and beyond this, no reef — you cannot
@@ -777,9 +821,9 @@ export class Terrain {
     this.queued = new Map();          // key -> its job in the queue, so each chunk waits once
     // The sea bed and the land are one material; the caustics injection gates
     // itself on being below the waterline, so the beach stays dry-looking.
-    this.material = applyGroundDetail(applyCaustics(new THREE.MeshStandardMaterial({
+    this.material = applyCaveCut(applyGroundDetail(applyCaustics(new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 0.96, metalness: 0,
-    })));
+    }))));
     this.reefMaterial = reefMaterial();
     this._c = new THREE.Color();
     this._dummy = new THREE.Object3D();
@@ -1039,6 +1083,7 @@ export class Terrain {
           const x = ox + (ci + hash(i * 7919 + s, j * 104729)) * cell;
           const z = oz + (cj + hash(i * 104729, j * 7919 + s)) * cell;
           if (x >= ox + CHUNK || z >= oz + CHUNK) continue;
+          if (CAVE_MOUTHS.length && nearCaveMouth(x, z)) continue;
           this.siteAt(grid, x, z, site);
           let sum = 0;
           const wet = site.edge < 0.6;       // in the river, or at its very edge
@@ -1162,6 +1207,7 @@ export class Terrain {
         pz += (nrm.z / (flat || 1)) * 1.1;
       }
       if (pts.length < 4) continue;
+      if (CAVE_MOUTHS.length && (nearCaveMouth(x, z) || nearCaveMouth(pts.at(-1).x, pts.at(-1).z))) continue;
       normalAt(x, z, nrm);
       const side = new THREE.Vector3(-nrm.z, 0, nrm.x).normalize();
       strands.push({ pts, side, normal: nrm.clone() });
@@ -1246,14 +1292,23 @@ export class Terrain {
       mat.onBeforeCompile = (shader, renderer) => {
         if (detailCompile) detailCompile(shader, renderer);
         shader.uniforms.uFarFocus = focus;
+        Object.assign(shader.uniforms, CAVE_FAR);
         shader.vertexShader = shader.vertexShader
           .replace('#include <common>', `#include <common>
             uniform vec2 uFarFocus;
+            uniform vec3 uCaveFar[4];
             varying float vFarY;`)
           .replace('#include <begin_vertex>', `#include <begin_vertex>
             {
               vec2 rel = abs(transformed.xz - uFarFocus);
               if (max(rel.x, rel.y) < ${(half - 0.5).toFixed(1)}) transformed.y -= ${drop.toFixed(1)};
+              // Round a cave, gone altogether (under the sea, so thrown away below):
+              // sunk only a little, it runs through the hills — through the caves in them.
+              if (max(rel.x, rel.y) < ${(half - 70).toFixed(1)}) {
+                for (int i = 0; i < 4; i++) {
+                  if (uCaveFar[i].z > 0.0 && distance(transformed.xz, uCaveFar[i].xy) < uCaveFar[i].z) transformed.y -= 400.0;
+                }
+              }
               vFarY = transformed.y;
             }`);
         shader.fragmentShader = shader.fragmentShader
