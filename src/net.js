@@ -45,6 +45,20 @@ const TOKEN = (() => {
     return t;
   } catch { return Math.random().toString(36).slice(2, 14); }
 })();
+// Who you are to a room from one day to the next: which record of yours it
+// keeps (what you carry, where you are). The same in every tab of this
+// browser — unless a tab has one of its own (sessionStorage), for testing
+// two players side by side.
+const PLAYER = (() => {
+  try {
+    const tab = sessionStorage.getItem('adrift.pid');
+    if (tab) return tab;
+    let p = localStorage.getItem('adrift.pid');
+    if (!p) localStorage.setItem('adrift.pid', p = Math.random().toString(36).slice(2, 14));
+    return p;
+  } catch { return Math.random().toString(36).slice(2, 14); }
+})();
+
 const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* fine */ } },
@@ -181,7 +195,6 @@ class Remote {
     // on this machine's raft, wherever it has got to, they ride it rather
     // than trail it. Each snapshot is made a place here before the two are
     // blended, so stepping off the deck blends two places, not two frames.
-    const raft = this.net.raft;
     const wa = this.place(a.s), wb = this.place(b.s);
     const x = wa.x + (wb.x - wa.x) * k, z = wa.z + (wb.z - wa.z) * k;
     // Each height as it stands here before the two are blended, so one on
@@ -196,7 +209,7 @@ class Remote {
     p.drift.set(0, 0, 0);
     if (b.s.r === 1 && this.seen) {
       const c = { x: lastX, z: lastZ };
-      raft.carry(c);
+      this.raftOf(b.s).carry(c);
       p.drift.set(c.x - lastX, 0, c.z - lastZ);
     }
     p.pitch = (a.s.pi || 0) + ((b.s.pi || 0) - (a.s.pi || 0)) * k;
@@ -296,17 +309,21 @@ class Remote {
    * shared clock (Net.seaTime) keeps the two seas close, not exact, and a height
    * drawn a moment behind would otherwise be a moment's swell out.
    */
+  /** The raft a snapshot was sent on: named, or (an older sender) the one here. */
+  raftOf(s) { return (s.ri && this.net.rafts?.byId(s.ri)) || this.net.raft; }
+
   /** A snapshot's place and heading, here: off the raft's frame if it was sent in it. */
   place(s) {
     if (s.r === 1) {
-      const w = this.net.raft.toWorld(s.p[0], s.p[2]);
-      return { x: w.x, z: w.z, yaw: (s.y || 0) + this.net.raft.heading };
+      const raft = this.raftOf(s);
+      const w = raft.toWorld(s.p[0], s.p[2]);
+      return { x: w.x, z: w.z, yaw: (s.y || 0) + raft.heading };
     }
     return { x: s.p[0], z: s.p[2], yaw: s.y || 0 };
   }
 
   height(s, x, z) {
-    if (s.r === 1) return s.p[1] + this.net.raft.deckY(x, z);
+    if (s.r === 1) return s.p[1] + this.raftOf(s).deckY(x, z);
     if (s.r === 2) return s.p[1] + waveHeight(x, z, this.net.time);
     return s.p[1];
   }
@@ -360,8 +377,9 @@ export class Net {
    * @param onEvent   (e, remote) => true if the game took it: things that
    *                  are for you rather than about them — a gift, a catch
    */
-  constructor({ scene, library, cloneHeld, log, raft, together, onEvent }) {
+  constructor({ scene, library, cloneHeld, log, raft, rafts, together, onEvent }) {
     this.scene = scene;
+    this.rafts = rafts;         // every raft: someone on a deck is sent on theirs, by its id
     this.onEvent = onEvent;
     this.eye = null;            // where you look from, for how clearly their names show
     this.me = null;             // where you are, for how far off the others are
@@ -411,7 +429,7 @@ export class Net {
     this.onChange();
     const ws = new WebSocket(`${RELAY}/room/${this.code}`);
     this.ws = ws;
-    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: this.name, who: this.who, tok: TOKEN }));
+    ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name: this.name, who: this.who, tok: TOKEN, pid: PLAYER }));
     ws.onmessage = e => this.hear(e.data);
     ws.onclose = () => {
       if (this.ws !== ws) return;
@@ -451,6 +469,8 @@ export class Net {
     clearTimeout(this.retryIn);
     this.retrying = null;
     const ws = this.ws;
+    // Your last word to the room: what it should keep of you (and, hosting, of the world).
+    if (ws?.readyState === 1 && this.id !== null) this.together?.leaving();
     this.ws = null;
     if (ws) {
       // On purpose: the others hear you have gone, not that you dropped.
@@ -463,7 +483,17 @@ export class Net {
   }
 
   /** Closing the page is leaving on purpose too. */
-  goodbye() { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ t: 'bye' })); }
+  goodbye() {
+    if (this.ws?.readyState !== 1) return;
+    if (this.id !== null) this.together?.leaving();
+    this.ws.send(JSON.stringify({ t: 'bye' }));
+  }
+
+  /** The world as it stands, for the room to keep (the host's to send). */
+  keep(w) { if (this.connected && this.isHost) this.ws.send(JSON.stringify({ t: 'keep', w })); }
+
+  /** Your own record in the room's world, for it to keep. */
+  keepMe(r) { if (this.connected) this.ws.send(JSON.stringify({ t: 'keepme', r })); }
 
   /** Say something to the others. Returns whether it went. */
   chat(text) {
@@ -491,7 +521,8 @@ export class Net {
       this.host = m.host;
       for (const p of m.peers) this.add(p);
       this.status = `In game ${this.code}`;
-      this.together?.enter(this.isHost);
+      // What the room kept: its world, and you in it (either may be null — a new room, a new face).
+      this.together?.enter(this.isHost, { world: m.world ?? null, me: m.me ?? null });
       const names = [...this.remotes.values()].map(r => r.name).join(', ');
       if (this.retrying) this.log(`Back in ${this.code}.`, 'good');
       else this.log(this.remotes.size ? `You join ${this.code}: ${names} ${this.remotes.size === 1 ? 'is' : 'are'} here.`
@@ -596,7 +627,7 @@ export class Net {
                 y: Math.round(yaw * 1000) / 1000, pi: Math.round(player.pitch * 100) / 100,
                 st: { deck: 'd', air: 'a', swim: 's' }[player.state] || 'd', h: held || null };
     if (line) s.ln = [r2(line[0]), r2(line[1]), r2(line[2]), line[3]];
-    if (deck) s.r = 1;
+    if (deck) { s.r = 1; s.ri = this.raft.id; }
     else if (swim) s.r = 2;
     if (player.onLand && !swim) s.l = 1;         // on land: prey, to the host's dinosaurs
     const text = JSON.stringify({ t: 'state', s });

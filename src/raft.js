@@ -932,3 +932,82 @@ export class Raft {
   }
 }
 
+
+// ── all the rafts ────────────────────────────────────────────────────────────
+// A world can have any number of rafts — the one you came to on, one you
+// built off a beach, a friend's. Each floats and sails on its own; the game
+// points everything at the one you are on (or swimming by) as "the raft".
+// `draft` is a spare, never in the list: the first foundation of a new raft
+// is previewed on it, and it joins the list when that foundation goes down.
+
+export const newRaftId = () => 'r' + Math.random().toString(36).slice(2, 9);
+
+export class Rafts {
+  constructor(scene) {
+    this.scene = scene;
+    this.list = [];
+    this.draft = null;
+  }
+
+  make(id = newRaftId()) {
+    const r = new Raft(this.scene);
+    r.id = id;
+    this.list.push(r);
+    return r;
+  }
+
+  byId(id) { return this.list.find(r => r.id === id) || null; }
+
+  /** The spare raft a new one is laid out on (see BuildMode.first). */
+  spare() {
+    if (!this.draft) { this.draft = new Raft(this.scene); this.draft.id = newRaftId(); }
+    return this.draft;
+  }
+
+  /** The spare becomes a raft of its own. */
+  commit(r) {
+    if (r !== this.draft) return r;
+    this.draft = null;
+    this.list.push(r);
+    return r;
+  }
+
+  drop(r) {
+    r.clear();
+    r.group.removeFromParent();
+    const i = this.list.indexOf(r);
+    if (i !== -1) this.list.splice(i, 1);
+  }
+
+  /** The raft whose deck is under (x, z). */
+  under(x, z) { return this.list.find(r => r.size && r.solidAtWorld(x, z)) || null; }
+
+  /** The raft with a deck edge nearest (x, z), within `max`. */
+  nearest(x, z, max = 3) {
+    let best = null, bestD = max;
+    for (const r of this.list) {
+      if (!r.size) continue;
+      const s = r.nearestDeck(x, z, max);
+      if (s) { const d = Math.hypot(s.x - x, s.z - z); if (d < bestD) { bestD = d; best = r; } }
+    }
+    return best;
+  }
+
+  update(dt, time, night) {
+    for (const r of this.list) r.update(dt, time, night);
+    if (this.draft) this.draft.update(dt, time, night);
+  }
+
+  /** Every raft with a deck, for the save. `keep` is kept even with none (the one you are building from). */
+  toJSON(keep = null) {
+    return this.list.filter(r => r.size || r === keep).map(r => ({ id: r.id, ...r.toJSON() }));
+  }
+
+  /** Rafts from a save: an old save's one raft, or the list. Returns them. */
+  load(data) {
+    for (const r of [...this.list]) this.drop(r);
+    const list = Array.isArray(data) ? data : data ? [data] : [];
+    for (const d of list) this.make(d.id || newRaftId()).load(d);
+    return this.list;
+  }
+}

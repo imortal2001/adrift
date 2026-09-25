@@ -22,3 +22,6 @@ __pycache__/
 
 # wrangler files
 .wrangler
+
+# the local relay's kept worlds
+server/worlds/

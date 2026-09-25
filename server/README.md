@@ -8,10 +8,10 @@ browser does. See *Playing together* in the main README.
 
 | File | What it is |
 |---|---|
-| `room.js` | The room: who is in it, who is host, passing messages on. Rate- and size-limited. Shared by both below. |
+| `room.js` | The room: who is in it, who is host, passing messages on, and keeping its world (and each player's record) for next time. Rate- and size-limited. Shared by both below. |
 | `worker.js` | The Cloudflare Worker: `wss://…/room/<code>` → that room's Durable Object. |
 | `wrangler.toml` | Its configuration for Cloudflare's `wrangler` tool. |
-| `dev-relay.mjs` | The same room on this machine, for developing: `node server/dev-relay.mjs` (port 8787). No install. |
+| `dev-relay.mjs` | The same room on this machine, for developing: `node server/dev-relay.mjs` (port 8787). No install. It keeps each room's world in `server/worlds/<code>.json`. |
 
 ## Running it locally
 
@@ -41,6 +41,11 @@ After changing anything in this folder, deploy again the same way, from this
 folder (`cd server && npx wrangler deploy`) — publishing the game does not
 update the relay. Run it from anywhere else and wrangler offers to publish
 the whole repository as a website instead: say no.
+
+Each room keeps its world in its Durable Object's own storage (the host's
+game sends it every ten seconds or so, and each player their own record), so
+a world lasts when nobody is in it. On the free plan that storage is ample for
+a few worlds: a world is tens of kilobytes.
 
 The free plan is enough for a small game. As Cloudflare's free tier stood
 when this was written: 100,000 Durable Object requests a day, with incoming

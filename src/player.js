@@ -431,8 +431,15 @@ export class Player {
     const r = v => Math.round(v * 100) / 100;
     const where = this.state !== 'swim' && !this.onLand && this.raft.solidAtWorld(this.pos.x, this.pos.z) ? 'deck'
                 : this.onLand ? 'land' : 'sea';
-    return { yaw: this.yaw, health: this.health, hunger: this.hunger, thirst: this.thirst,
-             where, pos: [r(this.pos.x), r(this.pos.y), r(this.pos.z)] };
+    const d = { yaw: this.yaw, health: this.health, hunger: this.hunger, thirst: this.thirst,
+                where, pos: [r(this.pos.x), r(this.pos.y), r(this.pos.z)] };
+    // Aboard: which raft, and where on its deck — so you come back aboard it
+    // wherever it has sailed to since.
+    if (where === 'deck' && this.raft.id) {
+      const l = this.raft.toLocal(this.pos.x, this.pos.z);
+      Object.assign(d, { raft: this.raft.id, local: [r(l.x), r(l.z)], localYaw: r(this.yaw - this.raft.heading) });
+    }
+    return d;
   }
 
   /** Stand at (x, z) on land, or float there in the water. */

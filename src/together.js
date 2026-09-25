@@ -1,22 +1,24 @@
-// ── The raft, shared ─────────────────────────────────────────────────────────
-// Playing together (net.js), everyone is on one raft: the host's. Joining,
-// your own raft is put by and the host's takes its place; leaving, yours
-// comes back as you left it. What each of you pays for and takes away is
-// your own — building costs your planks, salvaging refunds you, cooked fish
-// go in the bag of whoever takes them off the fire.
+// ── The rafts, shared ────────────────────────────────────────────────────────
+// Playing together (net.js), everyone is in the room's world — kept on the
+// relay between visits (main.js enterRoom) — with its rafts: any number of
+// them, and anyone can board, build on and paddle any. Your own world waits
+// at home. What each of you pays for and takes away is your own — building
+// costs your planks, salvaging refunds you, cooked fish go in the bag of
+// whoever takes them off the fire.
 //
-// Every change goes to the others as it happens: a piece built, a piece
-// taken away, and the state of a deck object (a collector drunk from, a fire
-// fed, lit, or given a fish to cook). Each copy applies it to its own raft.
-// The host's raft is the one that counts: shortly after any change, and now
-// and then regardless, the host sends it whole, and the others bring theirs
-// into line with it — settling two people building on one spot at once, and
-// the slow drift of fires burning down and collectors filling on each machine.
+// Every change goes to the others as it happens, naming its raft: a piece
+// built (the first of a new raft carries where that raft is), a piece taken
+// away, and the state of a deck object (a collector drunk from, a fire fed,
+// lit, or given a fish to cook, a sail raised). Each copy applies it to its
+// own raft of that name. The host's rafts are the ones that count: shortly
+// after any change, and now and then regardless, the host sends them whole,
+// and the others bring theirs into line — settling two people building on
+// one spot at once, and fires burning down at slightly different rates.
 
 import { Raft } from './raft.js';
 import { SharedWorld, WORLD_EVENTS } from './sharedworld.js';
 
-const SETTLE = 1.5;     // the host sends the raft this long after a change…
+const SETTLE = 1.5;     // the host sends the rafts this long after a change…
 const EVERY = 20;       // …and this often regardless
 const OWN = 1.2;        // a copy arriving this soon after your own change is already out of date
 
@@ -29,9 +31,9 @@ const now = () => performance.now() / 1000;
 export class Together {
   constructor(game) {
     this.game = game;
-    this.own = null;            // your raft (toJSON), put by while you are on someone else's
-    this.fresh = false;         // the host's raft has not arrived yet
-    this.settle = null;         // seconds until the host sends the raft, after a change
+    this.fresh = false;         // the host's rafts have not arrived yet
+    this.built = new Map();     // raft id -> when you last built on it: the host may not have heard yet
+    this.settle = null;         // seconds until the host sends the rafts, after a change
     this.every = EVERY;
     this.edited = -Infinity;
     this.world = new SharedWorld(game);   // the rest of it: the sky, the sea, what lives there
@@ -39,15 +41,18 @@ export class Together {
 
   get net() { return this.game.net; }
   get raft() { return this.game.raft; }
-  /** On someone else's raft, with your own put by. */
-  get guest() { return !!this.own; }
+  get rafts() { return this.game.rafts; }
 
   // ── what you do ────────────────────────────────────────────────────────────
   placed(id, t) {
-    this.send({ k: 'place', id, t: { cx: t.cx, cz: t.cz, ex: t.ex, ez: t.ez, es: t.es } });
+    const r = this.raft;
+    // With where the raft is: if it is new to them, the others make it there.
+    const e = { k: 'place', ri: r.id, id, t: { cx: t.cx, cz: t.cz, ex: t.ex, ez: t.ez, es: t.es }, pose: r.pose() };
+    this.built.set(r.id, now());
+    this.send(e);
   }
-  took(piece) { this.send({ k: 'take', at: Raft.where(piece) }); }
-  touched(o) { this.send({ k: 'obj', o: this.raft.objState(o) }); }
+  took(piece) { this.send({ k: 'take', ri: this.raft.id, at: Raft.where(piece) }); }
+  touched(o) { this.send({ k: 'obj', ri: this.raft.id, o: this.raft.objState(o) }); }
 
   send(e) {
     if (!this.net.connected) return;
@@ -56,42 +61,35 @@ export class Together {
     if (this.net.isHost) this.settle = SETTLE;
   }
 
-  // ── coming and going ───────────────────────────────────────────────────────
-  /** You are in a game. Hosting, the raft is yours already. */
-  enter(host) {
-    this.world.enter(host);
-    if (host || this.own) return;
-    // Fish on your own fires go in the bag first; your raft waits without them.
-    this.game.pocketSpit();
-    this.own = this.raft.toJSON();
-    // Your statues are of your world, and wait with your raft.
-    this.ownStatues = this.game.statues.toJSON();
-    this.game.statues.clear();
-    this.fresh = true;
+  /** Every raft there is, whole, for the others. */
+  snapshot() {
+    return this.rafts.list.filter(r => r.size).map(r => ({ id: r.id, ...r.snapshot() }));
   }
 
-  /** Someone arrived: the host hands them the raft. */
+  // ── coming and going ───────────────────────────────────────────────────────
+  /** You are in a game: its world, as the room kept it (main.js). Hosting, it is yours to run. */
+  enter(host, stored) {
+    this.world.enter(host);
+    this.game.enterRoom(this.net.code, stored || {}, host);
+    // A guest's copy waits for the host's live one.
+    this.fresh = !host;
+  }
+
+  /** Someone arrived: the host hands them the rafts. */
   joined(id) {
-    if (this.net.isHost) this.net.event({ k: 'raft', r: this.raft.snapshot(), st: this.game.statues.toJSON() }, id);
+    if (this.net.isHost) this.net.event({ k: 'raft', rs: this.snapshot(), st: this.game.statues.toJSON() }, id);
     this.world.joined(id);
   }
 
-  /** Out of the game, however that happened: back to your own raft. */
+  /** Your last word to the room, leaving on purpose. */
+  leaving() { this.game.keepRoom(); }
+
+  /** Out of the game, however that happened: back home, to your own world. */
   exit() {
     this.world.exit();
-    if (!this.own) return;
-    const g = this.game;
-    g.clearSpits();
-    this.raft.clear();
-    this.raft.load(this.own);
-    this.own = null;
-    g.statues.load(this.ownStatues);
-    this.ownStatues = null;
-    g.markMine();
     this.fresh = false;
+    this.game.leaveRoom();
     this.afterChange();
-    if (g.player.state !== 'swim') g.player.respawnOnRaft();
-    g.hud.log('You are back on your own raft.');
   }
 
   // ── what the others do ─────────────────────────────────────────────────────
@@ -99,31 +97,73 @@ export class Together {
   left(id) { this.world.left(id); }
   hosting() { this.world.hosting(); }
 
+  /** The raft an event names — made, where it says, if it is the first piece of a new one. */
+  raftFor(e) {
+    let r = e.ri ? this.rafts.byId(e.ri) : this.raft;
+    if (!r && e.ri && Array.isArray(e.pose)) { r = this.rafts.make(e.ri); r.setPose(e.pose); }
+    return r;
+  }
+
   hear(e, from) {
     if (!RAFT.has(e.k)) { this.world.hear(e, from); return; }
     const spit = (o, list) => this.game.setSpit(o, list);
     if (e.k === 'raft') {
       // The host's word; but a copy sent before your own change reached them
       // would undo it, so that one waits for the next.
-      if (this.net.isHost || !e.r || (!this.fresh && now() - this.edited < OWN)) return;
-      this.raft.adopt(e.r, spit);
+      if (this.net.isHost || !Array.isArray(e.rs) || (!this.fresh && now() - this.edited < OWN)) return;
+      this.adoptRafts(e.rs, spit);
       if (Array.isArray(e.st)) this.adoptStatues(e.st);
-      if (Array.isArray(e.r.pose)) this.raft.steer(e.r.pose);
       if (this.fresh) {
         this.fresh = false;
-        const p = this.game.player;
-        if (p.state !== 'swim' && !p.onLand && !this.raft.solidAtWorld(p.pos.x, p.pos.z)) p.respawnOnRaft();
+        const g = this.game, p = g.player;
+        const on = g.rafts.under(p.pos.x, p.pos.z);
+        if (on) g.setRaft(on);
+        else if (p.state !== 'swim' && !p.onLand && g.raft.size) p.respawnOnRaft();
       }
     } else if (e.k === 'place' && e.t) {
-      this.raft.place(e.id, e.t);
+      this.raftFor(e)?.place(e.id, e.t);
     } else if (e.k === 'take' && Array.isArray(e.at)) {
-      const piece = this.raft.pieceAt(...e.at);
-      if (piece) this.raft.removePiece(piece, true);
+      const r = this.raftFor(e);
+      const piece = r?.pieceAt(...e.at);
+      if (piece) r.removePiece(piece, true);
     } else if (e.k === 'obj' && Array.isArray(e.o)) {
-      this.raft.setObj(this.raft.objs.get(`${e.o[0]},${e.o[1]}`), e.o, spit);
+      const r = this.raftFor(e);
+      r?.setObj(r.objs.get(`${e.o[0]},${e.o[1]}`), e.o, spit);
     } else return;
     if (this.net.isHost && e.k !== 'raft') this.settle = SETTLE;
     this.afterChange();
+  }
+
+  /**
+   * The host's rafts: each brought into line with its copy (made if it is
+   * new here), and any it no longer has gone — though never the one you are
+   * standing on until you are off it.
+   */
+  adoptRafts(list, spit) {
+    const g = this.game;
+    const want = new Set();
+    for (const snap of list) {
+      if (!snap?.id) continue;
+      want.add(snap.id);
+      const r = g.rafts.byId(snap.id) || g.rafts.make(snap.id);
+      if (!r.size && Array.isArray(snap.pose)) r.setPose(snap.pose);
+      r.adopt(snap, spit);
+      if (Array.isArray(snap.pose)) r.steer(snap.pose);
+    }
+    for (const r of [...g.rafts.list]) {
+      if (want.has(r.id)) continue;
+      // One you have just built is not gone: the host has not heard of it yet.
+      // Nor is an empty one — where your first foundation will go: that is
+      // yours alone till you lay it.
+      if (!r.size || now() - (this.built.get(r.id) ?? -Infinity) < 6) continue;
+      if (r === g.raft) {
+        // Yours goes too, if it is only the stand-in; you are with a real one then.
+        const next = g.rafts.list.find(x => want.has(x.id));
+        if (!next) continue;
+        g.setRaft(next);
+      }
+      g.rafts.drop(r);
+    }
   }
 
   /** The raft changed under you: nothing may point at a piece that is gone. */
@@ -150,7 +190,7 @@ export class Together {
     this.every -= dt;
     if (this.settle !== null) this.settle -= dt;
     if (this.every <= 0 || (this.settle !== null && this.settle <= 0)) {
-      this.net.event({ k: 'raft', r: this.raft.snapshot(), st: this.game.statues.toJSON() });
+      this.net.event({ k: 'raft', rs: this.snapshot(), st: this.game.statues.toJSON() });
       this.settle = null;
       this.every = EVERY;
     }

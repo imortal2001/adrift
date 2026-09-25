@@ -816,10 +816,20 @@ world is the same for all of you without being sent — the land, reef and
 forest are built from the same code everywhere, and the raft sits at the
 same place.
 
-**One raft.** The first player in is the **host**, and everyone plays on
-the host's raft. Joining, your own raft is put by (fish on its fires go in
-your bag) and the host's takes its place; leaving, yours comes back as you
-left it — and it is always your own raft that your save keeps. On the shared
+**A lasting world.** A room is a world of its own, and it lasts: the relay
+keeps it when everyone has gone — its rafts, its statues, the time of day —
+and keeps each player's record in it: what you carry, how you are, your start
+and your statue, and where you were. Hosting a new room starts a fresh world.
+Joining one, you come back as you left: aboard your raft, wherever it has
+sailed since, or ashore or in the sea where you were. New to it, you come to
+somewhere on its edge like any castaway — apart from everyone else, to find
+them. Your own game waits at home, untouched, and is yours again when you
+leave.
+
+**Rafts, any number.** Anyone can build a raft — lay a first foundation on
+the water away from any raft — and anyone can board, build on and paddle any
+raft. The first player in is the **host**, whose game runs the world and whose
+copy of every raft counts. On the shared
 raft, anyone can build, salvage, drink from a collector, feed or light a fire,
 and hang fish on it or take them off, and the others see it happen. What you
 build costs your own materials, salvaging refunds you, and cooked fish go to

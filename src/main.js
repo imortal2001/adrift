@@ -3,8 +3,8 @@
 
 import * as THREE from 'three';
 import { Ocean, waveHeight } from './ocean.js';
-import { Sky } from './sky.js';
-import { Raft } from './raft.js';
+import { Sky, DAY_SECONDS } from './sky.js';
+import { Rafts } from './raft.js';
 import { DebrisField } from './debris.js';
 import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
@@ -97,7 +97,10 @@ class Game {
 
     this.ocean = new Ocean(this.scene);
     this.sky = new Sky(this.scene, this.ocean);
-    this.raft = new Raft(this.scene);
+    // Every raft in the world (raft.js Rafts); `raft` is the one you are on
+    // or by, which everything below is pointed at (setRaft).
+    this.rafts = new Rafts(this.scene);
+    this.raft = this.rafts.make();
     this.inv = new Inventory();
     this.hotbar = new Hotbar();
     // Terrain first: the player and the fish both collide against its reef.
@@ -128,7 +131,7 @@ class Game {
     this.net = new Net({ scene: this.scene, library: this.viewmodel.library,
                          cloneHeld: id => this.viewmodel.cloneBody(id),
                          log: (text, kind, ms) => this.hud.log(text, kind, ms),
-                         raft: this.raft, together: this.together,
+                         raft: this.raft, rafts: this.rafts, together: this.together,
                          onEvent: (e, r) => this.fromCrew(e, r) });
     // Outside first person, a line hangs from the rod in the body's hand,
     // not the invisible one at your eye.
@@ -155,6 +158,10 @@ class Game {
     this.hud = new HUD();
     this.input = new Input(this.renderer.domElement);
     this.build = new BuildMode(this.raft, this.inv, this.hud);
+    // Away from any raft, a first foundation starts a new one.
+    this.build.rafts = this.rafts;
+    this.build.newRaft = () => !this.onDeck() && !this.raft.nearestDeck(this.player.pos.x, this.player.pos.z, 5);
+    this.build.onNewRaft = r => { this.setRaft(r); this.hud.log('You lay the first foundation of a new raft.', 'good'); };
 
     this.ray = new THREE.Raycaster();
     this.tmpDir = new THREE.Vector3();
@@ -235,7 +242,7 @@ class Game {
     // renders while paused but returns early, so without this the splash
     // screen is backed by a camera still sitting at the origin — inside the
     // deck, which looks like the raft has vanished.
-    this.raft.update(0, this.time);
+    this.rafts.update(0, this.time);
     this.sky.update(0, this.raft.group.position);
     this.player.applyCamera(0, this.time, false);
     this.view.update(0);
@@ -801,7 +808,7 @@ class Game {
   /** Every fish on every fire into the bag, cooked if done — before your raft is put by. */
   pocketSpit() {
     let n = 0;
-    for (const o of this.raft.objs.values()) {
+    for (const o of this.rafts.list.flatMap(r => [...r.objs.values()])) {
       for (const f of o.spitFish || []) {
         const id = f.t >= FIRE.cook ? f.done : f.raw;
         this.inv.add(id, 1);
@@ -820,7 +827,7 @@ class Game {
 
   /** The fish on every fire gone, as a raft is cleared away. */
   clearSpits() {
-    for (const o of this.raft.objs.values()) for (const f of o.spitFish || []) this.unhang(f);
+    for (const r of this.rafts.list) for (const o of r.objs.values()) for (const f of o.spitFish || []) this.unhang(f);
   }
 
   /** Spread the fish along the stick, each hanging from it by the tail. */
@@ -884,7 +891,8 @@ class Game {
   /** A new castaway: somewhere on the edge of the world (spawn.js), with whatever that start gives. */
   newStart(kind) {
     const st = this.start = pickStart(kind);
-    this.raft.clear();
+    this.rafts.load([]);
+    this.setRaft(this.rafts.make());
     const heading = Math.random() * Math.PI * 2;
     // On a beach there is no raft yet: its place is the water offshore,
     // where the flotsam will gather and a first foundation can go.
@@ -903,7 +911,7 @@ class Game {
   }
 
   /** The world you are in: null your own, else the code of the game you are a guest in. */
-  get world() { return this.together.guest ? this.net.code : null; }
+  get world() { return this.room || null; }
 
   /**
    * Your statue, if you have one and it is in this world: {s} for one on
@@ -1012,7 +1020,153 @@ class Game {
     this.hud.log('This statue is where you will wake, now — aboard, wherever the raft is.', 'good');
   }
 
+  // ── a room's world: kept on the relay ──────────────────────────────────────
+  /** The world as it stands, for the room to keep: the rafts, the statues, the time of day. */
+  worldJSON() {
+    return { v: 1, rafts: this.rafts.toJSON(), statues: this.statues.toJSON(), sky: [+this.sky.time.toFixed(1), this.sky.day] };
+  }
+
+  /** You, in the room's world. */
+  meJSON() {
+    return { v: 1, character: this.character, inv: this.carried(false), hotbar: this.hotbar.toJSON(),
+             player: this.player.toJSON(), start: this.start, registered: this.registered,
+             found: [...this.found], goals: [...this.goalsDone] };
+  }
+
+  /** To the relay: you, and (hosting) the world. */
+  keepRoom() {
+    if (!this.room || !this.net.connected) return;
+    this.net.keepMe(this.meJSON());
+    if (this.net.isHost) this.net.keep(this.worldJSON());
+  }
+
+  /**
+   * In a room: its world (as kept, or — a new room, hosting — a fresh one),
+   * and you in it (as you were, or new here, somewhere on the edge of it).
+   * Your own world is saved first and waits at home.
+   */
+  enterRoom(code, { world = null, me = null } = {}, host = false) {
+    if (this.room === code) return;          // back after a drop: still here
+    this.save();
+    this.clearSpits();
+    this.room = code;
+    if (world) this.loadWorld(world);
+    else if (host) this.freshWorld();
+    else { this.rafts.load([]); this.raft = null; this.setRaft(this.rafts.make()); this.statues.clear(); }
+    if (me) this.loadMe(me);
+    else this.newHere();
+    this.refreshAll();
+    this.hud.log(me ? `You are back in ${code}'s world.` : `You come to in ${code}'s world — somewhere on its edge.`, 'good');
+    if (host && !world) this.keepRoom();      // a new world, kept from the start
+  }
+
+  /** Out of the room: back home, to your own world as you left it. */
+  leaveRoom() {
+    if (!this.room) return;
+    this.room = null;
+    this.clearSpits();
+    if (!this.loadSave()) this.newStart();
+    this.refreshAll();
+    this.hud.log('You are back in your own world.');
+  }
+
+  /** A new room's world: no rafts yet, the statues scattered, morning of the first day. */
+  freshWorld() {
+    this.rafts.load([]);
+    this.raft = null;
+    this.setRaft(this.rafts.make());
+    this.statues.clear();
+    for (const s of scatter()) this.statues.add(s);
+    this.sky.time = DAY_SECONDS * 0.42;
+    this.sky.day = 1;
+  }
+
+  loadWorld(w) {
+    this.rafts.load(w.rafts || []);
+    this.raft = null;
+    this.setRaft(this.rafts.list[0] || this.rafts.make());
+    this.statues.load(w.statues);
+    if (Array.isArray(w.sky)) [this.sky.time, this.sky.day] = w.sky;
+  }
+
+  /** You, as the room kept you: what you carry, how you are, and where — aboard your raft, wherever it has got to. */
+  loadMe(me) {
+    this.inv = Inventory.fromJSON(me.inv || {});
+    this.build.inv = this.inv;
+    this.hotbar = Hotbar.fromJSON(me.hotbar);
+    this.player.load(me.player);
+    this.start = me.start || pickStart();
+    this.registered = me.registered || null;
+    this.found = new Set(me.found || []);
+    for (const g of me.goals || []) this.goalsDone.add(g);
+    if (me.character && me.character !== this.character) this.dress(me.character);
+    const w = me.player || {};
+    const raft = w.where === 'deck' && this.rafts.byId(w.raft);
+    if (raft && Array.isArray(w.local)) {
+      this.setRaft(raft);
+      const at = raft.toWorld(w.local[0], w.local[1]);
+      const p = this.player;
+      p.pos.set(at.x, raft.deckY(at.x, at.z), at.z);
+      p.state = 'deck'; p.onLand = false; p.vel.set(0, 0, 0); p.vy = 0;
+      if (Number.isFinite(w.localYaw)) p.yaw = w.localYaw + raft.heading;
+    } else if (w.where && w.where !== 'deck' && Array.isArray(w.pos)) this.player.standAt(w.pos[0], w.pos[2], w.yaw);
+    else this.respawn();
+    this.markMine();
+  }
+
+  /**
+   * New to this world: nothing in your hands, and a start of your own
+   * somewhere on its edge — apart from everyone else. A raft or wreckage you
+   * come to on is the world's from the start: the others hear of it.
+   */
+  newHere() {
+    this.inv = new Inventory();
+    this.build.inv = this.inv;
+    this.hotbar = new Hotbar();
+    Object.assign(this.player, { health: 100, hunger: 100, thirst: 100 });
+    const st = this.start = pickStart();
+    this.registered = null;
+    this.found = new Set();
+    const heading = Math.random() * Math.PI * 2;
+    if (st.kind === 'raft' || st.kind === 'debris') {
+      const r = this.rafts.make();
+      r.setPose([st.x, st.z, heading]);
+      if (st.kind === 'raft') r.startingRaft();
+      else r.place('foundation', { cx: 0, cz: 0, force: true });
+      this.setRaft(r);
+      for (const c of r.cells.values()) this.together.placed('foundation', { cx: c.cx, cz: c.cz });
+      this.player.respawnOnRaft();
+    } else {
+      // A raft of your own is not built yet: one to build, offshore.
+      const at = st.kind === 'shore' ? st.sea : st;
+      const r = this.rafts.make();
+      r.setPose([at.x, at.z, heading]);
+      this.setRaft(r);
+      this.player.standAt(st.x, st.z, st.yaw);
+    }
+    for (const line of WAKING[st.kind]) this.hud.log(line);
+  }
+
+  refreshAll() {
+    this.hud.refreshInventory(this.inv);
+    this.hud.refreshHotbar(this.hotbar, this.inv);
+    this.hud.refreshPack(this.inv, this.hotbar);
+    this.hud.refreshCraft(this.inv);
+    this.hud.updateVitals(this.player);
+  }
+
   // ── the paddle ─────────────────────────────────────────────────────────────
+  /** Point everything that works with "the raft" at this one. */
+  setRaft(r) {
+    if (!r || r === this.raft) return;
+    this.raft = r;
+    for (const s of [this.player, this.debris, this.fish, this.whale, this.view, this.spears, this.fishing, this.build, this.net]) {
+      if (s) s.raft = r;
+    }
+    this.build.clearGhost();
+    this.drill = null;
+  }
+
   /** On the raft's deck (not ashore, not in the water). */
   onDeck() {
     const p = this.player;
@@ -1328,7 +1482,21 @@ class Game {
 
     // World
     this.sky.update(dt, this.player.pos);
-    this.raft.update(dt, this.time, this.sky.night);
+    this.rafts.update(dt, this.time, this.sky.night);
+    // The flotsam, the fish and the whale keep near you out at sea; ashore,
+    // they wait offshore, where you left the water.
+    if (!this.player.onLand) {
+      this.focus ||= new THREE.Vector3();
+      this.focus.set(this.player.pos.x, 0, this.player.pos.z);
+      this.debris.focus = this.fish.focus = this.whale.focus = this.focus;
+    }
+    // Stepped onto another raft, or swimming by one: that is the raft now.
+    {
+      const p = this.player;
+      const next = p.state === 'swim' ? this.rafts.nearest(p.pos.x, p.pos.z, 2.5)
+                 : !p.onLand ? this.rafts.under(p.pos.x, p.pos.z) : null;
+      if (next) this.setRaft(next);
+    }
     // Standing on the raft — or in the air just off its deck — you go where it
     // goes, and turn as it turns. `drift` is how far that took you, which the
     // body and the view do not mistake for walking.
@@ -1605,27 +1773,34 @@ class Game {
   }
 
   // ── persistence ────────────────────────────────────────────────────────────
+  /**
+   * What you carry, as saved. Thrown spears are not saved where they lie;
+   * they count as carried, so reloading never costs you one — and the fish
+   * on them, and a fish on the hook as bait, as fish in the bag, each its own
+   * species. At home, fish on a spit go in the bag too (cooked if done); in a
+   * room's world the fires are everyone's.
+   */
+  carried(spits = true) {
+    const inv = this.inv.toJSON();
+    const bag = (id, n = 1) => { if (ITEMS[id]) inv[id] = (inv[id] || 0) + n; };
+    if (this.spears.count) bag('spear', this.spears.count);
+    for (const s of this.spears.list) for (const f of s.catch) bag(fishItem(f.key));
+    if (spits) for (const r of this.rafts.list) for (const o of r.objs.values()) for (const f of o.spitFish || []) bag(f.t >= FIRE.cook ? f.done : f.raw);
+    if (this.fishing.bait && this.baitId) bag(this.baitId);
+    return inv;
+  }
+
   save() {
     if (this.wiped) return;
+    // In a room, what is kept is the room's (on the relay); your own world
+    // stays at home as you left it.
+    if (this.room) { this.keepRoom(); return; }
     try {
-      // Thrown spears are not saved where they lie; count them as carried,
-      // so reloading never costs you one — and the fish on them, and a fish
-      // on the hook as bait, as fish in the bag, each its own species.
-      const inv = this.inv.toJSON();
-      const bag = (id, n = 1) => { if (ITEMS[id]) inv[id] = (inv[id] || 0) + n; };
-      if (this.spears.count) bag('spear', this.spears.count);
-      for (const s of this.spears.list) for (const f of s.catch) bag(fishItem(f.key));
-      // Fish on a spit are not saved hanging there: they go in the bag, cooked
-      // if they were done.
-      // On someone else's raft, it is your own that is saved (together.js),
-      // and the fish on their fires are theirs.
-      const guest = this.together.guest;
-      if (!guest) for (const o of this.raft.objs.values()) for (const f of o.spitFish || []) bag(f.t >= FIRE.cook ? f.done : f.raw);
-      if (this.fishing.bait && this.baitId) bag(this.baitId);
+      const inv = this.carried();
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        raft: guest ? this.together.own : this.raft.toJSON(),
-        // Your statues are your world's; on someone else's, theirs are put by with your raft.
-        statues: guest ? this.together.ownStatues : this.statues.toJSON(),
+        rafts: this.rafts.toJSON(this.raft),
+        raftId: this.raft.id,
+        statues: this.statues.toJSON(),
         start: this.start,
         registered: this.registered,
         found: [...this.found],
@@ -1635,9 +1810,8 @@ class Game {
         player: this.player.toJSON(),
         view: this.view.mode,
         character: this.character,
-        // On someone else's raft, the time of day is theirs; yours is put by.
-        time: this.together.world.ownSky?.[0] ?? this.sky.time,
-        day: this.together.world.ownSky?.[1] ?? this.sky.day,
+        time: this.sky.time,
+        day: this.sky.day,
         goals: [...this.goalsDone],
       }));
     } catch { /* storage full or blocked — not worth interrupting play */ }
@@ -1649,7 +1823,9 @@ class Game {
     // A save with no raft is still a save, if it knows where you started
     // (washed up on a beach, say, with nothing built yet).
     if (!d || (!d.raft?.cells?.length && !d.start)) return false;
-    this.raft.load(d.raft || {});
+    // Every raft (an old save has the one); you are with the one you were with.
+    this.rafts.load(d.rafts || d.raft || {});
+    this.setRaft(this.rafts.byId(d.raftId) || this.rafts.list[0] || this.rafts.make());
     // Before starts were chosen, everyone started on the raft, here.
     this.start = d.start || { kind: 'raft', x: 0, z: 0, yaw: 0 };
     this.statues.load(d.statues);

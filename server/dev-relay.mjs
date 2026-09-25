@@ -10,7 +10,31 @@
 
 import http from 'node:http';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Room } from './room.js';
+
+// Each room's world is kept in a file here, so it lasts across restarts too.
+const WORLDS = path.join(path.dirname(new URL(import.meta.url).pathname), 'worlds');
+function fileStore(code) {
+  const file = path.join(WORLDS, `${code}.json`);
+  let data = null, writing = null;
+  const read = () => {
+    if (!data) { try { data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { data = {}; } }
+    return data;
+  };
+  return {
+    get: async key => read()[key] ?? null,
+    put: async (key, text) => {
+      read()[key] = text;
+      clearTimeout(writing);
+      writing = setTimeout(() => {
+        fs.mkdirSync(WORLDS, { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(data));
+      }, 300);
+    },
+  };
+}
 
 const PORT = Number(process.argv[2]) || 8787;
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
@@ -40,7 +64,7 @@ server.on('upgrade', (req, socket) => {
   socket.setNoDelay(true);
 
   const code = m[1].toUpperCase();
-  if (!rooms.has(code)) rooms.set(code, new Room());
+  if (!rooms.has(code)) rooms.set(code, new Room(fileStore(code)));
   const room = rooms.get(code);
   let open = true;
   const send = text => { if (open) socket.write(frame(1, Buffer.from(text))); };
@@ -71,7 +95,7 @@ server.on('upgrade', (req, socket) => {
         payload = Buffer.from(payload.map((b, i) => b ^ mask[i & 3]));
       }
       buf = buf.subarray(need);
-      if (opcode === 1) room.message(peer, payload.toString('utf8'));
+      if (opcode === 1) room.message(peer, payload.toString('utf8')).catch(() => {});
       else if (opcode === 9) socket.write(frame(10, payload));          // ping → pong
       else if (opcode === 8) { close(); gone(); return; }
     }

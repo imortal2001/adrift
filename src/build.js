@@ -33,7 +33,7 @@ export class BuildMode {
 
   clearGhost() {
     if (this.ghost) {
-      this.raft.group.remove(this.ghost);
+      this.ghost.removeFromParent();
       this.ghost.userData.ghostMat?.dispose();
       this.ghost = null;
       this.ghostSig = '';
@@ -56,8 +56,11 @@ export class BuildMode {
 
     const id = this.piece.id;
     // No raft yet: the first foundation is laid on the water where you look,
-    // and the raft is wherever that is, lined up with your view.
-    if (!this.raft.size) return this.first(origin, dir, id);
+    // and the raft is wherever that is, lined up with your view. Away from
+    // any raft (ashore, or swimming), it is the first of a new one.
+    this.firstOn = null;
+    if (!this.raft.size) return this.first(origin, dir, id, this.raft);
+    if (this.rafts && this.newRaft?.()) return this.first(origin, dir, id, this.rafts.spare());
     const t = this.raft.targetFromRay(origin, dir);
     this.target = (t && t.dist <= REACH) ? t : null;
 
@@ -89,10 +92,11 @@ export class BuildMode {
     return `<b>Click</b> place ${this.piece.name}`;
   }
 
-  /** Aiming the first foundation: where it would float, and whether it can. */
-  first(origin, dir, id) {
+  /** Aiming the first foundation of raft `r`: where it would float, and whether it can. */
+  first(origin, dir, id, r) {
     this.target = null;
     this.valid = false;
+    if (this.ghost && this.ghost.parent !== r.group) this.clearGhost();
     // Where the look meets the water — from a swimmer's eyes, at the
     // waterline, that is right under them, so it is a little way ahead
     // instead: never on top of you, never out of reach.
@@ -106,20 +110,21 @@ export class BuildMode {
     const x = origin.x + dir.x / flat * along, z = origin.z + dir.z / flat * along;
     if (id !== 'foundation') { this.clearGhost(); return 'Lay a foundation first — the raft starts with one'; }
     if (heightAt(x, z) > -0.6) { this.clearGhost(); return 'Too shallow here — it would sit on the bottom'; }
-    this.raft.setPose([x, z, Math.atan2(-dir.x, -dir.z)]);
+    r.setPose([x, z, Math.atan2(-dir.x, -dir.z)]);
     this.target = { cx: 0, cz: 0, ex: 0, ez: 0, es: 0, dist: t };
+    this.firstOn = r;
     const afford = this.inv.canAfford(this.piece.cost);
     this.valid = afford;
     if (!this.ghost || this.ghostSig !== 'first') {
       this.clearGhost();
-      this.ghost = this.raft.makeGhost(id, this.target);
-      this.raft.group.add(this.ghost);
+      this.ghost = r.makeGhost(id, this.target);
+      r.group.add(this.ghost);
       this.ghostSig = 'first';
     }
     this.ghost.userData.ghostMat.color.setHex(this.valid ? 0x8fe3ff : 0xff6a5c);
     this.ghost.userData.ghostMat.opacity = this.valid ? 0.42 : 0.3;
     if (!afford) return `Need ${this.inv.costText(this.piece.cost).replace(/<\/?s>/g, '')}`;
-    return '<b>Click</b> lay the first foundation of your raft';
+    return r === this.raft ? '<b>Click</b> lay the first foundation of your raft' : '<b>Click</b> lay the first foundation of a new raft';
   }
 
   place() {
@@ -127,6 +132,11 @@ export class BuildMode {
     if (!this.inv.has('hammer')) return null;    // enforced here, not just at the B key
     const p = this.piece;
     if (!this.inv.pay(p.cost)) return null;
+    // The first of a new raft: the spare it was laid out on is a raft now, and yours.
+    if (this.firstOn && this.firstOn !== this.raft) {
+      this.clearGhost();
+      this.onNewRaft?.(this.rafts.commit(this.firstOn));
+    }
     if (!this.raft.place(p.id, this.target)) {
       this.inv.refund(p.cost);
       return null;

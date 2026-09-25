@@ -4,6 +4,7 @@
 // without ever growing the scene graph.
 
 import * as THREE from 'three';
+import { heightAt } from './terrain.js';
 import { waveHeight, waveNormal } from './ocean.js';
 import { textures } from './textures.js';
 import { DEBRIS_KINDS } from './items.js';
@@ -192,17 +193,26 @@ export class DebrisField {
     it.buoy = kind === 'coconut' ? 0.02 : kind === 'palm' ? 0.01 : -0.04;
   }
 
-  /** Where the flotsam is centred: the raft, wherever it has got to. */
+  /**
+   * Where the flotsam is centred: you, out at sea (main.js sets `focus`) —
+   * or, failing that, the raft.
+   */
   get hub() {
+    if (this.focus) return this.focus;
     const r = this.raft;
     return { x: r.x ?? r.group.position.x, z: r.z ?? r.group.position.z };
   }
 
   respawn(it, along = -SPAWN_DIST) {
-    const lateral = (Math.random() * 2 - 1) * BAND;
     const h = this.hub;
-    it.x = h.x + CURRENT.x * along + SIDE.x * lateral;
-    it.z = h.z + CURRENT.y * along + SIDE.y * lateral;
+    // Somewhere afloat: a spot over land is tried again, a little way along.
+    for (let tries = 0; tries < 6; tries++) {
+      const lateral = (Math.random() * 2 - 1) * BAND;
+      it.x = h.x + CURRENT.x * along + SIDE.x * lateral;
+      it.z = h.z + CURRENT.y * along + SIDE.y * lateral;
+      if (heightAt(it.x, it.z) < -1) break;
+      along -= 15;
+    }
     it.held = false;
     it.yaw = Math.random() * 7;
     return it;
@@ -221,6 +231,7 @@ export class DebrisField {
     const R = this.raftRadius();
     const n = new THREE.Vector3();
     const h = this.hub;
+    const rx0 = this.raft.x ?? this.raft.group.position.x, rz0 = this.raft.z ?? this.raft.group.position.z;
 
     for (const it of this.items) {
       if (it.held) {
@@ -235,18 +246,20 @@ export class DebrisField {
         it.z += CURRENT.y * SPEED * dt;
 
         // Drift around the raft instead of straight through it.
-        const rx = it.x - h.x, rz = it.z - h.z;
-        const dist = Math.hypot(rx, rz);
-        if (dist < R) {
+        const ox = it.x - rx0, oz = it.z - rz0;
+        const dist = Math.hypot(ox, oz);
+        if (dist < R && this.raft.size !== 0) {
           const push = (R - dist) * dt * 1.6;
-          it.x += (rx / (dist || 1)) * push;
-          it.z += (rz / (dist || 1)) * push;
+          it.x += (ox / (dist || 1)) * push;
+          it.z += (oz / (dist || 1)) * push;
         }
 
-        // Gone by downstream — or left behind, the raft having gone on — it
-        // comes round again upstream of where the raft is now.
+        // Gone by downstream — or left behind, you having gone on, or washed
+        // up — it comes round again upstream of where you are now.
+        const rx = it.x - h.x, rz = it.z - h.z;
         const along = rx * CURRENT.x + rz * CURRENT.y;
-        if (along > KILL_DIST || along < -SPAWN_DIST - 30 || Math.abs(rx * SIDE.x + rz * SIDE.y) > BAND + 60) this.respawn(it);
+        if (along > KILL_DIST || along < -SPAWN_DIST - 30 || Math.abs(rx * SIDE.x + rz * SIDE.y) > BAND + 60 ||
+            heightAt(it.x, it.z) > -0.3) this.respawn(it);
       }
 
       it.yaw += it.spin * dt;

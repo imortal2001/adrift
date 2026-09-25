@@ -15,7 +15,10 @@
 // someone takes is gone for everyone. A spear someone throws flies on every
 // machine — what it catches, the thrower's game says.
 //
-// A guest's own time of day is put by with their raft, and comes back with it.
+// Far apart, though, the sea about each of you is your own: the flotsam, the
+// fish and the whale keep near each player (their `focus`), and a guest takes
+// the host's only when near the host. The dinosaurs are the host's wherever
+// you are.
 
 import * as THREE from 'three';
 import { ThrownSpears } from './spear.js';
@@ -32,7 +35,6 @@ export class SharedWorld {
     this.game = game;
     this.in = 0;
     this.beat = 0;
-    this.ownSky = null;         // [time, day]: yours, put by while you keep the host's
     this.following = false;
     this.ghosts = null;         // the others' thrown spears (spear.js, ghost)
     this.thrown = new Map();    // "player:spear" -> a ghost spear
@@ -46,14 +48,12 @@ export class SharedWorld {
     const g = this.game;
     g.fish.onTake = i => this.send({ k: 'fish', i });
     g.spears.onSkewer = (s, i) => this.send({ k: 'sk', s: s.id, i });
-    if (!host && !this.ownSky) this.ownSky = [g.sky.time, g.sky.day];
   }
 
   exit() {
     const g = this.game;
     this.follow(false);
-    g.raft.follow = null;
-    if (this.ownSky) { [g.sky.time, g.sky.day] = this.ownSky; this.ownSky = null; }
+    for (const r of g.rafts.list) r.follow = null;
     for (const s of this.thrown.values()) this.ghosts.drop(s);
     this.thrown.clear();
     g.fish.others.length = 0;
@@ -61,7 +61,7 @@ export class SharedWorld {
   }
 
   /** Hosting now (the host left): the world is this game's to run. */
-  hosting() { this.follow(false); this.game.raft.follow = null; }
+  hosting() { this.follow(false); for (const r of this.game.rafts.list) r.follow = null; }
 
   /**
    * Someone arrived: your spears already out in the world — stuck in the
@@ -116,7 +116,7 @@ export class SharedWorld {
   paddled(at, dir) {
     if (!this.net.connected || this.net.isHost) return;
     const r = v => Math.round(v * 100) / 100;
-    this.send({ k: 'paddle', p: [r(at.x), r(at.z)], d: [r(dir.x), r(dir.z)] });
+    this.send({ k: 'paddle', ri: this.game.raft.id, p: [r(at.x), r(at.z)], d: [r(dir.x), r(dir.z)] });
   }
 
   // ── what the others do ─────────────────────────────────────────────────────
@@ -125,17 +125,28 @@ export class SharedWorld {
     if (e.k === 'world') {
       if (this.net.isHost) return;
       if (!this.following) this.follow(true);
+      this.following = true;
       if (Array.isArray(e.sky)) this.setSky(e.sky);
-      if (Array.isArray(e.rp)) g.raft.steer(e.rp);
+      // Every raft's pose: [[id, pose], …] (an older host: just the one).
+      if (Array.isArray(e.rp) && Array.isArray(e.rp[0])) {
+        for (const [id, pose] of e.rp) g.rafts.byId(id)?.steer(pose);
+      } else if (Array.isArray(e.rp)) g.raft.steer(e.rp);
       if (e.b) g.wildlife.adopt(e.b);
-      if (e.w) g.whale.adopt(e.w);
-      if (e.f) g.fish.setSchools(e.f);
-      if (e.d) g.debris.adopt(e.d);
+      // The sea about you is the host's only if you are about the host: far
+      // apart, each of you has your own flotsam, fish and whale.
+      const host = this.net.remotes.get(this.net.host);
+      const near = !!host && Math.hypot(host.pose.pos.x - g.player.pos.x, host.pose.pos.z - g.player.pos.z) < 160;
+      g.fish.follow = near;
+      if (near) {
+        if (e.w) g.whale.adopt(e.w);
+        if (e.f) g.fish.setSchools(e.f);
+        if (e.d) g.debris.adopt(e.d);
+      }
     } else if (e.k === 'paddle' && Array.isArray(e.p) && Array.isArray(e.d)) {
       // Someone paddling the host's raft: this is the host, so it moves here.
       if (!this.net.isHost) return;
       const len = Math.hypot(e.d[0], e.d[1]) || 1;
-      g.raft.paddle({ x: e.p[0], z: e.p[1] }, { x: e.d[0] / len, z: e.d[1] / len }, 1);
+      (g.rafts.byId(e.ri) || g.raft).paddle({ x: e.p[0], z: e.p[1] }, { x: e.d[0] / len, z: e.d[1] / len }, 1);
     } else if (e.k === 'statue' && Array.isArray(e.s)) {
       const [id, x, z, yaw] = e.s;
       if (typeof id === 'string' && [x, z, yaw].every(Number.isFinite)) {
@@ -224,7 +235,8 @@ export class SharedWorld {
     if (!net.isHost || !net.remotes.size) return;
     if ((this.in -= dt) > 0) return;
     this.in = EVERY;
-    const e = { k: 'world', sky: [Math.round(g.sky.time * 10) / 10, g.sky.day], rp: g.raft.pose(),
+    const e = { k: 'world', sky: [Math.round(g.sky.time * 10) / 10, g.sky.day],
+                rp: g.rafts.list.filter(r => r.size).map(r => [r.id, r.pose()]),
                 b: g.wildlife.snapshot(), w: g.whale.snapshot() };
     if (this.beat++ % SLOW === 0) { e.f = g.fish.schoolState(); e.d = g.debris.snapshot(); }
     net.event(e);

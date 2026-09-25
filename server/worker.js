@@ -29,7 +29,12 @@ export default {
 
 export class RoomObject {
   constructor(state, env) {
-    this.room = new Room();
+    // The room's world and its players' records live in this Durable
+    // Object's own storage: they outlast every connection.
+    this.room = new Room({
+      get: key => state.storage.get(key).then(v => v ?? null),
+      put: (key, text) => state.storage.put(key, text),
+    });
   }
 
   async fetch(request) {
@@ -37,7 +42,9 @@ export class RoomObject {
     server.accept();
     const peer = this.room.join(text => server.send(text), () => server.close(1008, 'room full'));
     if (peer) {
-      server.addEventListener('message', e => this.room.message(peer, typeof e.data === 'string' ? e.data : ''));
+      server.addEventListener('message', e => {
+        this.room.message(peer, typeof e.data === 'string' ? e.data : '').catch(() => {});
+      });
       const gone = () => this.room.leave(peer);
       server.addEventListener('close', gone);
       server.addEventListener('error', gone);

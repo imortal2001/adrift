@@ -387,7 +387,7 @@ export class FishSchools {
       const a = Math.random() * Math.PI * 2;
       const d = kind === 'deep' ? rand(...school.zone.range) : rand(min, SPAWN_MAX);
       // Round the raft, wherever it has got to.
-      const hub = this.raftPos();
+      const hub = this.hub;
       const x = hub.x + Math.cos(a) * d, z = hub.z + Math.sin(a) * d;
       if (kind === 'deep') {
         // Past the drop-off, over water too deep for anything to grow on.
@@ -462,7 +462,7 @@ export class FishSchools {
 
       // Following the host's schools, where they go is the host's to say.
       if (this.follow) continue;
-      const hub = this.raftPos();
+      const hub = this.hub;
       const far = Math.hypot(s.center.x - hub.x, s.center.z - hub.z);
       if (far > (s.kind === 'deep' ? DEEP_RANGE : HOME_RANGE)) this.respawn(s);
       else if (s.kind === 'reef' && (s.floor < ZONES.reef.floor[0] - 6)) this.respawn(s);
@@ -748,6 +748,9 @@ export class FishSchools {
       if (u.age > 40) this.lively.delete(m);
     }
   }
+
+  /** Where the schools keep near: you (main.js sets `focus`), or failing that the raft. */
+  get hub() { return this.focus || this.raftPos(); }
 
   raftPos() {
     return this.raft ? this.raft.group.position : this._origin || (this._origin = new THREE.Vector3());
