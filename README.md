@@ -193,6 +193,8 @@ pause screen starts over.
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
 | `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
 | `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold. |
+| `src/net.js` | Playing together: joining a room through the relay, sending where you are and what you do, and drawing the others — their characters, smoothed between updates, holding what they hold, with a name over their heads. |
+| `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
 | `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current. |
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
@@ -728,6 +730,37 @@ blacktip reef shark
 and humpback whale ([CRRU](https://crru.org.uk/education/species/humpback-whale)).
 The game compresses all of it — real fights last longer and real tuna do not
 come this close to a reef — but the order of things is theirs.
+
+### Playing together
+
+Co-op by invite link. On the splash screen, under *Play together*, give a
+name and **Host a game**: you get a five-letter room code and an invite link
+to send. Whoever opens the link (or types the code and **Join**s) is in your
+game — up to six of you. The crew is listed under the clock.
+
+You see each other as you are: where you stand or swim, which way you face,
+walking, running, jumping, treading water, woman or man, what is in your
+hand, and each thrust, throw, strike and swing — the same body and motion
+you see of yourself in third person (`src/body.js`), with a name over it.
+
+How: a small relay (`server/` — a Cloudflare Worker, one Durable Object per
+room) keeps the players of a room connected and passes their messages on;
+it does not run the game. Every browser runs its own game, sends where its
+player is about twelve times a second, and draws the others from what it
+hears, a tenth of a second behind so their movement can be smoothed. The
+world is the same for all of you without being sent — the land, reef and
+forest are built from the same code everywhere, and the raft sits at the
+same place.
+
+*What is not shared yet* — the next stage: the raft's pieces (each of you
+still builds your own, in the same spot), what floats past, the fish and the
+dinosaurs, a spear in flight, and the time of day. The first player in is
+the **host**, and it is their world those will be; if they leave, the next
+player in takes over.
+
+On this machine, run the relay with `node server/dev-relay.mjs` and the game
+finds it. For the published game, deploy the relay to Cloudflare (free) and
+put its address in `src/net.js` — `server/README.md` has the steps.
 
 ### Seeing yourself
 

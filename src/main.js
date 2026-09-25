@@ -13,6 +13,7 @@ import { Underwater } from './underwater.js';
 import { Viewmodel, THRUST_REACH, COOKED } from './viewmodel.js';
 import { CameraRig } from './camera.js';
 import { PlayerBody } from './body.js';
+import { Net, newCode, cleanCode } from './net.js';
 import { ThrownSpears, travelTime } from './spear.js';
 import { Fishing } from './fishing.js';
 import { Terrain, heightAt as landHeight, coastDistance, CHUNK } from './terrain.js';
@@ -112,6 +113,11 @@ class Game {
     // You, from the outside: a character (woman or man) holding what you hold.
     this.body = new PlayerBody(this.scene);
     this.character = 'woman';
+    // Others, when playing together (net.js): drawn from what the relay
+    // passes on, in the same world.
+    this.net = new Net({ scene: this.scene, library: this.viewmodel.library,
+                         cloneHeld: id => this.viewmodel.cloneBody(id),
+                         log: (text, kind) => this.hud.log(text, kind) });
     // Outside first person, a line hangs from the rod in the body's hand,
     // not the invisible one at your eye.
     this.viewmodel.tipOutside = (id, out) => {
@@ -269,6 +275,7 @@ class Game {
     for (const b of document.querySelectorAll('#who [data-who]')) {
       b.onclick = e => { e.stopPropagation(); this.dress(b.dataset.who); };
     }
+    this.bindTogether();
     canvas.addEventListener('click', () => {
       if (this.cursorPanel) return;          // a panel owns the cursor
       if (!this.playing) this.start();
@@ -305,10 +312,53 @@ class Game {
     addEventListener('beforeunload', () => this.save());
   }
 
+  /**
+   * The splash screen's "Play together": a name, then host (a new room code
+   * and an invite link) or join (a code, or opening someone's link). A link
+   * with ?room= joins as soon as the page is up.
+   */
+  bindTogether() {
+    const $ = id => document.getElementById(id);
+    const box = $('together');
+    if (!box) return;
+    const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+                    set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* fine */ } } };
+    const name = $('mpName');
+    name.value = store.get('adrift.name') || `Castaway ${Math.floor(Math.random() * 90 + 10)}`;
+    const who = () => (name.value.trim() || 'Castaway').slice(0, 20);
+    for (const el of box.querySelectorAll('input, button')) el.addEventListener('click', e => e.stopPropagation());
+    name.onchange = () => store.set('adrift.name', who());
+    const go = code => { store.set('adrift.name', who()); this.net.join(code, who(), this.character); };
+    $('mpHost').onclick = () => go(newCode());
+    $('mpJoin').onclick = () => { const c = cleanCode($('mpCode').value); if (c.length >= 4) go(c); };
+    $('mpLeave').onclick = () => this.net.leave();
+    $('mpCopy').onclick = () => {
+      navigator.clipboard?.writeText(this.net.invite).then(() => { $('mpCopy').textContent = 'Copied'; },
+        () => { $('mpInvite').select?.(); });
+      setTimeout(() => { $('mpCopy').textContent = 'Copy invite link'; }, 1600);
+    };
+    const refresh = () => {
+      const n = this.net;
+      box.classList.toggle('off', !n.available);
+      box.classList.toggle('in', !!n.code && n.connected);
+      $('mpStatus').textContent = n.status;
+      $('mpInvite').value = n.invite;
+      const crew = n.crew();
+      $('crew').hidden = crew.length === 0;
+      $('crew').innerHTML = crew.length ? `<b>${n.code}</b>` + crew.map(c => `<div></div>`).join('') : '';
+      [...$('crew').querySelectorAll('div')].forEach((d, i) => { d.textContent = crew[i]; });
+    };
+    this.net.onChange = refresh;
+    refresh();
+    const code = cleanCode(new URLSearchParams(location.search).get('room'));
+    if (code.length >= 4 && this.net.available) { $('mpCode').value = code; go(code); }
+  }
+
   /** Play as the woman or the man. */
   dress(who) {
     this.character = who === 'man' ? 'man' : 'woman';
     for (const b of document.querySelectorAll('#who [data-who]')) b.classList.toggle('on', b.dataset.who === this.character);
+    this.net.event({ k: 'who', who: this.character });
     this.body.wear(this.character, this.viewmodel.library).then(ok => {
       if (!ok && this.body.who === this.character) {
         this.hud.log(`No ${this.character}'s model in assets/models — a stand-in for now.`, 'bad');
@@ -384,7 +434,9 @@ class Game {
   /** A use of what is in hand, seen: the arm in first person, the body outside it. */
   useAnim(kind) {
     this.viewmodel.use(kind);
-    this.body.gesture({ spear: 'thrust', build: 'swing', eat: 'eat', hook: 'toss' }[kind]);
+    const g = { spear: 'thrust', build: 'swing', eat: 'eat', hook: 'toss' }[kind];
+    this.body.gesture(g);
+    this.net.event({ k: 'g', g });                // the others see it too
   }
 
   /**
@@ -452,6 +504,7 @@ class Game {
     // the hand at the release — THROW_RELEASE seconds in — not the instant
     // you click, from wherever the hand happened to be. In first person the
     // hand is the viewmodel's, and it lets go at once, as it always has.
+    this.net.event({ k: 'g', g: 'throw' });
     if (!this.view.first) {
       this.body.gesture('throw');
       this.pendingThrow = THROW_RELEASE;
@@ -1020,6 +1073,7 @@ class Game {
       && !(held === 'spear' && !this.viewmodel.current) ? held : null;
     if (inHand !== this.body.heldId) this.body.hold(inHand, inHand ? this.viewmodel.cloneBody(inHand) : null);
     this.body.update(dt, this.player);
+    this.net.update(dt, this.player, inHand);
     if (this.pendingThrow != null && (this.pendingThrow -= dt) <= 0) {
       this.pendingThrow = null;
       this.launchSpear(eye, dir);

@@ -246,6 +246,25 @@
     background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.22)}
   #who button.on{background:rgba(105,198,242,.28);border-color:rgba(105,198,242,.7)}
   body.view-second #reticle{opacity:0 !important}
+  #together{pointer-events:auto;margin:-6px 0 22px;font-size:12px;letter-spacing:.4px;display:flex;flex-direction:column;
+    gap:7px;align-items:center}
+  #together .row{display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:center}
+  #together .lbl{opacity:.8;letter-spacing:.8px}
+  #together .or{opacity:.55}
+  #together input{font:inherit;color:inherit;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.22);
+    border-radius:14px;padding:6px 11px;width:130px}
+  #together #mpCode{width:70px;text-transform:uppercase;letter-spacing:2px}
+  #together #mpInvite{width:250px;font-size:11px}
+  #together button{padding:6px 13px;border-radius:14px;cursor:pointer;font:inherit;color:inherit;
+    background:rgba(105,198,242,.16);border:1px solid rgba(105,198,242,.5)}
+  #together .inn{display:none}
+  #together.in .inn{display:flex}
+  #together.in .out{display:none}
+  #together.off .row{display:none}
+  #mpStatus{opacity:.6;font-size:11px}
+  #crew{position:absolute;top:104px;right:18px;padding:8px 12px;border-radius:10px;font-size:11.5px;line-height:1.55;
+    background:rgba(10,18,26,.55);border:1px solid rgba(255,255,255,.1);min-width:150px}
+  #crew b{display:block;letter-spacing:2px;opacity:.7;font-size:10.5px;margin-bottom:2px}
   #keys{display:grid;grid-template-columns:auto auto;gap:5px 16px;font-size:12.5px;opacity:.78;
     max-width:520px;text-align:left}
   #keys b{font-weight:600;color:var(--warn);font-size:11.5px}
@@ -270,6 +289,7 @@
     <div id="daynum">Day 1 adrift</div>
     <div id="tags"></div>
   </div>
+  <div id="crew" hidden></div>
 
   <div id="vitals" class="panel">
     <div class="bar"><div class="lab"><span>Health</span><span id="hpV">100</span></div>
@@ -339,6 +359,14 @@
   <div class="tagline">Ocean Raft Survival &mdash; Prototype</div>
   <button id="go">Wake up</button>
   <div id="who">Play as <button data-who="woman" class="on">Woman</button><button data-who="man">Man</button></div>
+  <div id="together">
+    <div class="row"><span class="lbl">Play together</span>
+      <input id="mpName" maxlength="20" placeholder="Your name" aria-label="Your name"></div>
+    <div class="row out"><button id="mpHost">Host a game</button><span class="or">or</span>
+      <input id="mpCode" maxlength="8" placeholder="Code" aria-label="Room code"><button id="mpJoin">Join</button></div>
+    <div class="row inn"><input id="mpInvite" readonly aria-label="Invite link"><button id="mpCopy">Copy invite link</button><button id="mpLeave">Leave</button></div>
+    <div id="mpStatus"></div>
+  </div>
   <div id="keys">
     <span><b>W A S D</b> move &nbsp; <b>Shift</b> sprint &nbsp; <b>Space</b> jump / climb aboard</span>
     <span><b>Mouse</b> look &nbsp; <b>Esc</b> pause &nbsp; <b>Arrow keys</b> also turn the view</span>

@@ -1,0 +1,10 @@
+{
+  "name": "adrift-relay",
+  "private": true,
+  "type": "module",
+  "description": "The multiplayer relay for Adrift: a Cloudflare Worker, and a local stand-in.",
+  "scripts": {
+    "dev": "node dev-relay.mjs",
+    "deploy": "wrangler deploy"
+  }
+}
