@@ -555,11 +555,13 @@ export class Raft {
    * Turn a camera ray into a grid target. Returns null when the ray misses the
    * deck plane. Shape: { cx, cz, ex, ez, es, side, point }.
    */
-  targetFromRay(origin, dir) {
+  targetFromRay(origin, dir, height = DECK_Y) {
     const o = this.group.worldToLocal(origin.clone());
     const d = dir.clone().transformDirection(this.group.matrixWorld.clone().invert());
     if (Math.abs(d.y) < 1e-4) return null;
-    const tHit = (DECK_Y - o.y) / d.y;
+    // Where the look meets the deck — or another height: the roof's, looking
+    // up to where a roof goes; a wall's middle, looking along the deck.
+    const tHit = (height - o.y) / d.y;
     if (tHit < 0 || tHit > 40) return null;
     const p = o.clone().addScaledVector(d, tHit);
 
@@ -610,7 +612,9 @@ export class Raft {
     } else {
       rec = { cx: t.cx, cz: t.cz, type: id, obj,
               water: 0, capacity: id === 'collector' ? 5 : 0,
-              rate: id === 'collector' ? 0.085 : 0,
+              // A drink (1 of 5) in a little under two minutes: enough, just, to
+              // keep one castaway going — not a tap that makes thirst forgotten.
+              rate: id === 'collector' ? 0.009 : 0,
               // A campfire is built with its wood laid and not lit.
               fuel: id === 'campfire' ? FIRE.laid : 0, lit: false, spitFish: [], raised: false };
       this.objs.set(key(t.cx, t.cz), rec);

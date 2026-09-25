@@ -113,7 +113,10 @@ const USES = {
     const reach = ease(t / 0.25), pull = ease((t - 0.25) / 0.4), back = ease((t - 0.65) / 0.35);
     const pz = t < 0.25 ? -0.16 * reach : t < 0.65 ? -0.16 + 0.42 * pull : 0.26 * (1 - back);
     const py = t < 0.25 ? -0.05 * reach : t < 0.65 ? -0.05 - 0.04 * Math.sin(Math.PI * pull) : 0.06 * Math.sin(Math.PI * back);
-    return { pz, py, rx: -pz * 0.9 };
+    // The shaft swings out ahead at the catch — so the blade comes into view,
+    // dipping in — then back through the pull, and up again to come round.
+    const rx = t < 0.25 ? 0.4 * reach : t < 0.65 ? 0.4 - 0.62 * pull : -0.22 * (1 - back);
+    return { pz, py, rx };
   } },
   // The rod's forward flick after a wind-up. The wind-up itself is held, not
   // played — it is `windup` below — so this only has to carry it through.
@@ -210,8 +213,7 @@ const BODIES = {
     grip.position.y = -0.12;
     g.add(grip);
     const b = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.42, 0.022), blade);
-    b.position.y = 1.2;
-    b.rotation.y = Math.PI / 2;          // face on to the stroke
+    b.position.y = 1.2;                  // its face square to the stroke, seen from behind
     g.add(b);
     for (const y of [0.98, 1.03]) {
       const t = new THREE.Mesh(new THREE.TorusGeometry(0.02, 0.006, 5, 12), cord);

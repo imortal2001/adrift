@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { BUILDABLES, BUILDABLE_BY_ID } from './items.js';
+import { ROOF_Y, DECK_Y } from './raft.js';
 import { heightAt } from './terrain.js';
 
 const REACH = 7.5;
@@ -61,8 +62,20 @@ export class BuildMode {
     this.firstOn = null;
     if (!this.raft.size) return this.first(origin, dir, id, this.raft);
     if (this.rafts && this.newRaft?.()) return this.first(origin, dir, id, this.rafts.spare());
-    const t = this.raft.targetFromRay(origin, dir);
-    this.target = (t && t.dist <= REACH) ? t : null;
+    // Aim where the piece goes: a roof where you look up to it, a wall or a
+    // railing along the deck or at its own height, anything else on the deck.
+    // The first height that gives a spot it fits is the one; failing all,
+    // the first within reach (so the ghost can say it will not fit).
+    const kind = this.piece.kind;
+    const heights = kind === 'top' ? [ROOF_Y, DECK_Y] : kind === 'edge' ? [DECK_Y, 1.1] : [DECK_Y];
+    let t = null;
+    for (const h of heights) {
+      const c = this.raft.targetFromRay(origin, dir, h);
+      if (!c || c.dist > REACH) continue;
+      if (this.raft.canPlace(id, c)) { t = c; break; }
+      t ||= c;
+    }
+    this.target = t;
 
     if (!this.target) {
       this.clearGhost();

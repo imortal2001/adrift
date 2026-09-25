@@ -86,6 +86,6 @@ export const WAKING = {
         'Flotsam drifts all around. Gather it (E), and build a raft to climb onto: a hammer, then a foundation on the water.'],
   debris: ['You come to clinging to a square of wreckage, adrift.',
            'Flotsam drifts past on the current. Gather it (E) — there is a raft to be built from this.'],
-  raft: ['You come to on a raft of four lashed pallets. No land in sight.',
+  raft: ['You come to on a raft of four lashed pallets, a little way off a wild coast.',
          'Debris drifts past on the current. Look at it and press E.'],
 };

@@ -421,8 +421,11 @@ export class Wildlife {
       const dir = want + off;
       const dx = Math.sin(dir), dz = Math.cos(dir);
       let cost = Math.abs(off) * 1.2 + (Math.sign(off) !== Math.sign(a.avoid) && off ? 0.4 : 0);
+      // The next step as well as the way ahead: a lip of steeper ground just
+      // in front refuses every step (move), however clear it is beyond.
       if (!this.footing(a.pos.x + dx * reach, a.pos.z + dz * reach)) cost += 20;
       else if (!this.footing(a.pos.x + dx * reach * 0.5, a.pos.z + dz * reach * 0.5)) cost += 20;
+      else if (!this.footing(a.pos.x + dx * 0.8, a.pos.z + dz * 0.8)) cost += 20;
       for (const p of solids) {
         // Distance from the prop's axis to the path ahead.
         const px = p.x - a.pos.x, pz = p.z - a.pos.z;
@@ -452,7 +455,7 @@ export class Wildlife {
   findPrey(hunter, player, playerHuntable) {
     let best = null, bestD = hunter.sp.sight;
     for (const a of this.all) {
-      if (a.dead || a === hunter || a.sp.diet !== 'plants') continue;
+      if (a.dead || a === hunter || a.sp.diet !== 'plants' || (hunter.shun?.prey === a && this.clock < hunter.shun.until)) continue;
       const d = Math.hypot(a.pos.x - hunter.pos.x, a.pos.z - hunter.pos.z);
       // Big game is worth chasing further, but a raptor will not take on a sauropod.
       if (hunter.sp.scale < 1.5 && a.sp.scale > 2.2) continue;
@@ -460,7 +463,10 @@ export class Wildlife {
     }
     // A person is prey too, if they are on land — you, or any of the others.
     let who = null, whoD = bestD * 0.85;
+    const shunned = w => hunter.shun && this.clock < hunter.shun.until &&
+      (w === 'player' ? hunter.shun.prey === 'player' : hunter.shun.prey === w.remote);
     const consider = (w, pos) => {
+      if (shunned(w)) return;
       const d = Math.hypot(pos.x - hunter.pos.x, pos.z - hunter.pos.z);
       if (d < whoD) { whoD = d; who = w; }
     };
@@ -482,6 +488,7 @@ export class Wildlife {
   }
 
   update(dt, time, player, playerOnLand) {
+    this.clock = (this.clock || 0) + dt;
     if (this.follow) {
       for (const a of this.all) this.shadow(a, dt, time, player);
       return;
@@ -602,6 +609,21 @@ export class Wildlife {
         }
         a.timer = rnd(1.5, 3.5);
       }
+      if (a.state === 'hunt') {
+        const tgt = a.prey === 'player' ? player.pos : a.prey && a.prey.pos;
+        // Getting no nearer — the prey is somewhere it cannot get to — it
+        // gives up, and leaves that one be for a while.
+        if (tgt) {
+          const d = Math.hypot(tgt.x - a.pos.x, tgt.z - a.pos.z);
+          if (a.nearest === undefined || d < a.nearest - 0.5) { a.nearest = d; a.nearestAt = this.clock; }
+          else if (this.clock - a.nearestAt > 4 && d > sp.reach) {
+            a.shun = { prey: a.prey === 'player' ? 'player' : a.prey?.remote ?? a.prey, until: this.clock + 12 };
+            a.state = 'wander'; a.prey = null; a.nearest = undefined;
+            a.timer = rnd(6, 12);
+            this.roam(a);
+          }
+        }
+      } else a.nearest = undefined;
       if (a.state === 'hunt') {
         const tgt = a.prey === 'player' ? player.pos : a.prey && a.prey.pos;
         // Someone else gone back to sea, or out of the game, is no longer prey.

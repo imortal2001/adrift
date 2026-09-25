@@ -245,7 +245,7 @@ class Game {
     this.rafts.update(0, this.time);
     this.sky.update(0, this.raft.group.position);
     this.player.applyCamera(0, this.time, false);
-    this.view.update(0);
+    this.view.update(0, this.time);
     this.ocean.update(this.time, this.camera.position);
     this.dress(this.character);               // from the save, or the default
 
@@ -465,12 +465,16 @@ class Game {
     const r = RECIPES.find(x => x.id === id);
     if (!r) return;
     const item = ITEMS[r.out[0]];
-    if (item.tool && this.inv.count(r.out[0]) > 0) return;
+    if (item.tool && this.inv.count(r.out[0]) > 0) { this.hud.log(`You already have a ${item.name.toLowerCase()}.`); return; }
     if (!this.inv.pay(r.cost)) { this.hud.log('Not enough materials.', 'bad'); return; }
     this.inv.add(r.out[0], r.out[1]);
     this.hud.log(`Crafted ${item.name}${r.out[1] > 1 ? ` ×${r.out[1]}` : ''}.`, 'good');
     const slot = this.hotbar.autoAssign(r.out[0]);
     if (slot !== -1) this.hud.log(`${item.name} goes to slot ${slot + 1}.`);
+    // Something to use, and no room for it in the slots: say where it went.
+    else if (item.action && !this.hotbar.slots.includes(r.out[0])) {
+      this.hud.log(`${item.name} is in your pack — the slots are full. Press I to put it in one.`);
+    }
     this.hud.refreshInventory(this.inv);
     this.hud.refreshCraft(this.inv);
   }
@@ -890,6 +894,11 @@ class Game {
   // ── coming to, and coming back ─────────────────────────────────────────────
   /** A new castaway: somewhere on the edge of the world (spawn.js), with whatever that start gives. */
   newStart(kind) {
+    // A new castaway has nothing, whatever the last one carried.
+    this.inv = new Inventory();
+    this.build.inv = this.inv;
+    this.hotbar = new Hotbar();
+    Object.assign(this.player, { health: 100, hunger: 100, thirst: 100, breath: 100 });
     const st = this.start = pickStart(kind);
     this.rafts.load([]);
     this.setRaft(this.rafts.make());
@@ -900,7 +909,8 @@ class Game {
     this.raft.setPose([at.x, at.z, heading]);
     if (st.kind === 'raft') this.raft.startingRaft();
     else if (st.kind === 'debris') this.raft.place('foundation', { cx: 0, cz: 0, force: true });
-    if (this.raft.size) this.player.respawnOnRaft();
+    // Come to on a raft, it is where you come back to, wherever it goes.
+    if (this.raft.size) { st.raft = this.raft.id; this.player.respawnOnRaft(); }
     else this.player.standAt(st.x, st.z, st.yaw);
     for (const line of WAKING[st.kind]) this.hud.log(line);
     // Statues stand all over the land, to be found.
@@ -973,6 +983,15 @@ class Game {
       return;
     }
     const st = this.start || { x: 0, z: 0, yaw: 0 };
+    // Come to on a raft or on wreckage, you wake on it — wherever it has got to.
+    const home = st.raft && this.rafts.byId(st.raft);
+    if (home?.size) {
+      this.setRaft(home);
+      this.player.respawnOnRaft();
+      this.hud.log(this.registered ? 'You black out. Your statue is gone — you wake on the raft you came to on.'
+                                   : 'You black out, and wake on the raft you came to on. A statue would bring you back elsewhere.', 'bad');
+      return;
+    }
     this.player.standAt(st.x, st.z, st.yaw);
     this.hud.log(this.registered ? 'You black out. Your statue is gone — you wake where you first came to.'
                                  : 'You black out, and wake where you first came to. A statue would bring you back nearer.', 'bad');
@@ -1134,6 +1153,7 @@ class Game {
       if (st.kind === 'raft') r.startingRaft();
       else r.place('foundation', { cx: 0, cz: 0, force: true });
       this.setRaft(r);
+      st.raft = r.id;
       for (const c of r.cells.values()) this.together.placed('foundation', { cx: c.cx, cz: c.cz });
       this.player.respawnOnRaft();
     } else {
@@ -1518,7 +1538,7 @@ class Game {
     this.updateFires(dt);
     this.player.update(dt, this.time, input, panelOpen);
     if (!panelOpen && input.pressed('KeyV')) this.cycleView();
-    this.view.update(dt);
+    this.view.update(dt, this.time);
     this.ocean.update(this.time, this.camera.position);
 
     const eye = this.eye.position;

@@ -640,7 +640,10 @@ export class PlayerBody {
     const pinky = b.RightHandPinky1.getWorldPosition(new THREE.Vector3());
     const fist = index.sub(pinky).normalize();
     const fwd = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
-    const want = new THREE.Vector3(0, 1, 0).addScaledVector(fwd, 0.3).normalize()
+    // Carried upright and a little forward — a rod well forward, its tip out
+    // ahead as a rod is carried, not stood up like a staff.
+    const lean = this.heldId === 'rod' ? 1.35 : 0.3;
+    const want = new THREE.Vector3(0, 1, 0).addScaledVector(fwd, lean).normalize()
       .lerp(this.aimDir, this.aimK).normalize();
     // Both onto the plane square to the forearm: the roll is the angle
     // between them there. Nothing to do if what it should point along is the
@@ -685,6 +688,12 @@ export class PlayerBody {
       let dir = this.aimK > 0 ? across.clone().lerp(this.aimDir, this.aimK).normalize() : across;
       // A paddle goes down over the right side into the water, blade first,
       // leaning forward at the catch and back at the end of the pull.
+      // A rod, carried, is tipped well forward, the tip out ahead — not stood
+      // up like a staff. (Casting, the arm swings it as it will.)
+      if (this.heldId === 'rod' && this.use >= 1) {
+        const yaw = this.group.rotation.y;
+        dir = new THREE.Vector3(-Math.sin(yaw) * 1.25 + Math.cos(yaw) * 0.12, 1, -Math.cos(yaw) * 1.25 - Math.sin(yaw) * 0.12).normalize();
+      }
       if (this.heldId === 'paddle') {
         const yaw = this.group.rotation.y, lean = this.paddleLean;
         const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
