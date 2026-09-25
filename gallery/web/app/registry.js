@@ -360,7 +360,8 @@ export async function loadRegistry() {
   // ── you ──
   // The player's body, as the third- and second-person views show it: the
   // game's own PlayerBody, walked on the spot by the same code as in play.
-  const GAITS = { idle: ['deck', 0], walk: ['deck', 2.6], run: ['deck', 5.6], swim: ['swim', 1.6], tread: ['swim', 0] };
+  const GAITS = { idle: ['deck', 0], walk: ['deck', 2.6], run: ['deck', 5.6], tread: ['swim', 0],
+                  swim: ['swim', 1.6], dive: ['swim', 1.6, true], spear: ['swim', 1.6, false, true] };
   for (const [who, name] of [['woman', 'The player (woman)'], ['man', 'The player (man)']]) {
     const hasModel = manifest.has(`player_${who}`);
     add({
@@ -371,18 +372,24 @@ export async function loadRegistry() {
                        : 'src/body.js · mannequin() — the stand-in until the model is converted',
       facts: [['Seen', 'in third person (behind you) and second (facing you) — V changes the view'],
               ['Motion', 'no animation in the file: the stride, swim, jump and arm swings are made in code (src/body.js)'],
+              ['In the water', 'treading water upright; a front crawl at the surface; breaststroke under it, tipped toward where you are going'],
               ['Licence', hasModel ? 'Ready Player Me, CC BY-NC-SA 4.0 — non-commercial, and changes share alike' : 'original']],
       variants: [{ id: 'idle', label: 'Standing' }, { id: 'walk', label: 'Walking' }, { id: 'run', label: 'Running' },
-                 { id: 'tread', label: 'Treading water' }, { id: 'swim', label: 'Swimming' }],
+                 { id: 'tread', label: 'Treading water' }, { id: 'swim', label: 'Front crawl' },
+                 { id: 'dive', label: 'Breaststroke, under water' }, { id: 'spear', label: 'Swimming with a spear' }],
       async build(variant = 'idle') {
         const holder = new THREE.Group();
         const body = new PlayerBody(holder);
         await body.wear(who, lib);
-        const [state, speed] = GAITS[variant] || GAITS.idle;
-        const p = { pos: new THREE.Vector3(0, state === 'swim' ? 0.6 : 0, 0), yaw: Math.PI, pitch: 0, state, speed };
+        const [state, speed, submerged = false, spear = false] = GAITS[variant] || GAITS.idle;
+        if (spear && held.spear) body.hold('spear', held.spear.clone(true));
+        const p = { pos: new THREE.Vector3(0, state === 'swim' ? 0.6 : 0, 0), yaw: Math.PI, pitch: 0, state, speed, submerged };
         body.update(0.016, p);
+        // Swimming somewhere, the body lies out behind the head.
+        const lying = state === 'swim' && speed > 0;
         return { object: holder, update: dt => body.update(dt, p),
-                 frame: { center: V(0, 0.9, 0), size: V(1.1, 1.9, 1.1) } };
+                 frame: lying ? { center: V(0, 1.75, -0.75), size: V(1.3, 0.8, 2.1) }
+                              : { center: V(0, 0.9 + p.pos.y, 0), size: V(1.1, 1.9, 1.1) } };
       },
     });
   }
