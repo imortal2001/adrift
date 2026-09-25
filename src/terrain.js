@@ -12,6 +12,7 @@ import { REEF, reefGeometry, reefMaterial, setReefTime } from './reef.js';
 import { applyCaustics } from './underwater.js';
 import { applyGroundDetail } from './detail.js';
 import { SPECIES, LAYERS, speciesGeometry, speciesMaterial, floraMaterials, drapeGeometry, setFloraTime } from './flora.js';
+import { Waterfall, lakeGeometry } from './waterfall.js';
 
 export const WORLD = {
   cx: 660, cz: -480,     // continent centre; nearest shoreline is ~80m from the
@@ -185,7 +186,7 @@ function ridged(x, z) {
   return sum / norm;
 }
 
-const _land = { h: 0, m: 0, plain: 0, mountain: 0, cliff: 0, mesa: 0, river: 1e9, edge: 1e9, water: 0, bank: 0 };
+const _land = { h: 0, m: 0, plain: 0, mountain: 0, cliff: 0, mesa: 0, river: 1e9, edge: 1e9, water: 0, bank: 0, lake: null };
 
 /**
  * Everything the land knows about one spot: its height and the masks it was
@@ -200,6 +201,7 @@ export function landAt(x, z, out = _land) {
   out.river = 1e9;
   out.edge = 1e9;
   out.water = 0;
+  out.lake = null;
 
   // One surface, two halves: sea bed below the waterline, land above it.
   let h;
@@ -265,6 +267,11 @@ export function landAt(x, z, out = _land) {
   // continuous surface rather than two that meet at a seam.
   h += smooth(-10, 18, m) * (1 - out.cliff) * (fbm(x * 0.027, z * 0.027, 3) - 0.5) * 8;  // undulation
   h += smooth(-6, 12, m) * (fbm(x * 0.11, z * 0.11, 2) - 0.5) * 1.6;                     // surface detail
+  // Lakes last, after the detail, so how deep they are is exactly as dished.
+  if (m >= 0 && LAKES.length) h = carveLakes(x, z, h, out);
+  // And no river deeper than wading either — the detail above can dig a
+  // hole in its bed, and you would walk along it with your head under.
+  if (out.water > 0 && h < out.water - WADING) h = out.water - WADING;
   out.h = h;
   return out;
 }
@@ -302,6 +309,10 @@ export const RIVERS = [
     from: 0.28, width: [4, 20], depth: 1.25 },
 ];
 const RIVER_STEP = 4;                                  // metres between water-level samples
+// The lakes and falls on them (placeWater, below): empty while the rivers are surveyed.
+export const LAKES = [];
+export const FALLS = [];
+const WADING = 1.3;              // m: no river, lake, pool or tarn is deeper than this anywhere
 
 function riverBearing(rv, r) {
   const [a1, k1, p1, a2, k2, p2] = rv.wander;
@@ -316,7 +327,9 @@ function riverTurn(rv, r) {                            // d(bearing)/dr
 function riverAt(rv, r) {
   const t = (r - rv.r0) / RIVER_STEP;
   if (t < 0 || t >= rv.level.length - 1) return null;
-  const k = Math.floor(t), f = t - k;
+  const k = Math.floor(t);
+  // Over the lip of a fall the water drops in half a metre, not four: a cliff.
+  const f = k === rv.fallK ? smooth(0.4, 0.52, t - k) : t - k;
   const along = (r - rv.r0) / (rv.r1 - rv.r0);
   return {
     level: rv.level[k] * (1 - f) + rv.level[k + 1] * f,
@@ -339,7 +352,18 @@ function carveRivers(x, z, h, m, out) {
     const at = riverAt(rv, Math.min(Math.max(r, rv.r0), rv.r1 - 0.01));
     if (!at) continue;
     const half = at.width * 0.5 * at.open;
-    const W = at.level;
+    let W = at.level;
+    // At a fall the drop is sheer only across the river itself: to either
+    // side the valley comes down a steep slope instead, so the cliff is a
+    // notch the water pours through, not a wall across the country.
+    if (rv.fallK >= 0) {
+      const rl = rv.r0 + (rv.fallK + 0.46) * RIVER_STEP;
+      if (r > rl - 12 && r < rl + 30) {
+        const top = rv.level[rv.fallK], bottom = rv.level[rv.fallK + 1];
+        const ramp = top + (bottom - top) * smooth(rl - 12, rl + 30, r);
+        W += (ramp - W) * smooth(half + 3, half + 14, d);
+      }
+    }
     // Deeper cuts need wider valley walls, or they would be sheer everywhere.
     const plainW = 6 + at.width * 1.4;
     const wall = 26 + Math.min(Math.max(0, h - W), 300) * 1.05;
@@ -401,6 +425,174 @@ function surveyRivers() {
 }
 surveyRivers();
 
+// ── lakes and falls ──────────────────────────────────────────────────────────
+// Where a river comes down off the range fastest, it does not run down a
+// ramp: it goes over a lip and falls, into a pool it has dug at the foot. The
+// stretch above the lip is flattened into a lake — a tarn in the hills that
+// spills over the falls. And where the first river idles across the plain, it
+// widens into a lake of its own. All of them sit on the rivers, at the level
+// the survey found, so every one has a way in and a way out; all of them are
+// wading water — chest deep at most, as the rivers are.
+//
+// Each lake is an ellipse along the river, its shore wobbled; inside it the
+// land is dished out below the water, round it the ground comes up to a low
+// bank and blends back into the country, like a river's valley.
+const LAKE_DEPTH = 1.2;
+const FALL_MAX = 22;             // m: the tallest drop
+
+/** Where river `rv` is at radius r: a point, its level, width and the way downstream. */
+function courseAt(rv, r) {
+  const b = riverBearing(rv, r), at = riverAt(rv, r);
+  const x = WORLD.cx + Math.cos(b) * r, z = WORLD.cz + Math.sin(b) * r;
+  const b2 = riverBearing(rv, r + 2);
+  const x2 = WORLD.cx + Math.cos(b2) * (r + 2), z2 = WORLD.cz + Math.sin(b2) * (r + 2);
+  const len = Math.hypot(x2 - x, z2 - z) || 1;
+  return { x, z, level: at?.level ?? 0, width: at ? at.width * at.open : 4, dx: (x2 - x) / len, dz: (z2 - z) / len };
+}
+
+function addLake(kind, c, a, b, level, seed) {
+  const k = Math.atan2(c.dz, c.dx);
+  const lake = { kind, x: c.x, z: c.z, a, b, level, depth: LAKE_DEPTH, cos: Math.cos(k), sin: Math.sin(k),
+                 s1: seed * 1.7, s2: seed * 2.9 + 1, s3: seed * 4.3 + 2 };
+  lake.reach = Math.max(a, b) * 1.25 + 40;
+  LAKES.push(lake);
+  return lake;
+}
+
+/** A lake's shore, as a distance from its middle, at angle `th` in its own frame. */
+export function lakeShore(L, th) {
+  const c = Math.cos(th), s = Math.sin(th);
+  const e = 1 / Math.sqrt((c / L.a) ** 2 + (s / L.b) ** 2);
+  if (L.kind === 'pool') return e;
+  return e * (1 + 0.12 * Math.sin(3 * th + L.s1) + 0.07 * Math.sin(5 * th + L.s2) + 0.04 * Math.sin(9 * th + L.s3));
+}
+
+function placeWater() {
+  LAKES.length = FALLS.length = 0;
+  RIVERS.forEach((rv, ri) => {
+    const lv = rv.level, n = lv.length, rAt = i => rv.r0 + i * RIVER_STEP;
+    rv.fallK = -1;
+    // The fall: the steepest hundred metres, clear of the spring and the plain.
+    const span = 24;
+    let best = -1, drop = 0;
+    for (let i = 0; i + span < n; i++) {
+      const along = i / n;
+      if (along < 0.1 || along > 0.7 || rAt(i) - rv.r0 < 90) continue;
+      const d = lv[i] - lv[i + span];
+      if (d > drop) { drop = d; best = i; }
+    }
+    if (best >= 0 && drop >= 7) {
+      const i = best, top = lv[i], H = Math.min(FALL_MAX, drop), bottom = top - H;
+      rv.fallK = i;
+      // Below the lip: the gorge it has cut, at the foot of the drop.
+      for (let k = i + 1; k < n && lv[k] > bottom; k++) lv[k] = bottom;
+      const lip = courseAt(rv, rAt(i) + RIVER_STEP * 0.46);
+      // The cliff runs round the continent at the lip's radius, so it faces
+      // straight out from the middle — whichever way the river crosses it.
+      const rl = Math.hypot(lip.x - WORLD.cx, lip.z - WORLD.cz);
+      const face = { dx: (lip.x - WORLD.cx) / rl, dz: (lip.z - WORLD.cz) / rl };
+      // The pool it falls into, dug a little wider than the river.
+      const pr = Math.min(10, Math.max(5, 3 + lip.width * 0.45));
+      for (let k = i + 1; k <= i + Math.ceil((pr * 2 + 3) / RIVER_STEP) && k < n; k++) lv[k] = bottom;
+      // How wide the curtain is along the cliff: the channel, crossed at an angle.
+      const across = (lip.width + 1) / Math.max(0.5, Math.abs(lip.dx * face.dx + lip.dz * face.dz));
+      FALLS.push({ river: ri, x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, flow: { x: lip.dx, z: lip.dz },
+                   top, bottom, height: H, width: Math.min(across, lip.width * 1.8 + 1) });
+      // Starting just past the foot of the cliff, so it never eats into the lip.
+      const pc = courseAt(rv, rAt(i) + RIVER_STEP * 0.46 + pr + 0.4);
+      // The cliff is the fall's: the pool's banks leave everything above the lip alone.
+      addLake('pool', pc, pr, pr, bottom, ri * 7 + 3).cut = { x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, side: 1 };
+      // And above it, a tarn: flat water right up to the lip.
+      let j = i;
+      while (j > 0 && lv[j - 1] - top < 3 && i - j < 30) j--;
+      const a = Math.min(60, Math.max(14, (i - j) * RIVER_STEP / 2 + 4));
+      const from = Math.max(0, i - Math.ceil(2 * a / RIVER_STEP));
+      for (let k = from; k <= i; k++) lv[k] = top;
+      // Its shore a metre short of the lip, whichever way it wobbles; the
+      // river carries the water over the last of it.
+      const tarn = addLake('tarn', courseAt(rv, rAt(i) - a), a, Math.min(a * 0.8, Math.max(10, lip.width * 1.6)), top, ri * 7 + 1);
+      const reachDown = lakeShore(tarn, 0);
+      const tc = courseAt(rv, rAt(i) + RIVER_STEP * 0.46 - 1 - reachDown);
+      // …and the tarn's leave everything below it.
+      Object.assign(tarn, { x: tc.x, z: tc.z, outlet: true, cut: { x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, side: -1 } });
+      const k = Math.atan2(tc.dz, tc.dx);
+      tarn.cos = Math.cos(k); tarn.sin = Math.sin(k);
+    }
+    // Lower down, where the first river falls least over sixty-odd metres,
+    // it is dammed into a lake: level at its lowest, the stretch above
+    // coming in over a short run of rapids.
+    if (ri === 0) {
+      const run = 16;
+      let bi = -1, least = Infinity;
+      const after = rv.fallK >= 0 ? rv.fallK + 30 : 0;
+      for (let i = Math.max(after, Math.floor(n * 0.45)); i + run < n * 0.9; i++) {
+        const d = lv[i] - lv[i + run];
+        if (d < least) { least = d; bi = i; }
+      }
+      if (bi >= 0 && least < 4.5) {
+        const e = bi + run, L = lv[e];
+        for (let k = bi; k <= e; k++) lv[k] = L;
+        const a = run * RIVER_STEP / 2 * 0.95;
+        const c = courseAt(rv, rAt(bi) + run * RIVER_STEP / 2);
+        const lake = addLake('lake', c, a, Math.min(a * 0.75, Math.max(18, c.width * 2.4)), L, 11);
+        // Its ends inside the levelled stretch, however its shore wobbles —
+        // so the river leaves it at its own level, not from a ledge.
+        lake.a /= Math.max(lakeShore(lake, 0), lakeShore(lake, Math.PI)) / lake.a;
+      }
+    }
+  });
+}
+placeWater();
+
+function carveLakes(x, z, h, out) {
+  for (const L of LAKES) {
+    const dx = x - L.x, dz = z - L.z;
+    if (Math.abs(dx) > L.reach || Math.abs(dz) > L.reach) continue;
+    // Across a fall's lip, a pool's banks fade out upstream and a tarn's downstream.
+    const cut = L.cut ? smooth(-1, 7, ((x - L.cut.x) * L.cut.dx + (z - L.cut.z) * L.cut.dz) * L.cut.side) : 1;
+    if (cut <= 0) continue;
+    const u = dx * L.cos + dz * L.sin, v = -dx * L.sin + dz * L.cos;
+    const rho = Math.hypot(u, v), R = lakeShore(L, Math.atan2(v, u));
+    const d = rho - R, W = L.level;
+    let carved;
+    if (d < 0) {
+      // A shelf round the edge, then down to the deep middle — never deeper
+      // than wading, whatever hollow was here.
+      const floor = W - 0.05 - L.depth * smooth(0, 0.45, 1 - rho / R);
+      carved = Math.max(Math.min(h, floor), W - WADING);
+    } else {
+      const floor = W + 0.15 + smooth(0, 3, d) * 0.45;
+      const wall = 14 + Math.min(Math.abs(h - W), 200) * 1.0;
+      const k = smooth(2, 2 + wall, d);
+      if (k >= 1) continue;
+      carved = floor + (h - floor) * k;
+      // A river running in or out keeps its channel through the bank.
+      if (out.water > 0 && h < carved) carved = h;
+      carved = h + (carved - h) * cut;
+    }
+    h = carved;
+    if (d < out.edge) {
+      out.edge = d;
+      out.river = Math.min(out.river, Math.max(0, d) + 2);
+      out.bank = Math.max(out.bank, 1 - smooth(2, 16, d));
+    }
+    if (d < 0) { out.water = W; out.lake = L; }
+  }
+  return h;
+}
+
+/**
+ * Fresh water at (x, z): { level, depth, kind } — a river, a lake, a tarn or
+ * a plunge pool — or null on dry land and in the sea.
+ */
+export function freshWaterAt(x, z) {
+  const L = landAt(x, z);
+  // (Deeper than any of it is wading: that is the face of a fall, where the
+  // water is in the air.)
+  if (!(L.water > 0) || L.water <= L.h || L.water - L.h > WADING + 0.6) return null;
+  return { level: L.water, depth: L.water - L.h, kind: L.lake ? L.lake.kind : 'river' };
+}
+
 /** Points down the middle of each river, for the water surface. */
 export function riverCourse(rv, step = 6) {
   const pts = [];
@@ -436,20 +628,31 @@ export function isLand(x, z) { return heightAt(x, z) > WADE; }
  * z)`, if given, limits it to part of the course.
  */
 export function riverGeometry(rv, keep = null) {
-  const pts = riverCourse(rv, 4).filter(p => !keep || keep(p.x, p.z));
-  if (pts.length < 2) return null;
+  // Not where a lake has the water, and broken over a fall (waterfall.js
+  // draws that): a ribbon for each run between.
+  const inLake = p => LAKES.some(L => {
+    const dx = p.x - L.x, dz = p.z - L.z;
+    const u = dx * L.cos + dz * L.sin, v = -dx * L.sin + dz * L.cos;
+    return Math.hypot(u, v) < lakeShore(L, Math.atan2(v, u)) - 1.5;
+  });
+  const pts = riverCourse(rv, 4).map(p => ((keep && !keep(p.x, p.z)) || inLake(p) ? null : p));
+  if (pts.filter(Boolean).length < 2) return null;
   const pos = [], uv = [], idx = [];
-  let along = 0;
+  let along = 0, n = 0, prev = null;
   pts.forEach((p, k) => {
-    const q = pts[Math.min(pts.length - 1, k + 1)], o = pts[Math.max(0, k - 1)];
+    if (!p) { prev = null; return; }
+    const q = pts[k + 1] || p, o = pts[k - 1] || p;
     const dx = q.x - o.x, dz = q.z - o.z, len = Math.hypot(dx, dz) || 1;
     const sx = -dz / len, sz = dx / len;
-    if (k) along += Math.hypot(p.x - pts[k - 1].x, p.z - pts[k - 1].z);
+    if (prev) along += Math.hypot(p.x - prev.x, p.z - prev.z);
     const w = p.width / 2 + 2.2;
     pos.push(p.x - sx * w, p.level, p.z - sz * w, p.x + sx * w, p.level, p.z + sz * w);
     uv.push(0, along / 7, w * 2 / 7, along / 7);
-    if (k) { const a = (k - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    if (prev && prev.level - p.level < 6) { const a = (n - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    prev = p;
+    n++;
   });
+  if (!idx.length) return null;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -603,15 +806,18 @@ export class Terrain {
     this.rivers.sky.top = oceanUniforms.uSkyTop;
     this.rivers.sky.horizon = oceanUniforms.uSkyHorizon;
     this.rivers.material.needsUpdate = true;
+    this.rivers.still.needsUpdate = true;
   }
 
   lodFor(dist) { return LOD_SEGMENTS[Math.min(dist, LOD_SEGMENTS.length - 1)]; }
 
   /** Keep the chunks around `focus` loaded at the right detail. */
-  update(dt, focus, time = 0) {
+  update(dt, focus, time = 0, night = 0) {
     setReefTime(time);
     setFloraTime(time);
     this.rivers.flow.offset.y = -time * 0.22;
+    this.rivers.stillFlow.offset.set(time * 0.012, -time * 0.017);
+    for (const w of this.rivers.falls) w.update(dt, time, focus, night);
     const pi = Math.round(focus.x / CHUNK), pj = Math.round(focus.z / CHUNK);
     this.far.focus.value.set(pi * CHUNK, pj * CHUNK);
     const wanted = new Set();
@@ -1126,7 +1332,27 @@ export class Terrain {
       this.scene.add(mesh);
       meshes.push(mesh);
     }
-    return { flow, meshes, material: mat, sky };
+    // Still water: the same, but its ripples barely drift.
+    const stillFlow = flow.clone();
+    stillFlow.needsUpdate = true;
+    stillFlow.repeat.set(0.45, 0.45);             // broad, soft ripples: no tiling to see from above
+    const still = mat.clone();
+    still.normalMap = stillFlow;
+    still.normalScale = new THREE.Vector2(0.3, 0.3);
+    still.onBeforeCompile = mat.onBeforeCompile;
+    for (const L of LAKES) {
+      const mesh = new THREE.Mesh(lakeGeometry(L), still);
+      mesh.receiveShadow = true;
+      mesh.renderOrder = 1;
+      this.scene.add(mesh);
+      meshes.push(mesh);
+    }
+    const falls = FALLS.map(f => {
+      const w = new Waterfall(f);
+      this.scene.add(w.group);
+      return w;
+    });
+    return { flow, stillFlow, meshes, material: mat, still, falls, sky };
   }
 
   /**

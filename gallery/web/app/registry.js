@@ -25,6 +25,7 @@
 // See gallery/README.md, "Registering an asset".
 
 import * as THREE from 'three';
+import { mergeGeometries } from '/vendor/jsm/utils/BufferGeometryUtils.js';
 import { ModelLibrary } from '/src/models.js';
 import { SPECIES as DINOS, Wildlife } from '/src/wildlife.js';
 import { FishSchools, normalise, BODY_LENGTH, BIG } from '/src/fish.js';
@@ -33,7 +34,8 @@ import { statueBody } from '/src/statue.js';
 import { Whale } from '/src/whale.js';
 import { FIGHTERS } from '/src/fight.js';
 import { REEF, reefGeometry, reefMaterial } from '/src/reef.js';
-import { Terrain, CHUNK, WORLD, heightAt, coastDistance, reefMask, landAt, RIVERS, riverGeometry } from '/src/terrain.js';
+import { Terrain, CHUNK, WORLD, heightAt, coastDistance, reefMask, landAt, RIVERS, riverGeometry, riverCourse, LAKES, FALLS } from '/src/terrain.js';
+import { Waterfall, lakeGeometry } from '/src/waterfall.js';
 import { SPECIES as FLORA, speciesMesh, setFloraTime } from '/src/flora.js';
 import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE } from '/src/items.js';
 import { POSES, Viewmodel } from '/src/viewmodel.js';
@@ -63,7 +65,6 @@ export const CATEGORIES = [
 export const GAPS = [
   { category: 'animals', name: 'Land animals (not dinosaurs)', note: 'Nothing but dinosaurs lives on the continent.' },
   { category: 'animals', name: 'Birds and flying animals', note: 'There is nothing in the air at all — no gulls over the sea, no pterosaurs.' },
-  { category: 'water', name: 'Lakes and waterfalls', note: 'Two rivers run off the range to the sea; there is no standing fresh water, and nothing falls.' },
   { category: 'equipment', name: 'Survival gear', note: 'No water bottle, knife, net, torch, or armour.' },
   { category: 'terrain', name: 'Caves and overhangs', note: 'Terrain is one heightfield: cliffs are steep, but nothing overhangs.' },
   { category: 'reef', name: 'Reef animals that move', note: 'Nothing on the reef moves but the fish: no octopus, turtles, rays or crabs.' },
@@ -478,6 +479,40 @@ export async function loadRegistry() {
     });
   });
 
+  // ── the falling water alone, against plain rock ──
+  add({
+    id: 'waterfall-water', name: 'Waterfall — the water', category: 'water', group: 'Lakes & falls',
+    kind: 'built in code', backdrop: 'world', source: 'src/waterfall.js · Waterfall',
+    facts: [['Curtains', 'three: a pale sheet at the back, two of bright streaks and clumps in front, each shuddering on its own'],
+            ['Speed', 'the streaks run on time-of-fall, so they stretch as the water speeds up'],
+            ['At the foot', 'two layers of foam turning against each other, a foam trail downstream, droplets flung up, spray drifting off'],
+            ['In play', 'on each river, where it comes off the range: see Waterfall 1 and 2']],
+    variants: FALLS.map((f, k) => ({ id: String(k), label: `As fall ${k + 1} (${Math.round(f.height)} m × ${Math.round(f.width)} m)` })),
+    async build(variant) {
+      const f0 = FALLS[+variant || 0] || { height: 18, width: 8 };
+      const f = { ...f0, x: 0, z: 0, dx: 0, dz: 1, flow: { x: 0, z: 1 }, top: f0.height, bottom: 0 };
+      const g = new THREE.Group();
+      const w = new Waterfall(f);
+      g.add(w.group);
+      // The rock it falls over, the ledge above and the pool floor below.
+      const rock = new THREE.MeshStandardMaterial({ color: 0x5b5750, roughness: 0.95 });
+      const face = new THREE.Mesh(new THREE.BoxGeometry(f.width + 10, f.height, 8), rock);
+      face.position.set(0, f.height / 2 - 0.02, -4);
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(f.width + 10, 0.4, 16), new THREE.MeshStandardMaterial({ color: 0x4a4636, roughness: 1 }));
+      bed.position.set(0, -1.3, 8);
+      const pool = new THREE.Mesh(new THREE.PlaneGeometry(f.width + 10, 16), (await terrain()).rivers.still);
+      pool.rotation.x = -Math.PI / 2;
+      pool.position.set(0, 0, 8);
+      for (const m of [face, bed]) { m.castShadow = m.receiveShadow = true; g.add(m); }
+      g.add(pool);
+      return {
+        object: g, ground: false, keepHeight: true,
+        frame: { center: V(0, f.height / 2, 4), size: V(f.width + 12, f.height + 4, 16) },
+        update: (dt, time) => w.update(dt, time, null),
+      };
+    },
+  });
+
   // ── terrain samples: real chunks of the world ──
   for (const s of await terrainSamples()) {
     add({
@@ -490,16 +525,33 @@ export async function loadRegistry() {
       facts: [['Where', s.where], ['Chunk', `${CHUNK} × ${CHUNK} m at (${s.i * CHUNK}, ${s.j * CHUNK})`],
               ['Height', `${s.lo.toFixed(0)} to ${s.hi.toFixed(0)} m`],
               ['Contains', s.contains],
+              ...(s.facts || []),
               ...(s.hi < -2 ? [['In-game look', 'choose In-game daylight and orbit down under the surface']] : [])],
       async build() {
-        const c = t.buildChunk({ i: s.i, j: s.j, segs: 64, ring: 0 });
-        c.group.removeFromParent();
+        // One chunk — or, round a fall, every chunk near it, so nothing is cut through.
+        const world = new THREE.Group();
+        const chunks = s.chunks || [[s.i, s.j]];
+        const c = { group: world };
+        for (const [i, j] of chunks) {
+          const k = t.buildChunk({ i, j, segs: 64, ring: 0 });
+          k.group.removeFromParent();
+          world.add(k.group);
+        }
+        const falls = [];
         if (s.river) {
-          // The water, cut to this chunk.
-          const inside = (x, z) => Math.abs(x - s.i * CHUNK) < CHUNK / 2 + 4 && Math.abs(z - s.j * CHUNK) < CHUNK / 2 + 4;
+          // The water, cut to these chunks: the rivers, the lakes and falls on them.
+          const inside = (x, z, pad = 4) => chunks.some(([i, j]) =>
+            Math.abs(x - i * CHUNK) < CHUNK / 2 + pad && Math.abs(z - j * CHUNK) < CHUNK / 2 + pad);
           for (const rv of RIVERS) {
             const geo = riverGeometry(rv, inside);
             if (geo) c.group.add(new THREE.Mesh(geo, t.rivers.material));
+          }
+          for (const L of LAKES) if (inside(L.x, L.z, L.a)) c.group.add(new THREE.Mesh(lakeGeometry(L), t.rivers.still));
+          for (const f of FALLS) {
+            if (!inside(f.x, f.z, 8)) continue;
+            const w = new Waterfall(f);
+            c.group.add(w.group);
+            falls.push(w);
           }
         }
         const holder = new THREE.Group();
@@ -508,7 +560,10 @@ export async function loadRegistry() {
         const midY = (s.lo + s.hi) / 2;
         return {
           object: holder, ground: false, ownsWater: s.lo < 0.5, keepHeight: true,
-          frame: { center: V(0, s.focusY ?? midY, 0), size: V(CHUNK * 0.8, Math.max(8, s.hi - s.lo), CHUNK * 0.8) },
+          frame: s.frame ? { center: s.frame.center.clone().sub(V(s.i * CHUNK, 0, s.j * CHUNK)), size: s.frame.size }
+                         : { center: V(0, s.focusY ?? midY, 0), size: V(CHUNK * 0.8, Math.max(8, s.hi - s.lo), CHUNK * 0.8) },
+          ...(s.view ? { view: s.view } : {}),
+          ...(falls.length ? { update: (dt, time) => { for (const w of falls) w.update(dt, time, null); } } : {}),
         };
       },
     });
@@ -516,36 +571,124 @@ export async function loadRegistry() {
 
   add({
     id: 'continent', name: 'The whole continent', category: 'terrain', group: 'Land',
-    // In daylight, in its own sea: seen from kilometres off, the game's haze
-    // would leave only a pale silhouette, so it asks for less (`distant`).
-    kind: 'built in code', backdrop: 'world', source: 'src/terrain.js · Terrain.buildFar()',
-    facts: [['What', 'the far land: every hill, the range and the forest canopy, coarse, as seen from the raft'],
+    // The island as you find it in play: every chunk of it built by the game
+    // itself — its ground, its forests and plants, its rocks, its rivers,
+    // lakes and falls — then drawn in a few big meshes so all of it fits.
+    kind: 'built in code', backdrop: 'world', source: 'src/terrain.js · Terrain.buildChunk() for every chunk of land · buildRivers() · src/waterfall.js',
+    facts: [['What', 'the whole island as the game builds it, chunk by chunk: ground, trees and plants, rocks, rivers, lakes and waterfalls'],
             ['Size', `about ${Math.round((WORLD.radius + 300) * 2 / 100) / 10} km across; peaks near 400 m`],
-            ['Sea', 'a flat stand-in, for the coastline: the game’s ocean only reaches 450 m from the camera'],
-            ['Raft', 'the red post, where the game starts you'],
-            ['In play', 'drawn wherever the detailed chunks do not reach']],
+            ['Detail', 'as the game draws the land a couple of chunks from you: ground at 4 m, trees at their far detail; finer (2 m, every plant) along the rivers and round the lakes'],
+            ['Rivers', `${RIVERS.length}, from springs in the range to the sea`],
+            ['Waterfalls', FALLS.map((f, k) => `${Math.round(f.height)} m on river ${f.river + 1}`).join('; ')],
+            ['Lakes', `${LAKES.filter(L => L.kind === 'tarn').length} tarns above the falls, ${LAKES.filter(L => L.kind === 'pool').length} plunge pools below them, ${LAKES.filter(L => L.kind === 'lake').length} lake on the plain`],
+            ['Sea', 'a stand-in, see-through over the shallows: the game’s ocean only reaches 450 m from the camera'],
+            ['Takes', 'a few seconds to build: some 800 chunks']],
     async build() {
-      const g = new THREE.Group();
-      for (const m of [t.far.ground, t.far.canopy]) g.add(new THREE.Mesh(m.geometry, m.material));
-      g.position.set(-WORLD.cx, 0, -WORLD.cz);
+      const C = CHUNK;
+      const world = new THREE.Group();
+      // Every chunk with land in it, or shallows off it; finer where there is fresh water.
+      const near = (x, z) => {
+        const L = landAt(x, z);
+        return L.river < C * 0.75 || LAKES.some(k => Math.hypot(k.x - x, k.z - z) < k.a + C * 0.75);
+      };
+      const chunks = [];
+      for (let i = Math.floor((WORLD.cx - 1500) / C); i <= Math.ceil((WORLD.cx + 1500) / C); i++) {
+        for (let j = Math.floor((WORLD.cz - 1500) / C); j <= Math.ceil((WORLD.cz + 1500) / C); j++) {
+          if (coastDistance(i * C, j * C) > -90) chunks.push({ i, j, ring: near(i * C, j * C) ? 1 : 2 });
+        }
+      }
+      // Built one by one, as the game does, and gathered: the ground (and the
+      // vines down the cliffs) by material, each plant by its shape and material.
+      const plain = new Map(), herds = new Map();
+      let n = 0;
+      for (const { i, j, ring } of chunks) {
+        const c = t.buildChunk({ i, j, ring });
+        c.group.removeFromParent();
+        c.group.updateMatrixWorld(true);
+        c.group.traverse(o => {
+          if (o.isInstancedMesh) {
+            const k = o.geometry.uuid + '|' + (Array.isArray(o.material) ? o.material.map(m => m.uuid).join(',') : o.material.uuid);
+            if (!herds.has(k)) herds.set(k, { geometry: o.geometry, material: o.material, parts: [], shadow: o.castShadow });
+            herds.get(k).parts.push(o);
+          } else if (o.isMesh) {
+            if (!plain.has(o.material)) plain.set(o.material, []);
+            plain.get(o.material).push(o.geometry.clone().applyMatrix4(o.matrixWorld));
+          }
+        });
+        if (++n % 40 === 0) await new Promise(r => setTimeout(r, 0));
+      }
+      for (const [material, geos] of plain) {
+        const merged = geos.length > 1 ? mergeGeometries(geos, false) : geos[0];
+        const list = merged ? [merged] : geos;           // attributes that will not merge: left apart
+        for (const g of list) {
+          const m = new THREE.Mesh(g, material);
+          m.receiveShadow = true;
+          world.add(m);
+        }
+      }
+      const m4 = new THREE.Matrix4(), col = new THREE.Color();
+      for (const { geometry, material, parts, shadow } of herds.values()) {
+        const total = parts.reduce((s, p) => s + p.count, 0);
+        const all = new THREE.InstancedMesh(geometry, material, total);
+        let k = 0;
+        for (const p of parts) {
+          for (let q = 0; q < p.count; q++, k++) {
+            p.getMatrixAt(q, m4);
+            all.setMatrixAt(k, m4.premultiply(p.matrixWorld));
+            if (p.instanceColor) { p.getColorAt(q, col); all.setColorAt(k, col); }
+          }
+        }
+        all.castShadow = shadow;
+        all.receiveShadow = true;
+        all.frustumCulled = false;
+        world.add(all);
+      }
+      // The water, the game's own: the rivers and lakes, and the falls, pouring.
+      for (const m of t.rivers.meshes) {
+        const w = new THREE.Mesh(m.geometry, m.material);
+        w.renderOrder = 2;
+        world.add(w);
+      }
+      const falls = FALLS.map(f => { const w = new Waterfall(f); world.add(w.group); return w; });
+      world.position.set(-WORLD.cx, 0, -WORLD.cz);
       const holder = new THREE.Group();
-      holder.add(g);
-      // A sea round it, so the coast reads as a coast rather than the edge
-      // of a floating slab. The far land is only drawn above y 0.2, so this
-      // takes over at the waterline.
-      const sea = new THREE.Mesh(new THREE.CircleGeometry(40000, 96),
-        new THREE.MeshStandardMaterial({ color: 0x1f5570, roughness: 0.75, metalness: 0 }));
-      sea.rotation.x = -Math.PI / 2;
-      sea.position.y = 0.05;
-      holder.add(sea);
-      // Where the raft is (the world origin), so you can see how far the
-      // swim to the beach is: a post big enough to read from kilometres up.
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(14, 14, 120, 16),
-        new THREE.MeshStandardMaterial({ color: 0xd8483a, roughness: 0.6 }));
-      post.position.set(-WORLD.cx, 60, -WORLD.cz);
-      holder.add(post);
+      holder.add(world);
+      // A sea round it. Over the island's shelf, a sheet whose colour and
+      // see-through follow the depth under it: pale turquoise over the sand
+      // off the beaches, deep blue and opaque well before the built shallows
+      // end. Beyond, a plain ring of deep sea to the horizon.
+      const R = 1500, STEP = 20, N = R * 2 / STEP;
+      const shallow = new THREE.Color(0x49b3c2), deep = new THREE.Color(0x1b5a7a), c3 = new THREE.Color();
+      const pos = [], cols = [], idx = [];
+      for (let b = 0; b <= N; b++) {
+        for (let a = 0; a <= N; a++) {
+          const x = -R + a * STEP, z = -R + b * STEP, wx = x + WORLD.cx, wz = z + WORLD.cz;
+          const m = coastDistance(wx, wz), depth = Math.max(0, -heightAt(wx, wz));
+          const d = m < -80 ? 1 : THREE.MathUtils.smoothstep(depth, 0, 16);
+          c3.copy(shallow).lerp(deep, d);
+          pos.push(x, 0.02, z);
+          cols.push(c3.r, c3.g, c3.b, 0.45 + 0.55 * d);
+          if (a && b) {
+            const i = b * (N + 1) + a;
+            idx.push(i - N - 2, i - 1, i - N - 1, i - N - 1, i - 1, i);
+          }
+        }
+      }
+      const sheet = new THREE.BufferGeometry();
+      sheet.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      sheet.setAttribute('color', new THREE.Float32BufferAttribute(cols, 4));
+      sheet.setIndex(idx);
+      sheet.computeVertexNormals();
+      const seaMat = { roughness: 0.3, metalness: 0 };
+      const sea = new THREE.Mesh(sheet, new THREE.MeshStandardMaterial({ ...seaMat, vertexColors: true, transparent: true, depthWrite: false }));
+      sea.renderOrder = 1;
+      const open = new THREE.Mesh(new THREE.RingGeometry(R * 0.98, 40000, 96, 1), new THREE.MeshStandardMaterial({ ...seaMat, color: deep }));
+      open.rotation.x = -Math.PI / 2;
+      open.position.y = 0.02;
+      holder.add(sea, open);
       return { object: holder, ground: false, keepHeight: true, distant: true,
-               frame: { center: V(0, 60, 0), size: V(2200, 300, 2200) }, view: { yaw: 0.5, pitch: 0.6 } };
+               frame: { center: V(0, 60, 0), size: V(2200, 300, 2200) }, view: { yaw: 0.5, pitch: 0.6 },
+               update: (dt, time) => { setFloraTime(time); for (const w of falls) w.update(dt, time, null); } };
     },
   });
 
@@ -587,7 +730,8 @@ export async function loadRegistry() {
       async build(variant) {
         let o = debris[kind].clone(true);
         if (scanned && variant !== 'fallback') {
-          const field = { items: [{ kind, obj: o }] };
+          // A stand-in field with the real one's methods (dress() calls dressNut()).
+          const field = Object.assign(Object.create(DebrisField.prototype), { items: [{ kind, obj: o }] });
           await DebrisField.prototype.dress.call(field, lib);
         }
         o.position.set(0, 0, 0); o.rotation.set(0, 0, 0);
@@ -770,6 +914,40 @@ async function terrainSamples() {
          'the river, mud and pebble banks, reeds, horsetails, tree ferns',
          best((L, x, z) => (L.h > 6 && L.river < 4 ? 1 : 0) - near(x, z)), { river: true }),
   );
+  // The falls and the lakes: where terrain.js put them, on the rivers.
+  const r1 = v => Math.round(v * 10) / 10;
+  FALLS.forEach((f, k) => {
+    const tarn = LAKES.find(L => L.kind === 'tarn' && Math.hypot(L.x - f.x, L.z - f.z) < 80);
+    samples.push(pick(`fall-${k}`, `Waterfall ${k + 1}`, 'water', 'Lakes & falls', `where river ${f.river + 1} comes off the range, ${Math.round(f.x)}, ${Math.round(f.z)}`,
+      'the fall, the tarn it spills from, the plunge pool, spray, the rock of the lip', chunkOf(f.x + f.dx * 8, f.z + f.dz * 8), {
+        river: true,
+        // Framed on the fall, not the middle of its chunk.
+        frame: { center: V(f.x + f.dx * 3, (f.top + f.bottom) / 2, f.z + f.dz * 3), size: V(f.width + 4, f.height + 2, f.width + 4) },
+        // From downstream, a little to one side, looking back up at it.
+        view: { yaw: Math.atan2(f.dx, f.dz) + 0.35, pitch: 0.12 },
+        chunks: (() => {
+          const cx = f.x + f.dx * 6, cz = f.z + f.dz * 6, out = [];
+          for (let i = Math.floor((cx - 60) / CHUNK); i <= Math.ceil((cx + 60) / CHUNK); i++) {
+            for (let j = Math.floor((cz - 60) / CHUNK); j <= Math.ceil((cz + 60) / CHUNK); j++) {
+              const dx = Math.max(0, Math.abs(cx - i * CHUNK) - CHUNK / 2), dz = Math.max(0, Math.abs(cz - j * CHUNK) - CHUNK / 2);
+              if (Math.hypot(dx, dz) < 60) out.push([i, j]);
+            }
+          }
+          return out;
+        })(),
+        facts: [['Drop', `${r1(f.height)} m, from ${r1(f.top)} m to ${r1(f.bottom)} m`], ['Width', `${r1(f.width)} m across the lip`],
+                ['Above it', tarn ? `a tarn, ${Math.round(tarn.a * 2)} × ${Math.round(tarn.b * 2)} m, spilling over the lip` : 'the river'],
+                ['Below it', 'a plunge pool, wading deep'],
+                ['The water', 'three curtains that shudder and speed up as they fall, clumps tumbling, churning foam, a foam trail, droplets, spray']],
+      }));
+  });
+  LAKES.filter(L => L.kind === 'lake').forEach((L, k) => samples.push(
+    pick(`lake-${k}`, 'Lake', 'water', 'Lakes & falls', `where the first river idles across the plain, ${Math.round(L.x)}, ${Math.round(L.z)}`,
+         'still water, a sandy shore, reeds and bamboo, the river in and out', chunkOf(L.x, L.z), {
+           river: true,
+           facts: [['Size', `about ${Math.round(L.a * 2)} × ${Math.round(L.b * 2)} m`], ['Level', `${r1(L.level)} m above the sea`],
+                   ['Depth', 'wading: 1.3 m at the deepest'], ['Drink', 'E at the water: +30 thirst — it is fresh']],
+         })));
   for (const s of samples) if (s.id === 'shallows') s.focusY = 0;
   return samples;
 }

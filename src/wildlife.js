@@ -8,7 +8,7 @@
 // drawn and posed.
 
 import * as THREE from 'three';
-import { heightAt, isLand, coastDistance } from './terrain.js';
+import { heightAt, isLand, coastDistance, freshWaterAt } from './terrain.js';
 import { ModelLibrary, playState, driveGait } from './models.js';
 
 const TAU = Math.PI * 2;
@@ -402,6 +402,9 @@ export class Wildlife {
     if (coastDistance(x, z) < 8) return false;
     const h = heightAt(x, z);
     if (h > 150 || h < 1.5) return false;
+    // Not out into a lake or a river past their knees.
+    const w = freshWaterAt(x, z);
+    if (w && w.depth > 0.5) return false;
     const e = 2;
     const slope = Math.hypot(heightAt(x + e, z) - heightAt(x - e, z), heightAt(x, z + e) - heightAt(x, z - e)) / (2 * e);
     return slope < MAX_SLOPE * 1.1;

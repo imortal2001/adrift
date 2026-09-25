@@ -24,8 +24,8 @@ And roughly **80 metres off the bow there is land** — a continent, not an
 island, two and a half kilometres across. Swim for it and you come ashore on a
 beach under a wall of giant redwoods, fifty metres tall and three across at
 the foot, hung with vines, with tree ferns, cycads and ferns under them. Past
-the forest are open plains of waist-high grass, a river cutting down to the
-sea, stepped sandstone escarpments, sea cliffs with stacks standing off them,
+the forest are open plains of waist-high grass, rivers cutting down to the
+sea over waterfalls and through lakes, stepped sandstone escarpments, sea cliffs with stacks standing off them,
 and in the middle a range of jagged peaks, snow on the tops, that you can see
 from the raft. It is inhabited: sauropods and stegosaurs
 browse the slopes, parasaur herds bolt at the first sign of trouble, raptors
@@ -79,7 +79,7 @@ code and models, runs on this machine only, and has its own
 | Arrow keys | also turn the view |
 | `Space` | jump — and climb aboard when you are in the water |
 | `V` | change the view: first person → third (behind you) → second (facing you) |
-| `E` | gather the debris you are looking at, drink from a collector, take back a thrown spear; at a campfire, cook the raw fish in hand, take fish that are done, or feed it wood |
+| `E` | gather the debris you are looking at, drink from a collector — or a river, lake or pool ashore — take back a thrown spear; at a campfire, cook the raw fish in hand, take fish that are done, or feed it wood |
 | `1`–`5`, wheel | pick a hotbar slot |
 | Left-click | use whatever is in your hands |
 | `I` | pack — register tools and items into the five slots |
@@ -207,7 +207,8 @@ pause screen starts over.
 | `src/whale.js` | One humpback, ambient: cruises, surfaces to blow, sounds flukes-up. Not catchable. |
 | `src/reef.js` | What lives on the sea bed: coral, sponges, anemones, seagrass, kelp, urchins, starfish, giant clams and rock, plus the surge that bends the soft ones. |
 | `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Used by the reef. |
-| `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
+| `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers, and the falls and lakes on them), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
+| `src/waterfall.js` | The lakes' still water, cut to their shores, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
 | `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks. |
 | `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
@@ -264,6 +265,29 @@ nothing lines up in rows:
   banked into a flood plain across hollows. The first reaches the sea about
   200 m up the coast from the landing beach. The water is a ribbon at the
   surveyed level, flowing, reflecting the sky; you wade it, about a metre deep.
+- **Waterfalls and lakes** (`placeWater` in `terrain.js`, drawn by
+  `src/waterfall.js`) — where each river comes off the range fastest, it goes
+  over a lip and drops, sheer, up to 22 m: a notch cut through the rock across
+  the channel, the valley sides coming down a steep slope either side. It is
+  heavy, broken white water: three curtains arc out from the lip, each
+  shuddering on its own, their streaks stretching as the water speeds up
+  (the texture runs on time-of-fall, not distance), with clumps of white
+  water tearing loose and tumbling down in front. The pool churns — two
+  layers of foam turning against each other, a trail of it carried off
+  downstream — droplets are flung up out of the impact, and spray boils off
+  it all and drifts away. Above each fall the river is
+  flattened into a **tarn** that spills over the lip; below it is the
+  **plunge pool** it has dug. Lower down, where the first river falls least,
+  it widens into a **lake** on the plain, with a wobbled, sandy shore. All of
+  it is wading water — chest deep at most — so the reeds, horsetails and
+  bamboo of the river banks grow round the shores too, and dinosaurs keep
+  out of it past their knees; wading slows you, the deeper the more (the
+  badge says how deep). The top of a fall is a walk round, up the valley
+  side; step off the lip and you fall into the pool — walking off any edge
+  higher than a step, you go over and fall. At night the falls dim with
+  everything else. And it is
+  fresh: look at any river, lake or pool and **E** drinks (+30 thirst). The
+  sea is salt.
 
 It is streamed in **64m chunks** around whoever is looking: fine near you,
 progressively coarser out to about 450m, rebuilt two chunks per frame so
@@ -1098,7 +1122,8 @@ would split the raft in two.
   it along the same line if you change the size or the lobes).
 - Relief: `MOUNTAIN_HEIGHT`, `TERRACE`, `SNOWLINE`, `TREELINE`,
   `LANDING_CLEAR` (how far from the raft the cliffs start) in `terrain.js`;
-  the rivers are the `RIVERS` table beside them.
+  the rivers are the `RIVERS` table beside them; the falls and lakes on them
+  come from `placeWater` (`FALL_MAX`, `LAKE_DEPTH`, `WADING`).
 - Terrain cost: `VIEW_CHUNKS`, `LOD_SEGMENTS`, `TREE_RING`, `BUILD_BUDGET`.
 - Forest make-up: `SPECIES` in `flora.js` — each species' `where(site)` rule,
   its size, how far out it is drawn (`rings`, `farFrom`) and its harvest —
@@ -1153,7 +1178,7 @@ Each of these has a deliberate hook already in place:
   `Wildlife` already tracks health for its own kills; a hit test against it in
   `ThrownSpears.fly()`, like the one against fish, is most of the work.
 - **More from the fire** — torches lit from it for the night and for going
-  ashore; a water container to fill at a collector or a river; campfires on
+  ashore; a water container to fill at a collector, a river or a lake; campfires on
   land (the build grid is the raft's); a spark kit of flint and pyrite from
   the rocks ashore, quicker than the bow drill.
 - **Marine animals** — a shark that circles the raft and punishes swimming is

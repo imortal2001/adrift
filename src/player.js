@@ -8,7 +8,7 @@
 
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
-import { heightAt as landHeight, isLand } from './terrain.js';
+import { heightAt as landHeight, isLand, freshWaterAt } from './terrain.js';
 
 // Side order matches Raft: 0 = -z, 1 = +x, 2 = +z, 3 = -x.
 const NEIGHBOUR_OFFSET = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -213,7 +213,11 @@ export class Player {
   // ── on the deck ────────────────────────────────────────────────────────────
   walk(dt, time, wish, sprinting, input, moveLocked) {
     this.depth = 0;
-    const speed = (sprinting && this.hunger > 5 ? SPRINT : WALK);
+    let speed = (sprinting && this.hunger > 5 ? SPRINT : WALK);
+    // Wading: the deeper the river or lake is round you, the slower you go.
+    const fresh = this.onLand ? freshWaterAt(this.pos.x, this.pos.z) : null;
+    this.wading = fresh ? Math.max(0, fresh.level - this.pos.y) : 0;
+    if (this.wading > 0.25) speed *= 1 - 0.5 * Math.min(1, (this.wading - 0.25) / 0.9);
     const d = this.moveDir(wish, this._dir);
     const prev = this._prev.copy(this.pos);
     this.moveFlat(d.x * speed * dt, d.z * speed * dt);
@@ -249,6 +253,14 @@ export class Player {
     this.onLand = ground.land;
     // Step up onto a rise, but fall off anything you have walked over the top of.
     if (ground.y > this.pos.y + 0.75) { this.pos.copy(prev); return; }
+    // Walked off an edge — a cliff, the lip of a fall: you go over, and fall,
+    // rather than being set down at the foot of it.
+    if (ground.y < this.pos.y - 1.2) {
+      this.vel.set(d.x * speed, 0, d.z * speed);
+      this.vy = 0;
+      this.state = 'air';
+      return;
+    }
     this.pos.y = ground.y;
     this.bob += Math.hypot(d.x, d.z) * speed * dt * (sprinting ? 3.6 : 2.8);
   }

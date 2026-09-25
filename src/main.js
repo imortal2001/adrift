@@ -19,7 +19,7 @@ import { pickStart, WAKING } from './spawn.js';
 import { Statues, newStatueId, scatter } from './statue.js';
 import { ThrownSpears, travelTime } from './spear.js';
 import { Fishing } from './fishing.js';
-import { Terrain, heightAt as landHeight, coastDistance, CHUNK } from './terrain.js';
+import { Terrain, heightAt as landHeight, coastDistance, CHUNK, landAt, freshWaterAt } from './terrain.js';
 import { Wildlife } from './wildlife.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
@@ -994,6 +994,28 @@ class Game {
     }
   }
 
+  /** The fresh water a look lands on, within reach — or null. Only near a river or a lake. */
+  freshLookedAt(eye, dir) {
+    const p = this.player;
+    if (!p.onLand || p.state === 'swim' || landAt(p.pos.x, p.pos.z).edge > 6) return null;
+    const at = this._fresh ||= new THREE.Vector3();
+    for (let t = 0.3; t <= 3.6; t += 0.15) {
+      at.copy(eye).addScaledVector(dir, t);
+      const w = freshWaterAt(at.x, at.z);
+      if (w && at.y <= w.level + 0.02) return w;
+      if (at.y < landHeight(at.x, at.z)) return null;       // the ground, before any water
+    }
+    return null;
+  }
+
+  drinkFresh(where) {
+    const p = this.player;
+    p.thirst = Math.min(100, p.thirst + 30);
+    this.useAnim('eat');
+    this.hud.log(p.thirst >= 100 ? `You drink your fill from ${where}.` : `You drink from ${where} — cold, and fresh.`, 'good');
+    this.hud.updateVitals(p);
+  }
+
   /**
    * A statue is a place to wake, nothing more — not something to collect.
    * The first one you come near with nowhere to wake yet says what it is for.
@@ -1498,6 +1520,14 @@ class Game {
       };
     }
 
+    // Fresh water under the crosshair — a river, a lake, the pool under a
+    // fall: drink. (The sea is salt: that is what the collector is for.)
+    const fresh = this.freshLookedAt(eye, dir);
+    if (fresh) {
+      const where = { river: 'the river', lake: 'the lake', tarn: 'the lake', pool: 'the pool' }[fresh.kind];
+      return { prompt: `<b>E</b> drink from ${where}`, act: () => this.drinkFresh(where) };
+    }
+
     const plant = this.terrain.pickPlant(eye, dir);
     if (plant) {
       return {
@@ -1706,7 +1736,7 @@ class Game {
     const eye = this.eye.position;
     const dir = this.player.forward(this.tmpDir);
     // Stream terrain around whoever is looking at it, then run the ecosystem.
-    this.terrain.update(dt, this.player.pos, this.time);
+    this.terrain.update(dt, this.player.pos, this.time, this.sky.night);
     this.wildlife.setPlayerPos(this.player.pos);
     this.wildlife.update(dt, this.time, this.player,
                          this.player.state === 'deck' && this.player.onLand);
