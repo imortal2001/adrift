@@ -4,6 +4,7 @@
 // without ever growing the scene graph.
 
 import * as THREE from 'three';
+import { heightAt } from './terrain.js';
 import { waveHeight, waveNormal } from './ocean.js';
 import { textures } from './textures.js';
 import { DEBRIS_KINDS } from './items.js';
@@ -32,6 +33,8 @@ function shapes() {
     metal: std(t.metal, { roughness: 0.6, metalness: 0.4 }),
     palm:  std(t.palm, { side: THREE.DoubleSide, roughness: 0.75 }),
     husk:  std(null, { color: 0x6d4a2b, roughness: 0.9 }),
+    bamboo: std(null, { color: 0xb09a68, roughness: 0.75 }),
+    rope:  std(null, { color: 0xb39360, roughness: 0.95 }),
   };
 
   const put = (g, m, x, y, z, rx = 0, ry = 0, rz = 0) => {
@@ -80,6 +83,20 @@ function shapes() {
       for (const d of [-0.28, 0.28]) g.add(put(r, M.metal, d, 0, 0, 0, Math.PI / 2, 0));
       return g;
     },
+    // A few canes, lashed in a bundle, washed off somewhere.
+    bamboo() {
+      const g = new THREE.Group();
+      for (let i = 0; i < 4; i++) {
+        const c = new THREE.CylinderGeometry(0.055, 0.05, 2.2 + Math.random() * 0.6, 7);
+        c.rotateZ(Math.PI / 2);
+        g.add(put(c, M.bamboo, (Math.random() - 0.5) * 0.4, (i % 2) * 0.09, (i - 1.5) * 0.11, 0, (Math.random() - 0.5) * 0.04, 0));
+      }
+      // Two lashings, snug round the bundle: wide across it, flat over it.
+      const band = new THREE.TorusGeometry(0.23, 0.014, 4, 14);
+      band.scale(1, 0.46, 1);
+      for (const d of [-0.55, 0.55]) g.add(put(band, M.rope, d, 0.045, 0, 0, Math.PI / 2, 0));
+      return g;
+    },
     crate() {
       const g = new THREE.Group();
       g.add(put(new THREE.BoxGeometry(0.78, 0.66, 0.78), M.plank, 0, 0, 0));
@@ -108,7 +125,8 @@ export class DebrisField {
     this.scene = scene;
     this.raft = raft;
     this.items = [];
-    const make = shapes();
+    const make = this.make = shapes();
+    this.nut = null;          // the scanned coconut, once dress() has it
 
     for (let i = 0; i < POOL; i++) {
       const kind = WEIGHTED[(Math.random() * WEIGHTED.length) | 0];
@@ -143,21 +161,74 @@ export class DebrisField {
     let nut = null;
     entry?.scene.traverse(o => { if (o.isMesh && !nut) nut = o; });
     if (!nut) return;
-    for (const it of this.items) {
-      if (it.kind !== 'coconut') continue;
-      const m = nut.clone();
-      m.scale.setScalar(COCONUT_SCALE);
-      m.rotation.set(1.3 + Math.random() * 0.5, Math.random() * 7, 0);
-      m.castShadow = true;
-      it.obj.clear();
-      it.obj.add(m);
-    }
+    this.nut = nut;
+    for (const it of this.items) if (it.kind === 'coconut') this.dressNut(it.obj);
+  }
+
+  dressNut(obj) {
+    const m = this.nut.clone();
+    m.scale.setScalar(COCONUT_SCALE);
+    m.rotation.set(1.3 + Math.random() * 0.5, Math.random() * 7, 0);
+    m.castShadow = true;
+    obj.clear();
+    obj.add(m);
+  }
+
+  // ── playing together ───────────────────────────────────────────────────────
+  /** Every piece: [kind, x, z], in slot order. */
+  snapshot() {
+    const r = v => Math.round(v * 10) / 10;
+    return this.items.map(it => [it.kind, r(it.x), r(it.z)]);
+  }
+
+  /**
+   * The host's flotsam: each slot takes its kind (a new body if it differs)
+   * and its place — eased there if close, since both drift on the same
+   * current, put there if not (the host has recycled it). A piece you have
+   * on the hook stays yours until it is in.
+   */
+  adopt(list) {
+    list.forEach((st, i) => {
+      const it = this.items[i];
+      if (!it || !Array.isArray(st) || it.held) return;
+      const [kind, x, z] = st;
+      if (kind !== it.kind && DEBRIS_KINDS[kind]) this.rekind(it, kind);
+      if (Math.hypot(x - it.x, z - it.z) > 2) { it.x = x; it.z = z; }
+      else { it.x += (x - it.x) * 0.5; it.z += (z - it.z) * 0.5; }
+    });
+  }
+
+  rekind(it, kind) {
+    const obj = this.make[kind]();
+    obj.userData.debrisIndex = it.obj.userData.debrisIndex;
+    this.scene.remove(it.obj);
+    this.scene.add(obj);
+    if (kind === 'coconut' && this.nut) this.dressNut(obj);
+    it.obj = obj;
+    it.kind = kind;
+    it.buoy = kind === 'coconut' ? 0.02 : kind === 'palm' ? 0.01 : -0.04;
+  }
+
+  /**
+   * Where the flotsam is centred: you, out at sea (main.js sets `focus`) —
+   * or, failing that, the raft.
+   */
+  get hub() {
+    if (this.focus) return this.focus;
+    const r = this.raft;
+    return { x: r.x ?? r.group.position.x, z: r.z ?? r.group.position.z };
   }
 
   respawn(it, along = -SPAWN_DIST) {
-    const lateral = (Math.random() * 2 - 1) * BAND;
-    it.x = CURRENT.x * along + SIDE.x * lateral;
-    it.z = CURRENT.y * along + SIDE.y * lateral;
+    const h = this.hub;
+    // Somewhere afloat: a spot over land is tried again, a little way along.
+    for (let tries = 0; tries < 6; tries++) {
+      const lateral = (Math.random() * 2 - 1) * BAND;
+      it.x = h.x + CURRENT.x * along + SIDE.x * lateral;
+      it.z = h.z + CURRENT.y * along + SIDE.y * lateral;
+      if (heightAt(it.x, it.z) < -1) break;
+      along -= 15;
+    }
     it.held = false;
     it.yaw = Math.random() * 7;
     return it;
@@ -175,6 +246,8 @@ export class DebrisField {
   update(dt, time, playerPos) {
     const R = this.raftRadius();
     const n = new THREE.Vector3();
+    const h = this.hub;
+    const rx0 = this.raft.x ?? this.raft.group.position.x, rz0 = this.raft.z ?? this.raft.group.position.z;
 
     for (const it of this.items) {
       if (it.held) {
@@ -189,15 +262,20 @@ export class DebrisField {
         it.z += CURRENT.y * SPEED * dt;
 
         // Drift around the raft instead of straight through it.
-        const dist = Math.hypot(it.x, it.z);
-        if (dist < R) {
+        const ox = it.x - rx0, oz = it.z - rz0;
+        const dist = Math.hypot(ox, oz);
+        if (dist < R && this.raft.size !== 0) {
           const push = (R - dist) * dt * 1.6;
-          it.x += (it.x / (dist || 1)) * push;
-          it.z += (it.z / (dist || 1)) * push;
+          it.x += (ox / (dist || 1)) * push;
+          it.z += (oz / (dist || 1)) * push;
         }
 
-        const along = it.x * CURRENT.x + it.z * CURRENT.y;
-        if (along > KILL_DIST) this.respawn(it);
+        // Gone by downstream — or left behind, you having gone on, or washed
+        // up — it comes round again upstream of where you are now.
+        const rx = it.x - h.x, rz = it.z - h.z;
+        const along = rx * CURRENT.x + rz * CURRENT.y;
+        if (along > KILL_DIST || along < -SPAWN_DIST - 30 || Math.abs(rx * SIDE.x + rz * SIDE.y) > BAND + 60 ||
+            heightAt(it.x, it.z) > -0.3) this.respawn(it);
       }
 
       it.yaw += it.spin * dt;

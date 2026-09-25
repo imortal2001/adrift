@@ -29,6 +29,7 @@ import { ModelLibrary } from '/src/models.js';
 import { SPECIES as DINOS, Wildlife } from '/src/wildlife.js';
 import { FishSchools, normalise, BODY_LENGTH, BIG } from '/src/fish.js';
 import { swimMaterial, styleFor, Swimmer, skinOf } from '/src/swim.js';
+import { statueBody } from '/src/statue.js';
 import { Whale } from '/src/whale.js';
 import { FIGHTERS } from '/src/fight.js';
 import { REEF, reefGeometry, reefMaterial } from '/src/reef.js';
@@ -360,7 +361,8 @@ export async function loadRegistry() {
   // ── you ──
   // The player's body, as the third- and second-person views show it: the
   // game's own PlayerBody, walked on the spot by the same code as in play.
-  const GAITS = { idle: ['deck', 0], walk: ['deck', 2.6], run: ['deck', 5.6], swim: ['swim', 1.6], tread: ['swim', 0] };
+  const GAITS = { idle: ['deck', 0], walk: ['deck', 2.6], run: ['deck', 5.6], tread: ['swim', 0],
+                  swim: ['swim', 1.6], dive: ['swim', 1.6, true], spear: ['swim', 1.6, false, true] };
   for (const [who, name] of [['woman', 'The player (woman)'], ['man', 'The player (man)']]) {
     const hasModel = manifest.has(`player_${who}`);
     add({
@@ -371,21 +373,42 @@ export async function loadRegistry() {
                        : 'src/body.js · mannequin() — the stand-in until the model is converted',
       facts: [['Seen', 'in third person (behind you) and second (facing you) — V changes the view'],
               ['Motion', 'no animation in the file: the stride, swim, jump and arm swings are made in code (src/body.js)'],
+              ['In the water', 'treading water upright; a front crawl at the surface; breaststroke under it, tipped toward where you are going'],
               ['Licence', hasModel ? 'Ready Player Me, CC BY-NC-SA 4.0 — non-commercial, and changes share alike' : 'original']],
       variants: [{ id: 'idle', label: 'Standing' }, { id: 'walk', label: 'Walking' }, { id: 'run', label: 'Running' },
-                 { id: 'tread', label: 'Treading water' }, { id: 'swim', label: 'Swimming' }],
+                 { id: 'tread', label: 'Treading water' }, { id: 'swim', label: 'Front crawl' },
+                 { id: 'dive', label: 'Breaststroke, under water' }, { id: 'spear', label: 'Swimming with a spear' }],
       async build(variant = 'idle') {
         const holder = new THREE.Group();
         const body = new PlayerBody(holder);
         await body.wear(who, lib);
-        const [state, speed] = GAITS[variant] || GAITS.idle;
-        const p = { pos: new THREE.Vector3(0, state === 'swim' ? 0.6 : 0, 0), yaw: Math.PI, pitch: 0, state, speed };
+        const [state, speed, submerged = false, spear = false] = GAITS[variant] || GAITS.idle;
+        if (spear && held.spear) body.hold('spear', held.spear.clone(true));
+        const p = { pos: new THREE.Vector3(0, state === 'swim' ? 0.6 : 0, 0), yaw: Math.PI, pitch: 0, state, speed, submerged };
         body.update(0.016, p);
+        // Swimming somewhere, the body lies out behind the head.
+        const lying = state === 'swim' && speed > 0;
         return { object: holder, update: dt => body.update(dt, p),
-                 frame: { center: V(0, 0.9, 0), size: V(1.1, 1.9, 1.1) } };
+                 frame: lying ? { center: V(0, 1.75, -0.75), size: V(1.3, 0.8, 2.1) }
+                              : { center: V(0, 0.9 + p.pos.y, 0), size: V(1.1, 1.9, 1.1) } };
       },
     });
   }
+
+  add({
+    id: 'statue', name: 'Statue', category: 'objects', group: 'On land',
+    kind: 'built in code', source: 'src/statue.js · statueBody()',
+    facts: [['Where', 'two dozen stand about the land, to be found — or carve one (6 wood, 2 rope, 3 palm)'],
+            ['What', 'register at it (E) and you wake beside it if you die; without one you wake where you first came to'],
+            ['Moving it', 'X lifts it; click sets it down on land, or on the raft\'s deck, where it sails with you'],
+            ['Size', 'about 1.9 m'], ['Garland', 'on the one you are registered at, on your screen']],
+    variants: [{ id: 'plain', label: 'Standing' }, { id: 'yours', label: 'Yours (garlanded)' }],
+    async build(variant = 'plain') {
+      const obj = statueBody();
+      obj.getObjectByName('garland').visible = variant === 'yours';
+      return { object: shadows(obj) };
+    },
+  });
 
   add({
     id: 'float', name: 'Fishing float', category: 'equipment', group: 'Fishing gear',
@@ -585,10 +608,11 @@ export async function loadRegistry() {
       variants: b.id === 'campfire' ? [{ id: 'lit', label: 'Lit' }, { id: 'unlit', label: 'Unlit' }] : null,
       async build(variant) {
         const raft = new Raft(scratch);
-        raft.place('foundation', { cx: 0, cz: 0, force: true });
+        // A foundation of any kind is shown alone; everything else on a plank one.
+        raft.place(b.kind === 'cell' ? b.id : 'foundation', { cx: 0, cz: 0, force: true });
         const t = { cx: 0, cz: 0, ex: 0, ez: 0, es: 1, force: true };
         let obj;
-        if (b.id === 'foundation') obj = raft.cells.values().next().value.obj;
+        if (b.kind === 'cell') obj = raft.cells.values().next().value.obj;
         else {
           raft.place(b.id, t);
           obj = ({ edge: raft.edges, top: raft.tops, object: raft.objs })[b.kind].values().next().value?.obj;

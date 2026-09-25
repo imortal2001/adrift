@@ -1052,6 +1052,36 @@ function horsetail(lod, seed) {
   return b.geometry();
 }
 
+/**
+ * A bamboo clump: a dozen tall canes, jointed every third of a metre, arching
+ * out from the middle, with sprays of narrow leaves up their upper half.
+ * Cut, it gives the poles a bamboo raft is lashed from.
+ */
+function bamboo(lod, seed) {
+  const r = rng(seed), b = new Builder();
+  const canes = lod ? 7 : 13;
+  for (let s = 0; s < canes; s++) {
+    const a = r() * Math.PI * 2, d = r() * 0.45;
+    const base = V3(Math.cos(a) * d, -0.1, Math.sin(a) * d);
+    const H = 5 + r() * 4, out = V3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(0.3 + r() * 0.9);
+    const pts = [];
+    const n = lod ? 4 : 8;
+    for (let k = 0; k <= n; k++) pts.push(base.clone().add(V3(0, H * k / n, 0)).addScaledVector(out, (k / n) ** 2 * H * 0.35));
+    const green = new THREE.Color([0xb4cf5e, 0xc6d86a, 0xd2cf72][s % 3]);   // bright: the bark shading darkens it
+    b.tube(pts, { sides: lod ? 4 : 6, k: 0, vMetres: 0.5, radius: t => 0.055 * (1 - t * 0.45),
+                  // Its joints: a darker ring every third of a metre or so.
+                  color: t => green.clone().multiplyScalar(Math.abs(Math.sin(t * H * 9.5)) > 0.94 ? 0.62 : 1),
+                  sway: t => t * t * 0.9 });
+    if (lod) continue;
+    for (let k = Math.ceil(n * 0.45); k <= n; k++) {
+      const at = pts[k], side = V3(-Math.sin(a), 0, Math.cos(a));
+      b.card(at, side, V3(0, 1, 0).addScaledVector(out, 0.6).normalize(), 1.1 + r() * 0.5, 0.9 + r() * 0.4, CELL.leaves,
+             { color: col(0x6f8f3c, r, 0.12), normal: UP, sway: 0.3 + (k / n) * 0.6 });
+    }
+  }
+  return b.geometry();
+}
+
 /** A shrub: a few woody stems in a mound of leaf clusters. */
 function bush(lod, seed) {
   const r = rng(seed), b = new Builder();
@@ -1494,6 +1524,11 @@ export const SPECIES = [
     rings: 7, farFrom: 2, scale: [3.2, 6.5], solid: true,
     // Sea stacks off the cliff coasts, and pillars standing out of the plains.
     where: s => s.cliff * band(-s.shore, 8, 20, 70, 110) * 0.9 + s.plain * s.rare * 0.8 },
+  // Last in the list, so adding it moved nothing else that grows.
+  { name: 'bamboo', group: 'Understorey', habitat: 'groves along the river banks, and in the wet lowlands behind the beaches', label: 'Bamboo', layer: 'under', make: bamboo, variants: 3, material: 'tree',
+    rings: 2, farFrom: 2, scale: [0.8, 1.25], trunk: 0.45, reach: 3.2, regrow: 180, yield: { bamboo: 4 },
+    where: s => (band(s.edge, 1.5, 4, 16, 34) * 0.4 + band(s.shore, 8, 16, 50, 90) * s.wet * 0.12) *
+                band(s.h, 1.5, 3, 45, 70) * (s.slope < 0.4 ? 1 : 0) },
 ];
 const TREE_H = 190;   // the treeline, for the rules above (src/terrain.js has the same)
 

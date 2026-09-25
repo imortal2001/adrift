@@ -392,6 +392,14 @@ export class Fishing {
     this.t += dt;
     const sea = waveHeight(this.pos.x, this.pos.z, time);
 
+    // Out on the water with nothing on, the line only pays out so far: a raft
+    // that has paddled (or sailed) on past that reels it in.
+    if ((this.state === 'waiting' || this.state === 'nibble' || this.state === 'bite') &&
+        Math.hypot(this.pos.x - player.pos.x, this.pos.z - player.pos.z) > LINE_MAX * 0.75) {
+      this.retract('The line runs out behind you — you reel it in.');
+      return;
+    }
+
     switch (this.state) {
       case 'charging':
         // Up and back down again: hold too long and it falls away.

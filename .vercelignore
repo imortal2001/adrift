@@ -11,4 +11,7 @@ blender/
 # The development server.
 serve.py
 
+# The multiplayer relay: it runs on Cloudflare, not as part of the site.
+server/
+
 .claude/

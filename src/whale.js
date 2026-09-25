@@ -73,6 +73,9 @@ export class Whale {
     this.load(fish.library);
   }
 
+  /** Where it keeps near: you (main.js sets `focus`), or failing that the raft. */
+  get hub() { return this.focus || this.raft.group.position; }
+
   async load(library) {
     // Its own model first; the procedural one in reef_fish.glb if that is missing.
     let body = null;
@@ -97,7 +100,7 @@ export class Whale {
     this._m.rotation.order = 'YXZ';
 
     // Start out on the ring, in deep water.
-    const r = this.raft.group.position;
+    const r = this.hub;
     const start = this.deepSpot(Math.random() * Math.PI * 2, ROUTE[1]);
     this.pos.set(start.x, CRUISE_DEPTH, start.z);
     this.yaw = Math.atan2(r.x - start.x, r.z - start.z) + Math.PI / 2;
@@ -127,7 +130,7 @@ export class Whale {
    * it found if the raft is somewhere with no deep water close by at all.
    */
   deepSpot(a, d) {
-    const r = this.raft.group.position;
+    const r = this.hub;
     let best = null, bestFloor = Infinity;
     for (const reach of [d, d * 1.4, d * 2]) {
       for (let k = 0; k < 16; k++) {
@@ -147,7 +150,7 @@ export class Whale {
    * deep spot on the ring; the steering keeps it off the shoals between.
    */
   pickGoal() {
-    const r = this.raft.group.position;
+    const r = this.hub;
     const here = Math.atan2(this.pos.z - r.z, this.pos.x - r.x);
     for (let tries = 0; tries < 24; tries++) {
       const a = here + rand(0.6, 1.4) * (Math.random() < 0.8 ? 1 : -1);
@@ -241,6 +244,35 @@ export class Whale {
     this.blows++;
   }
 
+  // ── playing together ───────────────────────────────────────────────────────
+  static STATES = ['cruise', 'rise', 'breathe', 'sound'];
+
+  /** Where it is and what it is doing, for the others: they swim it on from there. */
+  snapshot() {
+    if (!this.ready) return null;
+    const r = (v, k = 10) => Math.round(v * k) / k;
+    return [r(this.pos.x), r(this.pos.y), r(this.pos.z), r(this.yaw, 100), r(this.pitch, 100),
+            Whale.STATES.indexOf(this.state), r(this.timer), r(this.goal.x), r(this.goal.z),
+            this.blowsLeft ?? 0, r(this.descent ?? 0, 100)];
+  }
+
+  /** The host's whale: taken on here, eased into place if it is close, put there if not. */
+  adopt(st) {
+    if (!this.ready || !Array.isArray(st)) return;
+    const [x, y, z, yaw, pitch, state, timer, gx, gz, blows, descent] = st;
+    const far = Math.hypot(x - this.pos.x, z - this.pos.z) > 15;
+    const k = far ? 1 : 0.4;
+    this.pos.x += (x - this.pos.x) * k; this.pos.y += (y - this.pos.y) * k; this.pos.z += (z - this.pos.z) * k;
+    this.yaw += Math.atan2(Math.sin(yaw - this.yaw), Math.cos(yaw - this.yaw)) * k;
+    if (far) this.pitch = pitch;
+    this.state = Whale.STATES[state] || 'cruise';
+    this.timer = timer;
+    this.goal.set(gx, 0, gz);
+    this.blowsLeft = blows;
+    this.descent = descent;
+    this.steerIn = 0;
+  }
+
   update(dt, time) {
     this.time = time;
     this.updateSpout(dt);
@@ -259,6 +291,16 @@ export class Whale {
     // keeps it off the shoals, and if the raft ever drifts it into them it
     // lies low and swims out rather than riding up the beach.
     const lowest = Math.min(floor + 2.2, sea - 0.9);
+
+    // The raft goes where it is paddled. A goal it has left behind is no
+    // goal; and a whale left far behind comes round again near it — while it
+    // is down, cruising, out of sight.
+    const r = this.hub;
+    if (this.state === 'cruise' && Math.hypot(this.pos.x - r.x, this.pos.z - r.z) > 420) {
+      const start = this.deepSpot(Math.random() * Math.PI * 2, ROUTE[1]);
+      this.pos.set(start.x, CRUISE_DEPTH, start.z);
+      this.pickGoal();
+    } else if (Math.hypot(this.goal.x - r.x, this.goal.z - r.z) > ROUTE[1] * 1.8) this.pickGoal();
 
     // Head for the goal, around any shoal on the way; pick another when it
     // gets there, or when a shoal has turned it well off its line.

@@ -11,9 +11,13 @@
 //
 // Outside first person the camera is kept out of walls, the roof, the
 // ground and the sea bed: it is pulled in along the line from your head, so
-// what it shows is never the inside of a plank.
+// what it shows is never the inside of a plank. And with your head above the
+// water it stays above the swell too — a swimmer's eyes are a hand's breadth
+// off the surface, and a camera at that height behind them is under every
+// passing wave.
 
 import * as THREE from 'three';
+import { waveHeight } from './ocean.js';
 
 export const VIEWS = ['first', 'third', 'second'];
 const NAMES = { first: 'First person', third: 'Third person', second: 'Second person' };
@@ -23,6 +27,7 @@ const SHOULDER = 0.42;       // metres to the right of it
 const LIFT = 0.28;           // and above it
 const FRONT = 2.5;           // metres in front, second person
 const CLEAR = 0.22;          // how far short of an obstacle the camera stops
+const ABOVE_SEA = 0.32;      // how far over the waves it keeps, your head being above them
 
 const _dir = new THREE.Vector3(), _right = new THREE.Vector3(), _want = new THREE.Vector3();
 const _ray = new THREE.Raycaster();
@@ -55,7 +60,8 @@ export class CameraRig {
     return this.mode;
   }
 
-  update(dt) {
+  /** @param time  the sea's clock, for where the waves are */
+  update(dt, time = 0) {
     const eye = this.eye, cam = this.camera;
     eye.updateMatrixWorld();
     if (this.mode === 'first') {
@@ -83,6 +89,10 @@ export class CameraRig {
     // it for a frame, and one leaving should not make it leap back.
     this.reach = dist < this.reach ? dist : this.reach + (dist - this.reach) * Math.min(1, dt * 4);
     cam.position.copy(eye.position).addScaledVector(to, this.reach);
+    // Head above water: so is the camera. Under it (diving), it follows you down.
+    if (eye.position.y > waveHeight(eye.position.x, eye.position.z, time) - 0.05) {
+      cam.position.y = Math.max(cam.position.y, waveHeight(cam.position.x, cam.position.z, time) + ABOVE_SEA);
+    }
 
     if (this.mode === 'third') {
       cam.quaternion.copy(eye.quaternion);

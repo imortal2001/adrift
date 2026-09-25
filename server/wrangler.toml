@@ -1,0 +1,14 @@
+# The Adrift relay on Cloudflare Workers — see README.md in this folder.
+name = "adrift-relay"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+# One Durable Object per room code.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "RoomObject"
+
+# SQLite-backed Durable Objects are the kind the free plan includes.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RoomObject"]

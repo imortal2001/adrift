@@ -19,6 +19,9 @@
 //   elbow      +x bends (the hand comes forward and up)
 //   chest      +  leans forward — the one exception: the spine points up,
 //              and +x would tip it back, so it is applied as -x
+//   neck       +x looks up; `turn` + turns the face to its left
+//   openL/R    opens one arm out to the side; `legs` spreads the legs
+//              (both default to what `spread` does)
 
 import * as THREE from 'three';
 import { clone as cloneSkinned } from '../vendor/jsm/utils/SkeletonUtils.js';
@@ -97,16 +100,17 @@ function mannequin() {
 }
 
 function applyMannequin({ j }, a) {
-  j.thigh.l.rotation.set(a.thighL, 0, -a.spread * 0.5);
-  j.thigh.r.rotation.set(a.thighR, 0, a.spread * 0.5);
+  const legs = a.legs ?? a.spread;
+  j.thigh.l.rotation.set(a.thighL, 0, -legs * 0.5);
+  j.thigh.r.rotation.set(a.thighR, 0, legs * 0.5);
   j.shin.l.rotation.x = a.kneeL;
   j.shin.r.rotation.x = a.kneeR;
-  j.arm.l.rotation.set(a.armL, 0, -0.1 - a.spread);
+  j.arm.l.rotation.set(a.armL, 0, -0.1 - a.spread - (a.openL || 0));
   j.arm.r.rotation.set(a.armR, 0, 0.1 + a.spread + (a.openR || 0));
   j.fore.l.rotation.x = a.elbowL;
   j.fore.r.rotation.x = a.elbowR;
   j.chest.rotation.x = -a.chest;
-  j.neck.rotation.x = a.neck;
+  j.neck.rotation.set(a.neck, a.turn || 0, 0);
 }
 
 // ── a rigged character ───────────────────────────────────────────────────────
@@ -218,13 +222,14 @@ function elbow(r, name, lower, bend, twist = 0) {
 
 function applyRig(r, a) {
   r.bones.RightHand.quaternion.copy(r.handRest);     // rollHand() turns it from here
-  drive(r, 'LeftUpLeg', a.thighL, -a.spread * 0.5);
-  drive(r, 'RightUpLeg', a.thighR, a.spread * 0.5);
+  const legs = a.legs ?? a.spread;
+  drive(r, 'LeftUpLeg', a.thighL, -legs * 0.5);
+  drive(r, 'RightUpLeg', a.thighR, legs * 0.5);
   drive(r, 'LeftLeg', a.kneeL);
   drive(r, 'RightLeg', a.kneeR);
   // The left arm is on the body's -x side: bringing it in from the A-pose
   // is a +z turn, opening it out a -z one; the right arm the mirror.
-  const lowerL = r.splay.l - 0.1 - a.spread;
+  const lowerL = r.splay.l - 0.1 - a.spread - (a.openL || 0);
   const lowerR = -r.splay.r + 0.1 + a.spread + (a.openR || 0);
   drive(r, 'LeftArm', a.armL, lowerL);
   drive(r, 'RightArm', a.armR, lowerR);
@@ -237,8 +242,8 @@ function applyRig(r, a) {
   curl(r.hands.l, 0.3);
   curl(r.hands.r, a.grip ?? 0.3);
   drive(r, 'Spine2', -a.chest);
-  drive(r, 'Neck', a.neck * 0.45);
-  drive(r, 'Head', a.neck * 0.55);
+  drive(r, 'Neck', a.neck * 0.45, 0, (a.turn || 0) * 0.45);
+  drive(r, 'Head', a.neck * 0.55, 0, (a.turn || 0) * 0.55);
 }
 
 // ── gestures ─────────────────────────────────────────────────────────────────
@@ -285,6 +290,17 @@ const GESTURES = {
     return { armR: arm, elbowR: elbow, openR: open, foreInR: 0.05, chest: lean,
              armL: 0.1 + 1.3 * point, elbowL: 0.15 };
   } },
+  // A paddle stroke over the right side: reach forward, pull back past the
+  // hip, lift and bring it round — both arms on the shaft, the body turning
+  // into it.
+  paddle: { time: 0.85, pose: u => {
+    const reach = ease(u / 0.25), pull = ease((u - 0.25) / 0.4), back = ease((u - 0.65) / 0.35);
+    // swing: the shaft's lean, forward (+) to back (-); k: how hard it is pulling
+    const swing = u < 0.25 ? 1.1 * reach : u < 0.65 ? 1.1 - 1.5 * pull : -0.4 * (1 - back);
+    const k = u < 0.25 ? reach : u < 0.65 ? 1 - pull : 0;
+    return { armR: 0.2 + swing * 0.7, elbowR: 0.5 + 0.4 * k, openR: 0.25, foreInR: 0.05,
+             armL: 0.4 + swing * 0.5, elbowL: 1.2 - 0.3 * k, chest: 0.12 + 0.18 * k, lean: swing };
+  } },
   eat: { time: 0.7, pose: u => {
     const k = Math.sin(Math.PI * u);
     return { armR: 0.3 + 0.7 * k, elbowR: 1.1 + 1.25 * k, foreInR: 0.15 + 0.35 * k, neck: -0.15 * k };
@@ -294,6 +310,77 @@ const GESTURES = {
     return { armR: u < 0.35 ? 0.2 - 0.8 * back : -0.6 + 2.0 * fwd, elbowR: 0.3 };
   } },
 };
+
+// ── swimming ─────────────────────────────────────────────────────────────────
+// Three ways of being in the water, each a curve from a stroke's progress
+// 0..1 to joint angles — the body's frame, as it lies: face down, an arm at
+// π points ahead past the head, at π/2 down into the water, at -π/2 up out
+// of it. The crawl and breaststroke are swum lying out (PlayerBody.pose tips
+// the body over); treading water is upright.
+const TAU = Math.PI * 2;
+const PULL = 0.6;                      // of a crawl stroke, the part under water
+
+/** One arm's crawl: a long pull under the body, a quick high-elbow recovery over it. */
+function crawlArm(u) {
+  if (u < PULL) {
+    const k = u / PULL;
+    return { arm: Math.PI * (1 - ease(k)), elbow: 0.2 + 0.85 * Math.sin(Math.PI * k), open: 0 };
+  }
+  const k = (u - PULL) / (1 - PULL);
+  // Swung out wide, the elbow up, the forearm hanging from it: the hand
+  // comes forward low over the water rather than windmilling over the top.
+  return { arm: -Math.PI * k, elbow: 0.3 + 1.6 * Math.sin(Math.PI * k), open: 0.85 * Math.sin(Math.PI * k) };
+}
+
+const STROKES = {
+  // Front crawl, at the surface: the arms half a stroke apart, the body
+  // rolling toward each pull, a breath to the right every second stroke,
+  // and six kicks a stroke from the hips.
+  crawl: { time: 1.35, pose: (u, n) => {
+    const L = crawlArm((u + 0.5) % 1), R = crawlArm(u);
+    const kick = Math.sin(u * TAU * 3);
+    const breathe = n % 2 === 1 && u > 0.5 && u < 0.98 ? Math.sin(Math.PI * (u - 0.5) / 0.48) : 0;
+    return { armL: L.arm, elbowL: L.elbow, openL: L.open, armR: R.arm, elbowR: R.elbow, openR: R.open,
+             thighL: 0.24 * kick, thighR: -0.24 * kick,
+             kneeL: -(0.12 + 0.4 * Math.max(0, Math.cos(u * TAU * 3))),
+             kneeR: -(0.12 + 0.4 * Math.max(0, -Math.cos(u * TAU * 3))),
+             spread: 0.04, legs: 0.08, neck: 0.3 + 0.15 * breathe, turn: -1.1 * breathe,
+             roll: 0.45 * Math.cos(TAU * (u - 0.3)) - 0.25 * breathe };
+  } },
+  // Breaststroke, under water: the arms sweep out and round to the chest,
+  // then shoot forward as the legs draw up and kick back together, then a
+  // glide, arms ahead.
+  breast: { time: 1.7, pose: u => {
+    let arm, elbow, open, knee = 0, thigh = 0, legs = 0.06;
+    if (u < 0.32) { const k = ease(u / 0.32); arm = Math.PI - 0.95 * k; elbow = 1.5 * k; open = 0.95 * Math.sin(Math.PI * Math.min(1, k * 1.3)); }
+    else if (u < 0.45) { const k = ease((u - 0.32) / 0.13); arm = Math.PI - 0.95 - 0.25 * k; elbow = 1.5 + 0.5 * k; open = 0.12 * (1 - k); }
+    else if (u < 0.65) { const k = ease((u - 0.45) / 0.2); arm = Math.PI - 1.2 + 1.2 * k; elbow = 2.0 * (1 - k); open = 0; }
+    else { arm = Math.PI; elbow = 0.05; open = 0; }
+    if (u > 0.36 && u < 0.56) { const k = Math.sin(Math.PI / 2 * (u - 0.36) / 0.2); knee = -1.9 * k; thigh = 0.55 * k; legs = 0.06 + 0.7 * k; }
+    else if (u >= 0.56 && u < 0.74) { const k = ease((u - 0.56) / 0.18); knee = -1.9 * (1 - k); thigh = 0.55 * (1 - k); legs = 0.76 - 0.7 * k; }
+    return { armL: arm, armR: arm, elbowL: elbow, elbowR: elbow, openL: open, openR: open,
+             thighL: thigh, thighR: thigh, kneeL: knee, kneeR: knee, spread: 0.02, legs,
+             neck: 0.35, roll: 0 };
+  } },
+  // Treading water: upright, hands sculling in and out in front, the legs
+  // in an alternating eggbeater, the whole body bobbing with it.
+  tread: { time: 1.6, pose: u => {
+    const s = Math.sin(u * TAU), c = Math.cos(u * TAU);
+    return { armL: 0.75, armR: 0.75, elbowL: 1.0, elbowR: 1.0, openL: 0.3 + 0.35 * s, openR: 0.3 + 0.35 * s,
+             thighL: 0.85 + 0.25 * s, thighR: 0.85 - 0.25 * s, kneeL: -1.25 + 0.35 * c, kneeR: -1.25 - 0.35 * c,
+             spread: 0.04, legs: 0.55 + 0.12 * c, neck: 0, roll: 0, bob: 0.035 * Math.sin(u * TAU * 2) };
+  } },
+};
+
+/** Blend two poses: from `a` toward `b` by k, joint by joint. */
+function blend(a, b, k) {
+  const out = {};
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const x = a[key] ?? 0, y = b[key] ?? 0;
+    out[key] = x + (y - x) * k;
+  }
+  return out;
+}
 
 // ── the body ─────────────────────────────────────────────────────────────────
 export class PlayerBody {
@@ -319,7 +406,10 @@ export class PlayerBody {
     this.use = 1;                            // 0..1 through a use gesture; 1 = none
     this.held = null;
     this.heldId = null;
-    this.swim = 0;                           // 0 upright .. 1 lying out in a crawl
+    this.swim = 0;                           // 0 treading water upright .. 1 lying out, swimming
+    this.under = 0;                          // 0 at the surface (crawl) .. 1 under it (breaststroke)
+    this.tilt = 0;                           // how far the body is tipped over, about the head
+    this.stroke = { crawl: 0, breast: 0, tread: 0 };   // each stroke's progress, in strokes
     this.useKind = 'swing';
     this.aimK = 0;
     this.aimDir = new THREE.Vector3(0, 0, -1);
@@ -417,13 +507,19 @@ export class PlayerBody {
 
   /**
    * @param p  the player: pos (feet), yaw, pitch, state ('deck' | 'air' |
-   *           'swim'), and optionally speed, to animate without moving
+   *           'swim'), submerged (head under), optionally speed, to
+   *           animate without moving, and drift: how far the raft carried
+   *           them this frame, which is not walking
    */
   update(dt, p) {
     const g = this.group;
     g.position.copy(p.pos);
     g.rotation.y = p.yaw;
-    const moved = Math.hypot(p.pos.x - this.lastPos.x, p.pos.z - this.lastPos.z) / Math.max(dt, 1e-4);
+    // Under water, going up or down is swimming too.
+    const up = p.state === 'swim' && p.submerged ? p.pos.y - this.lastPos.y : 0;
+    // Carried by the raft is not walking: `drift` is how far it moved them.
+    const cx = p.drift ? p.drift.x : 0, cz = p.drift ? p.drift.z : 0;
+    const moved = Math.hypot(p.pos.x - this.lastPos.x - cx, p.pos.z - this.lastPos.z - cz, up) / Math.max(dt, 1e-4);
     this.lastPos.copy(p.pos);
     // `p.speed` stands in for real movement (the gallery walks it on the spot).
     this.speed += (Math.min(p.speed ?? moved, 8) - this.speed) * Math.min(1, dt * 8);
@@ -444,32 +540,51 @@ export class PlayerBody {
     const v = this.speed;
     const swimming = p.state === 'swim';
     const air = p.state === 'air';
-    // A crawl when swimming somewhere, upright treading water when not.
+    // Swimming somewhere, lying out: a crawl at the surface, breaststroke
+    // under it. Not going anywhere, upright, treading water.
     this.swim += ((swimming && v > 0.6 ? 1 : 0) - this.swim) * Math.min(1, dt * 3);
-    this.pivot.rotation.x = -1.35 * this.swim;
+    this.under += ((swimming && p.submerged ? 1 : 0) - this.under) * Math.min(1, dt * 2.5);
 
     // The stride: faster and longer the faster you go.
     const stride = swimming ? 0 : Math.min(1, v / 5);
-    this.phase += dt * (swimming ? 2.4 + v * 0.8 : 1.6 + v * 1.9);
+    this.phase += dt * (1.6 + v * 1.9);
     const s = Math.sin(this.phase), c = Math.cos(this.phase);
-    const a = { spread: 0.06, chest: 0, neck: 0 };
+    let a = { spread: 0.06, chest: 0, neck: 0 };
+    let roll = 0, bob = 0;
 
     if (swimming) {
-      const k = this.swim;
-      const wrap = t => ((t % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-      // Crawl: each arm over and round in turn, legs fluttering. Treading:
-      // arms sculling out in front, a slow cycling kick.
-      a.armL = k * wrap(this.phase) + (1 - k) * (0.5 + s * 0.35);
-      a.armR = k * wrap(this.phase + Math.PI) + (1 - k) * (0.5 - s * 0.35);
-      a.elbowL = a.elbowR = 0.25;
-      a.thighL = s * (0.22 + 0.18 * (1 - k)); a.thighR = -a.thighL;
-      a.kneeL = -(0.2 + Math.max(0, c) * 0.4); a.kneeR = -(0.2 + Math.max(0, -c) * 0.4);
-      a.spread = 0.06 + 0.25 * (1 - k);
-      a.neck = 1.2 * k;
-    } else if (air) {
+      // Each stroke keeps its own count, quicker the faster you go, so
+      // changing from one to another does not jump either.
+      const pace = 0.75 + 0.25 * Math.min(1.6, v / 1.6);
+      for (const k in this.stroke) this.stroke[k] += dt / STROKES[k].time * (k === 'tread' ? 1 : pace);
+      const at = k => { const n = Math.floor(this.stroke[k]); return STROKES[k].pose(this.stroke[k] - n, n); };
+      const going = blend(at('crawl'), at('breast'), this.under);
+      a = { chest: 0, ...blend(at('tread'), going, this.swim) };
+      roll = a.roll; bob = a.bob;
+      // A tool in hand goes ahead of you, where you are looking — a spear
+      // ready — and the other arm and the legs do the swimming.
+      if (this.heldTool) {
+        Object.assign(a, { armR: 0.75 + (Math.PI - 0.85 - 0.75) * this.swim, elbowR: 0.9 * (1 - this.swim) + 0.15,
+                           openR: 0.1, foreInR: 0.1 });
+        roll *= 0.4;
+      }
+      // Lying out at the surface, the body is in the water, not on it: the
+      // head drops from treading height to the waterline.
+      const lie = -(Math.PI / 2 - 0.2);
+      const dive = THREE.MathUtils.clamp(p.pitch, -1.3, 1.1) * 0.9;
+      const want = -0.12 + (lie + dive * this.under + 0.12) * this.swim;
+      this.tilt += (want - this.tilt) * Math.min(1, dt * 4);
+    } else {
+      this.tilt += (0 - this.tilt) * Math.min(1, dt * 8);
+      for (const k in this.stroke) this.stroke[k] = 0;
+    }
+    this.pivot.rotation.set(this.tilt, roll * this.swim, 0);
+    this.pivot.position.y = EYE - 0.34 * this.swim * (1 - this.under);
+
+    if (air) {
       a.thighL = 0.6; a.thighR = 0.25; a.kneeL = -0.95; a.kneeR = -0.55;
       a.armL = a.armR = 0.35; a.elbowL = a.elbowR = 0.4; a.spread = 0.25;
-    } else {
+    } else if (!swimming) {
       a.thighL = s * 0.62 * stride; a.thighR = -a.thighL;
       a.kneeL = -Math.max(0, -s) * 0.95 * stride - 0.04;
       a.kneeR = -Math.max(0, s) * 0.95 * stride - 0.04;
@@ -477,8 +592,8 @@ export class PlayerBody {
       a.elbowL = a.elbowR = 0.15 + 0.45 * stride;
       a.chest = 0.1 * stride;                // leaning into it
     }
-    // A step bobs the body.
-    this.frame.position.y = -EYE + (swimming || air ? 0 : Math.abs(c) * 0.035 * stride);
+    // A step bobs the body; so does treading water.
+    this.frame.position.y = -EYE + (swimming ? bob : air ? 0 : Math.abs(c) * 0.035 * stride);
 
     // Carrying something: the right forearm comes up to hold it out, and a
     // use swings the arm up and through.
@@ -497,9 +612,12 @@ export class PlayerBody {
       this.use = Math.min(1, this.use + dt / gst.time);
       Object.assign(a, gst.pose(this.use, a));
       this.aimK = gst.aim ? gst.aim(this.use) : 0;
-    }
+    } else if (swimming && this.heldTool) this.aimK = this.swim;
     if (this.skewered && (this.skewered.t += dt) > 1.7) this.clearSkewer();
+    this.paddleLean = this.use < 1 && this.useKind === 'paddle' ? a.lean : 0;
     if (!swimming) a.neck = THREE.MathUtils.clamp(p.pitch, -0.9, 0.7) * 0.8;
+    // Treading water, you look where you are looking.
+    else a.neck += THREE.MathUtils.clamp(p.pitch, -0.9, 0.7) * 0.8 * (1 - this.swim);
     return a;
   }
 
@@ -522,7 +640,10 @@ export class PlayerBody {
     const pinky = b.RightHandPinky1.getWorldPosition(new THREE.Vector3());
     const fist = index.sub(pinky).normalize();
     const fwd = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
-    const want = new THREE.Vector3(0, 1, 0).addScaledVector(fwd, 0.3).normalize()
+    // Carried upright and a little forward — a rod well forward, its tip out
+    // ahead as a rod is carried, not stood up like a staff.
+    const lean = this.heldId === 'rod' ? 1.35 : 0.3;
+    const want = new THREE.Vector3(0, 1, 0).addScaledVector(fwd, lean).normalize()
       .lerp(this.aimDir, this.aimK).normalize();
     // Both onto the plane square to the forearm: the roll is the angle
     // between them there. Nothing to do if what it should point along is the
@@ -564,7 +685,20 @@ export class PlayerBody {
     if (this.heldTool) {
       this.held.position.copy(grip);
       // Mid-thrust the spear turns from its carry to point where you look.
-      const dir = this.aimK > 0 ? across.clone().lerp(this.aimDir, this.aimK).normalize() : across;
+      let dir = this.aimK > 0 ? across.clone().lerp(this.aimDir, this.aimK).normalize() : across;
+      // A paddle goes down over the right side into the water, blade first,
+      // leaning forward at the catch and back at the end of the pull.
+      // A rod, carried, is tipped well forward, the tip out ahead — not stood
+      // up like a staff. (Casting, the arm swings it as it will.)
+      if (this.heldId === 'rod' && this.use >= 1) {
+        const yaw = this.group.rotation.y;
+        dir = new THREE.Vector3(-Math.sin(yaw) * 1.25 + Math.cos(yaw) * 0.12, 1, -Math.cos(yaw) * 1.25 - Math.sin(yaw) * 0.12).normalize();
+      }
+      if (this.heldId === 'paddle') {
+        const yaw = this.group.rotation.y, lean = this.paddleLean;
+        const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+        dir = fwd.multiplyScalar(0.2 + 0.55 * lean).addScaledVector(right, 0.3).add(new THREE.Vector3(0, -0.9, 0)).normalize();
+      }
       this.held.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
     } else {
       const fingers = knuck.clone().sub(hand).normalize();

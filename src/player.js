@@ -8,7 +8,6 @@
 
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
-import { CELL } from './raft.js';
 import { heightAt as landHeight, isLand } from './terrain.js';
 
 // Side order matches Raft: 0 = -z, 1 = +x, 2 = +z, 3 = -x.
@@ -119,7 +118,7 @@ export class Player {
   respawnOnRaft() {
     const cells = [...this.raft.cells.values()];
     if (!cells.length) {
-      this.pos.set(0, 0, 0);
+      this.pos.set(this.raft.x, 0, this.raft.z);
       this.state = 'deck';
       return;
     }
@@ -153,7 +152,8 @@ export class Player {
       }
     }
 
-    this.pos.set(best.cx * CELL, 0, best.cz * CELL);
+    const at = this.raft.cellWorld(best.cx, best.cz);
+    this.pos.set(at.x, 0, at.z);
     this.pos.y = this.raft.deckY(this.pos.x, this.pos.z);
     this.vel.set(0, 0, 0);
     this.state = 'deck';
@@ -163,7 +163,7 @@ export class Player {
     const facing = (bestSea && bestSea.length) ? bestSea
                  : (bestSides && bestSides.length) ? bestSides : null;
     if (facing) {
-      this.yaw = Player.SIDE_YAW[facing[0]];
+      this.yaw = Player.SIDE_YAW[facing[0]] + this.raft.heading;   // the sides turn with the raft
       this.pitch = -0.22;
     }
   }
@@ -297,7 +297,8 @@ export class Player {
     if (!moveLocked && input.pressed('Space')) {
       const spot = this.raft.nearestDeck(this.pos.x, this.pos.z, CLIMB_REACH);
       if (spot) {
-        this.pos.set(spot.cx * 2, 0, spot.cz * 2);
+        const at = this.raft.cellWorld(spot.cx, spot.cz);
+        this.pos.set(at.x, 0, at.z);
         this.pos.y = this.raft.deckY(this.pos.x, this.pos.z);
         this.vy = 0;
         this.vel.set(0, 0, 0);
@@ -390,7 +391,7 @@ export class Player {
     if (this.thirst <= 0) drain += 1.1;
     if (this.breath <= 0) drain += 7;
     if (drain > 0) this.health = Math.max(0, this.health - dt * drain);
-    else if (this.hunger > 30 && this.thirst > 30) this.health = Math.min(100, this.health + dt * 0.5);
+    else if (this.health > 0 && this.hunger > 30 && this.thirst > 30) this.health = Math.min(100, this.health + dt * 0.5);
 
     if (this.health <= 0) {
       this.deaths++;
@@ -398,8 +399,9 @@ export class Player {
       this.hunger = Math.max(this.hunger, 40);
       this.thirst = Math.max(this.thirst, 40);
       this.breath = 100;
-      this.respawnOnRaft();
-      this.say('You black out, and wake on the deck. Still adrift.', 'bad');
+      // Where you wake is the game's to say: your statue, or where you started (main.js).
+      if (this.onDeath) this.onDeath();
+      else { this.respawnOnRaft(); this.say('You black out, and wake on the deck. Still adrift.', 'bad'); }
     }
   }
 
@@ -407,10 +409,12 @@ export class Player {
   applyCamera(dt, time, moving) {
     const bobY = this.state === 'deck' && moving ? Math.sin(this.bob) * 0.045 : 0;
 
-    // Inherit a little of the raft's roll so the deck feels like it is moving.
-    const e = new THREE.Euler().setFromQuaternion(this.raft.group.quaternion, 'YXZ');
+    // Inherit a little of the raft's roll so the deck feels like it is moving:
+    // how far the deck's up leans across the way you are looking.
+    const up = this.raft.up;
+    const across = up.x * Math.cos(this.yaw) - up.z * Math.sin(this.yaw);
     const want = (this.state === 'deck' && !this.onLand)
-      ? e.z * 0.45 : Math.sin(time * 0.6) * 0.02;
+      ? -Math.atan2(across, up.y) * 0.45 : Math.sin(time * 0.6) * 0.02;
     this.roll = THREE.MathUtils.lerp(this.roll, want, Math.min(1, dt * 3));
 
     this.camera.position.set(this.pos.x, this.pos.y + EYE + bobY, this.pos.z);
@@ -419,8 +423,41 @@ export class Player {
 
   // Position deliberately isn't saved: you always wake up standing on your own
   // deck, which makes it impossible to load into the middle of the ocean.
+  /**
+   * `where` is where you were: 'deck' (you come back on the raft's deck,
+   * wherever it has got to), or 'land' / 'sea' at `pos`.
+   */
   toJSON() {
-    return { yaw: this.yaw, health: this.health, hunger: this.hunger, thirst: this.thirst };
+    const r = v => Math.round(v * 100) / 100;
+    const where = this.state !== 'swim' && !this.onLand && this.raft.solidAtWorld(this.pos.x, this.pos.z) ? 'deck'
+                : this.onLand ? 'land' : 'sea';
+    const d = { yaw: this.yaw, health: this.health, hunger: this.hunger, thirst: this.thirst,
+                where, pos: [r(this.pos.x), r(this.pos.y), r(this.pos.z)] };
+    // Aboard: which raft, and where on its deck — so you come back aboard it
+    // wherever it has sailed to since.
+    if (where === 'deck' && this.raft.id) {
+      const l = this.raft.toLocal(this.pos.x, this.pos.z);
+      Object.assign(d, { raft: this.raft.id, local: [r(l.x), r(l.z)], localYaw: r(this.yaw - this.raft.heading) });
+    }
+    return d;
+  }
+
+  /** Stand at (x, z) on land, or float there in the water. */
+  standAt(x, z, yaw = this.yaw) {
+    const ground = landHeight(x, z);
+    this.vel.set(0, 0, 0);
+    this.vy = 0;
+    this.yaw = yaw;
+    this.pitch = -0.1;
+    if (ground > -0.3) {
+      this.pos.set(x, Math.max(ground, 0), z);
+      this.state = 'deck';
+      this.onLand = true;
+    } else {
+      this.pos.set(x, -EYE + 0.24, z);          // eyes just above the water
+      this.state = 'swim';
+      this.onLand = false;
+    }
   }
 
   load(d) {

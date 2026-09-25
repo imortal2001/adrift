@@ -9,6 +9,8 @@ export const ITEMS = {
   plank:   { name: 'Plank',   tool: false },
   rope:    { name: 'Rope',    tool: false },
   leaf:    { name: 'Palm',    tool: false },
+  // Hollow and sealed at every joint: it floats better than any timber.
+  bamboo:  { name: 'Bamboo',  tool: false },
   scrap:   { name: 'Scrap',   tool: false },
   coconut: { name: 'Coconut', tool: false, action: 'eat',
              hint: 'Click to eat' },
@@ -21,6 +23,12 @@ export const ITEMS = {
              hint: 'Right-click to throw it — then E to pull it back out' },
   rod:     { name: 'Rod',     tool: true, action: 'rod',
              hint: 'Click to cast — click again the moment the float goes under. Right-click baits the hook with a fish' },
+  // Carved from driftwood, set up on land: where you wake if you die.
+  statue:  { name: 'Statue',  tool: false, action: 'place',
+             hint: 'Click to set it up on land — then E at it, and it is where you wake if you die' },
+  // A blade on a pole: the raft goes where you paddle it.
+  paddle:  { name: 'Paddle',  tool: true, action: 'paddle',
+             hint: 'On the deck: hold click to paddle, right-click to back-paddle. Paddle at one side to turn' },
   // A bow with its cord round a spindle: sawing the bow spins the spindle in
   // a notch in a board, and the friction makes an ember. The oldest way to
   // make fire from what floats past a raft — wood and cord.
@@ -101,6 +109,10 @@ export const RECIPES = [
     desc: 'Cast a line from the deck.' },
   { id: 'bowdrill', out: ['bowdrill', 1], cost: { plank: 1, rope: 1 },
     desc: 'Friction fire: saw the bow at a campfire to light it.' },
+  { id: 'paddle', out: ['paddle', 1], cost: { plank: 2, rope: 1 },
+    desc: 'Move the raft. Stroke at one side to turn it the other way.' },
+  { id: 'statue', out: ['statue', 1], cost: { wood: 6, rope: 2, leaf: 3 },
+    desc: 'Set it up on land and register at it (E): if you die, you wake beside it.' },
 ];
 
 // kind: how the piece attaches to the raft grid.
@@ -109,8 +121,16 @@ export const RECIPES = [
 //   'top'    → the roof slot above an existing cell
 //   'object' → the middle of an existing cell
 export const BUILDABLES = [
+  // Four ways to make a 2m square of raft, from whatever there is — they
+  // look like what they are made of; they float and handle the same.
   { id: 'foundation', name: 'Foundation', kind: 'cell',   cost: { plank: 2 },
-    desc: 'Extend the deck by one 2m square.' },
+    desc: 'Extend the deck by one 2m square: planks over three float logs.' },
+  { id: 'bamboo_floor', name: 'Bamboo foundation', kind: 'cell', cost: { bamboo: 4, rope: 1 },
+    desc: 'A 2m square of bamboo poles lashed side by side, cross-poles on top.' },
+  { id: 'log_floor',  name: 'Log foundation', kind: 'cell', cost: { wood: 4, rope: 1 },
+    desc: 'A 2m square of driftwood and palm trunks, lashed together.' },
+  { id: 'barrel_floor', name: 'Barrel foundation', kind: 'cell', cost: { scrap: 2, plank: 1 },
+    desc: 'A 2m square of plank deck lashed down onto two barrels.' },
   { id: 'railing',    name: 'Railing',    kind: 'edge',   cost: { plank: 1 },
     desc: 'Waist-high. Stops you walking into the sea.' },
   { id: 'wall',       name: 'Wall',       kind: 'edge',   cost: { plank: 2 },
@@ -121,9 +141,15 @@ export const BUILDABLES = [
     desc: 'Catches rain and dew. Use it to drink.' },
   { id: 'campfire',   name: 'Campfire',   kind: 'object', cost: { wood: 3, scrap: 1 },
     desc: 'Built unlit. Light it with a bow drill, feed it wood, cook fish on it.' },
+  { id: 'sail',       name: 'Sail',       kind: 'object', cost: { plank: 4, rope: 3, leaf: 6 },
+    desc: 'A mast and a palm-weave sail. E raises it: the wind takes the raft; paddle to steer.' },
 ];
 
 export const BUILDABLE_BY_ID = Object.fromEntries(BUILDABLES.map(b => [b.id, b]));
+// Not on the build bar: a statue goes on the deck from your hands (main.js
+// placeStatue), and it comes back to your hands — its "cost" is itself.
+BUILDABLE_BY_ID.statue = { id: 'statue', name: 'Statue', kind: 'object', cost: { statue: 1 },
+                           desc: 'Set up on the deck, it sails with the raft; register at it to wake aboard.' };
 
 /** What each kind of flotsam gives up when gathered. */
 export const DEBRIS_KINDS = {
@@ -131,6 +157,7 @@ export const DEBRIS_KINDS = {
   flotsam: { label: 'Flotsam',   yield: { plank: 1, wood: 1 },  weight: 14 },
   palm:    { label: 'Palm frond',yield: { leaf: 2 },            weight: 24 },
   barrel:  { label: 'Barrel',    yield: { scrap: 2 },           weight: 13 },
+  bamboo:  { label: 'Bamboo',    yield: { bamboo: 2 },          weight: 12 },
   crate:   { label: 'Crate',     yield: { plank: 2, scrap: 1 }, weight: 9  },
   coconut: { label: 'Coconut',   yield: { coconut: 1 },         weight: 10 },
 };

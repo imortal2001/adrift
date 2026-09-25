@@ -87,6 +87,7 @@ code and models, runs on this machine only, and has its own
 | `C` / `B` | crafting / take out the hammer |
 | wheel, `[` `]` | with the hammer out: pick a build piece |
 | Right-click | throw what is in hand — the spear, or the hook |
+| Hold left / right click | with the paddle, on the deck: paddle forward / back-paddle |
 | `Q` | eat — a coconut if you have one, otherwise a fish (the one in hand, else the one you have most of) |
 | `X` | salvage the piece under the crosshair — materials come back |
 | `F` | step off into the water |
@@ -189,10 +190,16 @@ pause screen starts over.
 |---|---|
 | `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. |
 | `src/sky.js` | Sun, sky dome, stars and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
-| `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry. |
+| `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
 | `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
 | `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold. |
+| `src/net.js` | Playing together: joining a room through the relay, sending where you are and what you do, and drawing the others — their characters, smoothed between updates, holding what they hold, with a name over their heads. |
+| `src/sharedworld.js` | Playing together in one world, the host's: the time of day, the flotsam, the fish schools, the whale and the dinosaurs, a catch or a gather gone for everyone, the others' spears in flight, a bite on a guest sent to them. |
+| `src/spawn.js` | Where a new castaway comes to: a beach, the open sea, a square of wreckage or a small raft — never inland — and what they are told. |
+| `src/statue.js` | The statues — respawn points: carved in code, standing here and there over the land, lifted and set up on land or on the deck, registered at to wake beside when you die. |
+| `src/together.js` | Playing together on one raft, the host's: your own put by while you are away from it, each change sent as it happens, and the host's copy settling anything contested. |
+| `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
 | `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current. |
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
@@ -285,7 +292,7 @@ animals are:
 | | |
 |---|---|
 | Canopy | **giant redwoods** (~55 m, buttressed, crowns in the top half, some hung with vines) and **araucarias** (monkey puzzles: a tall grey trunk under a flat umbrella crown) |
-| Understorey | **tree ferns**, **cycads**, **shrubs**, stands of **giant horsetail** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
+| Understorey | **tree ferns**, **cycads**, **shrubs**, stands of **giant horsetail** and groves of **bamboo** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
 | Ground | **ferns** thick on the forest floor; **grass** in the open, **tall grass** on the plains, **reeds** at the water |
 | Deadfall | **fallen logs** (mossy, snapped at one end, ferns growing out of them), **stumps** with their roots, **fallen branches** |
 | Rock | **boulders**, **crags** heaped on the slopes and escarpments, and **spires** — sea stacks and lone pillars on the plains |
@@ -728,6 +735,164 @@ blacktip reef shark
 and humpback whale ([CRRU](https://crru.org.uk/education/species/humpback-whale)).
 The game compresses all of it — real fights last longer and real tuna do not
 come this close to a reef — but the order of things is theirs.
+
+### Where you come to, and where you wake
+
+A new game starts you somewhere on the edge of the world, never inland
+(`src/spawn.js`): washed up on a beach with nothing, treading water in the
+open sea, clinging to a single square of wreckage, or on the little raft of
+four pallets. Wherever it was is your starting point. From a beach or the sea,
+the first foundation is laid on the water wherever you aim the hammer — deep
+enough to float it — and the raft grows from there.
+
+**A raft is made of whatever floats.** There are four foundations, and one
+raft can mix them square by square (`src/raft.js`, `src/items.js`):
+
+| Foundation | Cost | What it is |
+|---|---|---|
+| **Plank** | 2 planks | planks over three float logs — the raft you may start on |
+| **Bamboo** | 4 bamboo, 1 rope | fifteen poles lashed side by side, two cross-poles on top, four thick canes under it |
+| **Log** | 4 wood, 1 rope | driftwood and palm trunks side by side, two bars lashed across them |
+| **Barrel** | 2 scrap, 1 plank | a deck of seven boards on two stringers, lashed down onto two barrels |
+
+They look like what they are made of and handle the same. Poles and logs
+run the length of a square, and where one square's meet the next is set per
+row by the boundary between them, so both sides agree: the joints are
+staggered like a real raft's and the ends at its edges are ragged. Bamboo
+comes from the **bamboo groves** along the river banks (E harvests 4) and from
+**bundles of it adrift** (2).
+
+**Statues are respawn points, nothing more.** Two dozen stand here and there
+over the land — on beaches, in the forest, up on the hills, well apart —
+carved long ago. **E** at one makes it where you wake: die, and you come to
+beside it; registering at another replaces it. They unlock nothing and you
+need none to get on: the game is surviving, exploring, gathering and
+building, and a statue just saves you the trip back. Any statue can be lifted (**X**) and carried,
+and a click sets it down again: on open ground, or on a free square of the
+raft's deck, where it is lashed down and sails with you — register at that one
+and you wake aboard, wherever the raft has got to. You can carve your own,
+too (6 wood, 2 rope, 3 palm). Without one — or if yours has been lifted — you
+wake at your starting point. Yours wears a garland, on your screen. Statues are the world's: playing together, everyone sees the
+host's, and yours wait at home with your raft. The game keeps where you are,
+too: on the deck, ashore, or in the water where you left off.
+
+### Paddling and sailing
+
+The raft goes where you take it. Craft a **paddle** (2 plank, 1 rope), hold it
+on the deck, and hold click to stroke: each stroke pushes the raft the way you
+face, and the water slows it again over some seconds. Right-click back-paddles.
+Where you stand matters — a stroke from the middle drives it straight, one
+from a side turns it away from that side — so to turn, paddle from the edge.
+A bigger raft is slower to get going and slower to turn. Playing together,
+everyone paddling pushes the same raft.
+
+Build a **sail** on a square of deck (4 plank, 3 rope, 6 palm) and **E**
+raises it: the wind fills it and takes the raft downwind, and you steer with
+the paddle. The wind swings round slowly through the day and freshens and
+falls away; the sail turns to it, and more sails push harder (less than as
+much again each). **E** furls it.
+
+Run into water shallower than the raft's draught and it grounds where it
+touched — paddle it back off. Whoever is standing on the deck goes with it,
+turning as it turns. The flotsam, the fish that shelter under it and the whale
+all follow the raft wherever it has got to, and it is saved where you left it.
+
+### Playing together
+
+Co-op by invite link. On the splash screen, under *Play together*, give a
+name and **Host a game**: you get a five-letter room code and an invite link
+to send. Whoever opens the link (or types the code and **Join**s) is in your
+game — up to six of you. The crew is listed under the clock.
+
+**Enter** opens a line to say something: it goes in everyone's log and in a
+speech bubble over your head; Enter sends it, Esc thinks better of it. If
+your connection drops, the game reconnects on its own — you stay on the
+shared raft, in the shared world, and the others see that you lost the
+connection and then that you are back; after 45 seconds of trying, you are
+back on your own raft. Closing the page or pressing **Leave** is leaving, and
+the others see you have gone. A game you were in lately has a **Rejoin**
+button on the splash screen.
+
+Look at someone close by and **E** hands them one of what you are holding.
+Nothing tells you where anyone is. The crew list gives each of the others'
+distance from you — how far, never which way — a name fades beyond
+forty-odd metres, and behind a hill there is no telling
+anyone is there — finding each other is looking for each other. You see the others' lines out too — the
+rod's float, the hook on its rope — a fish on the spear they thrust with, the
+spears they threw before you joined, and the dinosaurs' kills wherever you are.
+
+You see each other as you are: where you stand or swim, which way you face,
+walking, running, jumping, treading water, woman or man, what is in your
+hand, and each thrust, throw, strike and swing — the same body and motion
+you see of yourself in third person (`src/body.js`), with a name over it.
+
+How: a small relay (`server/` — a Cloudflare Worker, one Durable Object per
+room) keeps the players of a room connected and passes their messages on;
+it does not run the game. Every browser runs its own game, sends where its
+player is about twelve times a second, and draws the others from what it
+hears, a tenth of a second behind so their movement can be smoothed. The
+world is the same for all of you without being sent — the land, reef and
+forest are built from the same code everywhere, and the raft sits at the
+same place.
+
+**A lasting world.** A room is a world of its own, and it lasts: the relay
+keeps it when everyone has gone — its rafts, its statues, the time of day —
+and keeps each player's record in it: what you carry, how you are, your start
+and your statue, and where you were. Hosting a new room starts a fresh world.
+Joining one, you come back as you left: aboard your raft, wherever it has
+sailed since, or ashore or in the sea where you were. New to it, you come to
+somewhere on its edge like any castaway — apart from everyone else, to find
+them. Your own game waits at home, untouched, and is yours again when you
+leave.
+
+**Rafts, any number.** Anyone can build a raft — lay a first foundation on
+the water away from any raft — and anyone can board, build on and paddle any
+raft. The first player in is the **host**, whose game runs the world and whose
+copy of every raft counts. On the shared
+raft, anyone can build, salvage, drink from a collector, feed or light a fire,
+and hang fish on it or take them off, and the others see it happen. What you
+build costs your own materials, and whatever you salvage is yours — its
+materials come to you, whoever built it (and a fire's fish come with it).
+Cooked fish, likewise, go to whoever takes them off the fire. But a statue
+someone wakes at cannot be lifted or taken apart from under them
+(`src/together.js`, `src/main.js`).
+
+Each change goes to the others as it happens. The host's raft settles
+anything contested: shortly after each change, and every twenty seconds
+regardless, the host sends it whole and the others' copies are brought into
+line with it — so fires burning down and collectors filling at slightly
+different rates on each machine never leave you on different rafts. Two of
+you at one thing at once is the host's to settle too: two people building
+on one spot get one piece, and whoever lost is paid back; two hooks on one
+crate, or two hands at one fire, get one crate and one lot of fish, and
+whoever was slower is told so. If the host leaves, the next player in takes
+over — everyone is told who — and the raft goes on.
+
+One sea, too. Every machine's waves come from how long it has been running,
+so on its own each would have a different swell — the raft riding it
+differently, a swimmer on a different wave. Playing together, everyone's sea
+keeps the time of whoever's is furthest on (a clock behind is eased or
+jumped forward, never back). And heights are sent from what they stand on —
+above the deck on the raft, above the sea in the water — so whatever small
+difference is left, the others stand on your deck and swim in your sea.
+
+**One world.** The rest of it is the host's as well (`src/sharedworld.js`):
+the time of day, what floats past, where the fish schools are, the whale and
+the dinosaurs. The host's game runs them as it would alone and tells the
+others how they stand three times a second; the others' games take that on
+and carry it forward. The dinosaurs are the host's alone — a guest's are
+drawn where the host says — so they hunt whichever of you is on land, and a
+bite on a guest is sent to that guest. The flotsam, the whale and the
+schools go on moving everywhere and are eased back onto the host's; each
+school's fish are every machine's own, swimming round it and shying from
+whoever is nearest, and a fish someone catches is gone for everyone. What
+someone gathers is gone for everyone too. A thrown spear flies on every
+screen and lands in the same place; what it skewers, the thrower's game
+says. Your own time of day waits with your raft.
+
+On this machine, run the relay with `node server/dev-relay.mjs` and the game
+finds it. For the published game, deploy the relay to Cloudflare (free) and
+put its address in `src/net.js` — `server/README.md` has the steps.
 
 ### Seeing yourself
 

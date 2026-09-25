@@ -39,8 +39,16 @@ export class Input {
     const NO_DEFAULT = ['Space', 'Tab', 'KeyE', 'KeyB', 'KeyC', 'KeyI', 'Backspace',
                         'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
+    // Typing into a box — your name, a room code, something to say — the
+    // keys are the box's: not moves, and not kept from it (E, Space and
+    // Backspace would otherwise never reach it).
+    const typing = e => {
+      const t = e.target;
+      return !!t && (t.isContentEditable || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' ||
+                     (t.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'range'].includes(t.type)));
+    };
     addEventListener('keydown', e => {
-      if (e.repeat || !this.enabled) return;
+      if (e.repeat || !this.enabled || typing(e)) return;
       // Let the browser keep its own shortcuts. Nothing is bound to Ctrl for
       // exactly this reason: a Ctrl-held WASD would have been swallowed here,
       // and Ctrl+W closes the tab before a game could see it anyway.
