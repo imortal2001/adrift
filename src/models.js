@@ -45,6 +45,14 @@ export const MODELS = {
   // code. Prepared by tools/build_player.py.
   player_woman: { file: 'player_woman.glb', yaw: 0 },
   player_man:   { file: 'player_man.glb',   yaw: 0 },
+  // The reef's and the ponds' animals (src/reefmodels.js), from
+  // tools/build_sealife.py. The stingray is CC BY-NC (CREDITS.md).
+  sea_turtle:  { file: 'sea_turtle.glb',  yaw: 0 },
+  crab:        { file: 'crab.glb',        yaw: 0 },
+  octopus:     { file: 'octopus.glb',     yaw: 0 },
+  stingray:    { file: 'stingray.glb',    yaw: 0 },
+  tortoise:    { file: 'tortoise.glb',    yaw: 0 },
+  pond_turtle: { file: 'pond_turtle.glb', yaw: 0 },
 };
 
 // Clip names in the wild are a mess: "Walk", "walk", "Armature|Run",

@@ -239,6 +239,7 @@ export class SharedWorld {
     }
     eyes.length = n;
     g.fish.others = eyes;
+    if (g.reef) g.reef.others = eyes;
     g.wildlife.others = net.isHost ? others : [];
 
     if (!net.isHost || !net.remotes.size) return;

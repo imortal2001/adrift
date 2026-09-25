@@ -8,7 +8,8 @@
 // drawn and posed.
 
 import * as THREE from 'three';
-import { heightAt, isLand, coastDistance } from './terrain.js';
+import { heightAt, isLand, coastDistance, freshWaterAt } from './terrain.js';
+import { caveAt } from './caves.js';
 import { ModelLibrary, playState, driveGait } from './models.js';
 
 const TAU = Math.PI * 2;
@@ -402,6 +403,9 @@ export class Wildlife {
     if (coastDistance(x, z) < 8) return false;
     const h = heightAt(x, z);
     if (h > 150 || h < 1.5) return false;
+    // Not out into a lake or a river past their knees.
+    const w = freshWaterAt(x, z);
+    if (w && w.depth > 0.5) return false;
     const e = 2;
     const slope = Math.hypot(heightAt(x + e, z) - heightAt(x - e, z), heightAt(x, z + e) - heightAt(x, z - e)) / (2 * e);
     return slope < MAX_SLOPE * 1.1;
@@ -470,8 +474,10 @@ export class Wildlife {
       const d = Math.hypot(pos.x - hunter.pos.x, pos.z - hunter.pos.z);
       if (d < whoD) { whoD = d; who = w; }
     };
-    if (playerHuntable) consider('player', player.pos);
-    for (const o of this.others) if (o.onLand) consider({ remote: o.id, pos: o.pos }, o.pos);
+    // Not anyone gone into a cave, past its mouth: too narrow for a dinosaur to follow (caves.js).
+    const sheltered = p => (caveAt(p.x, p.z, p.y)?.s ?? 0) > 2.5;
+    if (playerHuntable && !sheltered(player.pos)) consider('player', player.pos);
+    for (const o of this.others) if (o.onLand && !sheltered(o.pos)) consider({ remote: o.id, pos: o.pos }, o.pos);
     if (who) return { who, pos: who === 'player' ? player.pos : who.pos, dist: whoD };
     return best ? { animal: best, pos: best.pos, dist: bestD } : null;
   }

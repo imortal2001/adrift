@@ -73,6 +73,13 @@ export const POSES = {
   rope:    { model: null,          pos: [0.20, -0.26, -0.56], rot: [0.55, 0.3, 0.25] },
   leaf:    { model: null,          pos: [0.22, -0.30, -0.56], rot: [-0.45, 0.4, 0.45] },
   scrap:   { model: null,          pos: [0.19, -0.25, -0.56], rot: [0.5, 0.6, 0.3] },
+  flint:   { model: null,          pos: [0.19, -0.24, -0.52], rot: [0.4, 0.8, 0.2] },
+  // A torch held up at the right, its head leaning in toward the middle —
+  // unlit, or burning (a separate body, so the others see the flame too).
+  torch:     { model: null,        pos: [0.34, -0.52, -0.78], rot: [0.15, 0.0, 0.2] },
+  torch_lit: { model: null,        pos: [0.34, -0.52, -0.78], rot: [0.15, 0.0, 0.2] },
+  // A fire striker: the flint in the fingers, the iron behind.
+  striker: { model: null,          pos: [0.18, -0.23, -0.48], rot: [0.5, 0.5, 0.3] },
   // Held by the tail, head up. Every fish item wears this pose, and each
   // wears its own species' body (see body()); this `fish` body is only the
   // stand-in for one the schools cannot draw.
@@ -199,7 +206,100 @@ function cyl(r0, r1, y0, y1, m, seg = 8) {
 
 const tex = (t, rx = 1, ry = 1) => { t.repeat.set(rx, ry); return t; };
 
+// ── fire in the hand ─────────────────────────────────────────────────────────
+// A torch's flame: crossed quads of a soft flame shape, additive, licking and
+// flickering in the vertex shader. One material for every copy (the world's,
+// the others'), on one clock: FLAME.uTime, which main.js runs.
+export const FLAME = { uTime: { value: 0 } };
+let flameMat = null;
+function flameMaterial() {
+  if (flameMat) return flameMat;
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 128;
+  const x = c.getContext('2d');
+  const g = x.createRadialGradient(32, 92, 2, 32, 80, 60);
+  g.addColorStop(0, 'rgba(255,248,220,1)');
+  g.addColorStop(0.25, 'rgba(255,196,90,0.95)');
+  g.addColorStop(0.6, 'rgba(240,96,24,0.55)');
+  g.addColorStop(1, 'rgba(160,40,10,0)');
+  x.fillStyle = g;
+  x.beginPath();
+  x.moveTo(32, 2); x.bezierCurveTo(52, 50, 62, 90, 32, 126); x.bezierCurveTo(2, 90, 12, 50, 32, 2);
+  x.fill();
+  const m = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false,
+                                          blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uTime = FLAME.uTime;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        {
+          float up = max(0.0, transformed.y) / 0.16;
+          float lick = sin(uTime * 11.0 + transformed.y * 30.0) * 0.012 + sin(uTime * 17.0) * 0.006;
+          transformed.x += lick * up;
+          transformed.z += cos(uTime * 13.0 + transformed.y * 24.0) * 0.008 * up;
+          transformed.y *= 0.85 + 0.2 * sin(uTime * 9.0) * sin(uTime * 5.3 + 1.0);
+        }`);
+  };
+  m.customProgramCacheKey = () => 'flame';
+  return (flameMat = m);
+}
+
+/** A torch: a stick bound with palm fibre at the head — and a flame on it, burning. */
+function torchBody(lit) {
+  const g = new THREE.Group();
+  g.add(cyl(0.016, 0.019, -0.12, 0.42, mat(0x6e5234, 0.9), 8));
+  const head = cyl(0.03, 0.034, 0.34, 0.5, mat(lit ? 0x2a1a10 : 0x8a7a48, 0.95, lit ? { emissive: 0x401505 } : {}), 9);
+  g.add(head);
+  for (const y of [0.35, 0.42, 0.49]) {
+    const t = new THREE.Mesh(new THREE.TorusGeometry(0.033, 0.005, 5, 12), mat(0xb39360, 0.95));
+    t.rotation.x = Math.PI / 2;
+    t.position.y = y;
+    g.add(t);
+  }
+  if (lit) {
+    const flame = new THREE.Group();
+    flame.name = 'flame';
+    for (let k = 0; k < 3; k++) {
+      const q = new THREE.Mesh(new THREE.PlaneGeometry(0.11, 0.2).translate(0, 0.1, 0), flameMaterial());
+      q.rotation.y = (k / 3) * Math.PI;
+      q.renderOrder = 5;
+      flame.add(q);
+    }
+    flame.position.y = 0.47;
+    g.add(flame);
+  }
+  return g;
+}
+
+/** A nodule of flint: dark, glassy, knobbly, a pale rind. */
+function flintBody() {
+  const geo = new THREE.IcosahedronGeometry(0.045, 1);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + 0.25 * Math.sin(x * 90) * Math.sin(y * 70 + z * 50);
+    p.setXYZ(i, x * k, y * k * 0.75, z * k * 1.1);
+  }
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, mat(0x2b2b30, 0.3, { metalness: 0.15 }));
+}
+
 const BODIES = {
+  torch() { return torchBody(false); },
+  torch_lit() { return torchBody(true); },
+  flint() { const g = new THREE.Group(); g.add(flintBody()); return g; },
+  // A fire striker: a flint, and a bar of scrap iron bent into a loop for the fingers.
+  striker() {
+    const g = new THREE.Group();
+    const f = flintBody();
+    f.position.set(-0.02, 0.03, 0);
+    g.add(f);
+    const iron = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.007, 6, 16, Math.PI * 1.6), mat(0x4a4642, 0.5, { metalness: 0.6 }));
+    iron.position.set(0.04, -0.01, 0);
+    iron.rotation.z = 0.4;
+    g.add(iron);
+    return g;
+  },
   // The statue you are carrying to set up: the same figure as stands on land, small.
   statue() { return statueBody(0.28); },
   // A paddle: a pole with a crossbar grip at the hand, and a broad blade at
@@ -416,6 +516,13 @@ export class Viewmodel {
     // midnight is still recognisably the thing you selected.
     this.fill = new THREE.AmbientLight(0xffffff, 0.3);
     this.scene.add(this.sun, this.sun.target, this.hemi, this.fill);
+    // A burning torch lights the hand that holds it (main.js sets how bright).
+    this.glow = new THREE.PointLight(0xffa860, 0, 2.5, 1.2);
+    this.glow.position.set(0.3, -0.02, -0.62);
+    this.rig.add(this.glow);
+    // How much of the daylight reaches you: less in a cave (caves.js), so what
+    // is in your hand goes dark with the rock round you.
+    this.shade = 1;
 
     this.bodies = new Map();               // item id -> Object3D, built lazily
     this.current = null;                   // what is drawn now
@@ -779,13 +886,13 @@ export class Viewmodel {
   light() {
     const sky = this.sky;
     this.sun.color.copy(sky.sun.color);
-    this.sun.intensity = sky.sun.intensity;
+    this.sun.intensity = sky.sun.intensity * this.shade;
     this.sun.position.copy(this.rig.position).addScaledVector(sky.sunDir, 5);
     this.sun.target.position.copy(this.rig.position);
     this.hemi.color.copy(sky.hemi.color);
     this.hemi.groundColor.copy(sky.hemi.groundColor);
     this.hemi.intensity = sky.hemi.intensity;
-    this.fill.intensity = 0.30 * (1 - sky.night * 0.6);
+    this.fill.intensity = 0.30 * (1 - sky.night * 0.6) * (0.25 + 0.75 * this.shade);
   }
 
   /** Draw over the finished frame. Call after the world's render. */

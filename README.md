@@ -24,8 +24,8 @@ And roughly **80 metres off the bow there is land** — a continent, not an
 island, two and a half kilometres across. Swim for it and you come ashore on a
 beach under a wall of giant redwoods, fifty metres tall and three across at
 the foot, hung with vines, with tree ferns, cycads and ferns under them. Past
-the forest are open plains of waist-high grass, a river cutting down to the
-sea, stepped sandstone escarpments, sea cliffs with stacks standing off them,
+the forest are open plains of waist-high grass, rivers cutting down to the
+sea over waterfalls and through lakes, stepped sandstone escarpments, sea cliffs with stacks standing off them,
 and in the middle a range of jagged peaks, snow on the tops, that you can see
 from the raft. It is inhabited: sauropods and stegosaurs
 browse the slopes, parasaur herds bolt at the first sign of trouble, raptors
@@ -79,7 +79,7 @@ code and models, runs on this machine only, and has its own
 | Arrow keys | also turn the view |
 | `Space` | jump — and climb aboard when you are in the water |
 | `V` | change the view: first person → third (behind you) → second (facing you) |
-| `E` | gather the debris you are looking at, drink from a collector, take back a thrown spear; at a campfire, cook the raw fish in hand, take fish that are done, or feed it wood |
+| `E` | gather the debris you are looking at, drink from a collector — or a river, lake, pool or cave spring ashore — grab a crab, take back a thrown spear, chip flint out of a cave wall; at a campfire, cook the raw fish in hand, take fish that are done, feed it wood, light your torch in it, or strike a spark into it with the fire striker |
 | `1`–`5`, wheel | pick a hotbar slot |
 | Left-click | use whatever is in your hands |
 | `I` | pack — register tools and items into the five slots |
@@ -108,6 +108,8 @@ instead of a key per tool:
 | Bow drill | **hold** at an unlit campfire to saw up an ember — it takes 1 Palm for tinder |
 | Spear | a thrust that skewers the fish on the crosshair; **right-click throws it** — pull it back out with `E` |
 | Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
+| Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes, and goes out if you put it away or get in the water — keeping what it had left |
+| Fire striker | nothing in hand — `E` at an unlit campfire strikes a spark into it (1 Palm for tinder), at once |
 | Material, or nothing | nothing |
 
 Build mode is no longer a toggle: it is simply *holding the hammer*. Take out
@@ -205,9 +207,13 @@ pause screen starts over.
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
 | `src/whale.js` | One humpback, ambient: cruises, surfaces to blow, sounds flukes-up. Not catchable. |
+| `src/reeflife.js` | The animals that move, other than fish and dinosaurs: sea turtles, stingrays, octopus and crabs on the reef, tortoises on land and pond turtles in the lakes — each with its own way of moving and of reacting to you; crab and octopus as catches. |
+| `src/reefmodels.js` | Their glTF bodies, when the models are here: the octopus's arm chains curled in code, the stingray's clip, and the tortoise's and pond turtle's limbs found in the mesh and moved in the vertex shader. |
 | `src/reef.js` | What lives on the sea bed: coral, sponges, anemones, seagrass, kelp, urchins, starfish, giant clams and rock, plus the surge that bends the soft ones. |
 | `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Used by the reef. |
-| `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
+| `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers, and the falls and lakes on them), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
+| `src/caves.js` | Caves, sea caves, sea arches and rock shelves: where they are (surveyed from the land), their meshes, the dark inside them, and the floors and walls you walk on and within there; flint to chip, and the springs. |
+| `src/waterfall.js` | The lakes' still water, cut to their shores, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
 | `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks. |
 | `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
@@ -218,6 +224,7 @@ pause screen starts over.
 | `tools/build_whale.py` | Converts a third-party humpback whale (CC BY 4.0, see CREDITS.md) for the game: centred and scaled to 12.5 m, flipper and fluke tags from its shape, dark eyes, its normal map flipped to glTF's convention. |
 | `tools/build_coconut.py` | Converts a third-party photoscanned coconut (CC BY 4.0, see CREDITS.md) for the game: a smooth 3,072-triangle shell fitted to the 199,500-triangle scan, pores up, ~17 cm, with the scan's colour and relief baked onto it at 1024² (23 MB down to 270 KB). Held in hand, and afloat as flotsam at 2.4 times the size. |
 | `tools/build_player.py` | Converts the Ready Player Me woman and man (CC BY-NC-SA 4.0, see CREDITS.md) into the player's body: pose made the rest pose, facing the game's forward in metres, bone names cleaned, dressed for the Stone Age by repainting (the man's atlas by the bones that move each part), textures shrunk. |
+| `tools/build_sealife.py` | Converts the six third-party reef and pond animals (sea turtle, tortoise, pond turtle, crab, octopus, stingray — see CREDITS.md; the stingray is CC BY-NC) for the game: decimated to a few thousand triangles (the pond turtle's 25-piece photoscan joined and welded first), textures 1024² JPEG, plain lit materials, in the game's frame at their real sizes; the crab kept as 13 parts pivoting at their joints, the octopus and stingray keeping their rigs. |
 | `tools/build_shark.py` | Converts a third-party blacktip reef shark (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, one mesh and one texture atlas, fin tags for the swim shader, a normal map. |
 | `tools/simulate_fight.mjs` | Plays the rod's fight thousands of times per species with five kinds of player, for tuning `fight.js` by numbers rather than feel. |
 | `tools/build_tools.py` | Puts the three third-party tool models in the frame the hand holds them by, colours the spear, and shrinks their textures. |
@@ -264,6 +271,57 @@ nothing lines up in rows:
   banked into a flood plain across hollows. The first reaches the sea about
   200 m up the coast from the landing beach. The water is a ribbon at the
   surveyed level, flowing, reflecting the sky; you wade it, about a metre deep.
+- **Waterfalls and lakes** (`placeWater` in `terrain.js`, drawn by
+  `src/waterfall.js`) — where each river comes off the range fastest, it goes
+  over a lip and drops, sheer, up to 22 m: a notch cut through the rock across
+  the channel, the valley sides coming down a steep slope either side. It is
+  heavy, broken white water: three curtains arc out from the lip, each
+  shuddering on its own, their streaks stretching as the water speeds up
+  (the texture runs on time-of-fall, not distance), with clumps of white
+  water tearing loose and tumbling down in front. The pool churns — two
+  layers of foam turning against each other, a trail of it carried off
+  downstream — droplets are flung up out of the impact, and spray boils off
+  it all and drifts away. Above each fall the river is
+  flattened into a **tarn** that spills over the lip; below it is the
+  **plunge pool** it has dug. Lower down, where the first river falls least,
+  it widens into a **lake** on the plain, with a wobbled, sandy shore. All of
+  it is wading water — chest deep at most — so the reeds, horsetails and
+  bamboo of the river banks grow round the shores too, and dinosaurs keep
+  out of it past their knees; wading slows you, the deeper the more (the
+  badge says how deep). The top of a fall is a walk round, up the valley
+  side; step off the lip and you fall into the pool — walking off any edge
+  higher than a step, you go over and fall. At night the falls dim with
+  everything else. And it is
+  fresh: look at any river, lake or pool and **E** drinks (+30 thirst). The
+  sea is salt.
+- **Caves and overhangs** (`src/caves.js`) — what a heightfield cannot be.
+  Found once, from the land itself, the same on every machine:
+  - **Caves** (8), at the foot of the cliffs inland — none by the landing
+    beach. A mouth under a hood of rock, a tunnel three metres wide winding
+    twenty-odd metres back into the hill, and a chamber at the end with
+    stalactites, and a **spring pool** in it to drink from (**E**). Past the
+    first few metres it is black: the daylight — sun, moon and sky — falls
+    away with how far in you are, and only a **torch** lights it. Low on the
+    walls, deep in, is **flint** (**E** chips it out; it comes back in a
+    while), and nowhere else has it. The mouths are too narrow for a
+    dinosaur: nothing that is hunting you will follow you in.
+  - **Sea caves** (3), at the waterline under the sea cliffs: swim in under
+    the arch of the mouth, and at the back is a shingle beach to climb out
+    on, flint in the walls. The sea inside is as dark as the rock — and it
+    puts a torch out.
+  - **Sea arches** (3), in the shallows off the cliffs, to swim or sail
+    under; their legs are solid to you and to the raft.
+  - **Rock shelves** (11), ledges out from the lips of the cliffs, to walk
+    out onto or under.
+
+  Each is its own mesh; the heightfield is left as it is. A cave is a tube of
+  rock set into the hill with the ground above it untouched; where it comes
+  out through the cliff face, the terrain's shader throws that bit of the
+  ground away (`CAVE_CUT`, the nearest mouths) so the mouth opens, and the
+  tube's outer skin is what shows round the cut. Inside, its floor and walls
+  are what you stand on and walk within — `floorAt()` and `clampInCave()`,
+  asked by the player before the ground is — and the third-person camera
+  keeps inside it too.
 
 It is streamed in **64m chunks** around whoever is looking: fine near you,
 progressively coarser out to about 450m, rebuilt two chunks per frame so
@@ -271,8 +329,10 @@ walking never stutters, and disposed once out of range. Normals are sampled
 across the chunk edges and each chunk hangs a skirt, so there are no seams.
 Beyond the chunks the **far land** takes over: the whole continent at 16 m, in
 two sheets — the ground, and the forest canopy as a lumpy shell over it — each
-sunk out of sight inside the square the chunks draw for real. That is what you
-see of the far coast and the range from the raft.
+sunk out of sight inside the square the chunks draw for real (and well inside
+it, not drawn at all — sunk only a little, it would run through the hills, and
+the caves in them). That is what you see of the far coast and the range from
+the raft.
 
 The ground's colour comes from what the land is — sand, straw on the plains,
 leaf litter and moss under the canopy, mud and pebbles on the river banks,
@@ -972,6 +1032,74 @@ it is out.
 Saves from before fires had to be lit keep theirs burning, with a full load
 of wood. The numbers are `FIRE` in `items.js`.
 
+### Reef animals
+
+The fish are not alone (`src/reeflife.js`). Round you at sea — keeping to the
+same focus the fish do — and on the beaches when you are ashore:
+
+- **Sea turtles** (3) glide over the reef and the sand in water deeper than
+  4 m, on slow sweeps of their front flippers — slow up, fast down, the
+  flipper turning edge-on on the way back. Every minute or two one rises to
+  the surface to breathe, lies there a few seconds, and dives again. Swim at
+  one and it turns away, unhurried.
+- **Stingrays** (4) lie on the open sand between the reefs, mottled the colour
+  of it; now and then one lifts off and flies low on rippling wings — a wave
+  running down each wing, front to back, growing toward the tips. Come within
+  3.5 m and it is off at a rush.
+- **Octopus** (3) creep over the coral, eight arms reaching and curling, their
+  colour sliding through the reef's to match what they are on. Come within
+  2.8 m and one blanches, jets off backwards and leaves a cloud of ink — then
+  hides, still, where it lands, which is when you can get close. The spear
+  takes one — thrown, or thrust into one that is hiding.
+- **Crabs** (7 on the reef, 8 on the beaches) scuttle sideways in short
+  bursts. On the reef one runs a few metres from you; on a beach it runs for
+  the sea and is gone. Get close and **E** grabs it.
+
+And away from the sea:
+
+- **Tortoises** (3) plod about the land near you — off the beach, on ground
+  that is not too steep, below the trees' end — a little way at a time,
+  stopping to graze with their heads down. Come within 3 m and one stops
+  where it is and draws in its head and legs, and stays that way until you
+  have been gone a while.
+- **Pond turtles** (4) live in the lakes, tarns and plunge pools when one is
+  near you. They paddle about at the surface, shells just awash, and now and
+  then haul out onto the bank to bask. Come near one there and it slides
+  back into the water and dives, and stays down a while.
+
+Crab and octopus are catches like the fish (`CATCHES` in `items.js`): they go
+in the fish slot, bait a hook, cook on the spit and are eaten, raw or cooked.
+Each player's sea has its own: they are not shared playing together, as a
+school's fish are not.
+
+**Models.** The sea turtle, stingray, octopus, crab, tortoise and pond turtle are
+third-party models (`assets/models/`, credited in `CREDITS.md`; **the
+stingray is CC BY-NC** — non-commercial — and must be replaced before the
+game is sold), converted by `tools/build_sealife.py` and moved in code by
+`src/reefmodels.js`:
+
+- the **sea turtle** is one mesh; its flippers are found in it the way the
+  tortoise's legs are (below) and beaten in the vertex shader — the front
+  pair together, down and back, the downstroke the quicker, the hind pair
+  only steering;
+- the **stingray** runs its own swim clip, as slowly or quickly as it is
+  going, nearly still on the sand;
+- the **octopus**'s rig has eight arm chains, which are curled and swept in
+  code — reaching and coiling as it creeps, trailing straight behind it as
+  it jets — and its texture is tinted through the camouflage colours;
+- the **crab** comes as a shell, two claws and ten legs, each with its
+  origin at its joint: every part is one instanced mesh for all the crabs,
+  turned about its joint, the legs walking in a tetrapod gait;
+- the **tortoise** and **pond turtle** are one mesh each. Their legs, head
+  and tail are found in the mesh — a height map from above says where the
+  shell is; what reaches out past it, or hangs below its rim, is limb — and
+  moved in the vertex shader, blended smoothly between limbs so the mesh
+  never tears: walking, paddling, grazing, drawing in.
+
+Without the files, the sea's animals are the code-built ones they replace
+(a few meshes each, their wings and arms re-shaped on the CPU every frame; the
+crabs three instanced meshes), and there are no tortoises or pond turtles.
+
 ### The whale
 
 One humpback (`src/whale.js`), about 12 m long, keeps to a ring 50-110 m out
@@ -1098,7 +1226,8 @@ would split the raft in two.
   it along the same line if you change the size or the lobes).
 - Relief: `MOUNTAIN_HEIGHT`, `TERRACE`, `SNOWLINE`, `TREELINE`,
   `LANDING_CLEAR` (how far from the raft the cliffs start) in `terrain.js`;
-  the rivers are the `RIVERS` table beside them.
+  the rivers are the `RIVERS` table beside them; the falls and lakes on them
+  come from `placeWater` (`FALL_MAX`, `LAKE_DEPTH`, `WADING`).
 - Terrain cost: `VIEW_CHUNKS`, `LOD_SEGMENTS`, `TREE_RING`, `BUILD_BUDGET`.
 - Forest make-up: `SPECIES` in `flora.js` — each species' `where(site)` rule,
   its size, how far out it is drawn (`rings`, `farFrom`) and its harvest —
@@ -1153,7 +1282,7 @@ Each of these has a deliberate hook already in place:
   `Wildlife` already tracks health for its own kills; a hit test against it in
   `ThrownSpears.fly()`, like the one against fish, is most of the work.
 - **More from the fire** — torches lit from it for the night and for going
-  ashore; a water container to fill at a collector or a river; campfires on
+  ashore; a water container to fill at a collector, a river or a lake; campfires on
   land (the build grid is the raft's); a spark kit of flint and pyrite from
   the rocks ashore, quicker than the bow drill.
 - **Marine animals** — a shark that circles the raft and punishes swimming is

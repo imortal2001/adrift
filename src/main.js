@@ -9,6 +9,7 @@ import { DebrisField } from './debris.js';
 import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
 import { Whale } from './whale.js';
+import { ReefLife } from './reeflife.js';
 import { Underwater } from './underwater.js';
 import { Viewmodel, THRUST_REACH, COOKED } from './viewmodel.js';
 import { CameraRig } from './camera.js';
@@ -19,13 +20,15 @@ import { pickStart, WAKING } from './spawn.js';
 import { Statues, newStatueId, scatter } from './statue.js';
 import { ThrownSpears, travelTime } from './spear.js';
 import { Fishing } from './fishing.js';
-import { Terrain, heightAt as landHeight, coastDistance, CHUNK } from './terrain.js';
+import { Terrain, heightAt as landHeight, coastDistance, CHUNK, landAt, freshWaterAt } from './terrain.js';
+import { Caves } from './caves.js';
+import { FLAME } from './viewmodel.js';
 import { Wildlife } from './wildlife.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { BuildMode } from './build.js';
-import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, fishItem, fishOf, foodOf, cookedItem, isCooked } from './items.js';
+import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, TORCH, fishItem, fishOf, foodOf, cookedItem, isCooked } from './items.js';
 import { Hotbar, SLOTS } from './hotbar.js';
 
 const SAVE_KEY = 'adrift.save.v2';
@@ -105,6 +108,17 @@ class Game {
     this.hotbar = new Hotbar();
     // Terrain first: the player and the fish both collide against its reef.
     this.terrain = new Terrain(this.scene);
+    // Before the first chunk is built: they keep their plants out of the cave mouths.
+    this.caves = new Caves(this.scene);
+    // A torch's light — yours, and one each for two of the others. Always in
+    // the scene, dark until lit: adding a light later would make every
+    // material in the world recompile at the moment you lit it.
+    this.torch = { lit: false, fuel: 0 };
+    this.torchLights = [0, 1, 2].map(() => {
+      const l = new THREE.PointLight(0xffa35a, 0, 20, 2);
+      this.scene.add(l);
+      return l;
+    });
     this.terrain.shareSky(this.ocean.uniforms);
     this.player = new Player(this.eye, this.raft, this.terrain);
     // Where you came to (spawn.js) and the statue you wake at (statue.js).
@@ -122,6 +136,9 @@ class Game {
     this.wildlife = new Wildlife(this.scene, { x: 210, z: -150 }, this.terrain);
     this.fish = new FishSchools(this.scene, this.terrain, this.raft);
     this.whale = new Whale(this.scene, this.terrain, this.raft, this.fish);
+    // Turtles, stingrays, octopus and crabs (reeflife.js); crab and octopus are catches, as fish are.
+    this.reef = new ReefLife(this.scene, this.terrain);
+    this.fish.extra = this.reef;
     this.underwater = new Underwater(this.scene, this.ocean);
     this.hook = new Hook(this.scene);
     this.viewmodel = new Viewmodel(this.renderer, this.eye, this.sky);
@@ -148,6 +165,7 @@ class Game {
     // Thrown spears wear the same body the hand holds, glTF or procedural.
     this.spears = new ThrownSpears(this.scene, this.terrain, this.raft, this.fish,
                                    () => this.viewmodel.cloneBody('spear'));
+    this.spears.extra = this.reef;
     this.fishing = new Fishing(this.scene, this.raft, this.fish, this.viewmodel);
     // A fish in hand is the species it is: a still, hand-sized copy — a big
     // one scaled down, or a tuna held at arm's length would fill the view.
@@ -581,6 +599,12 @@ class Game {
       case 'drill':
         this.hud.log('Hold click at an unlit campfire to drill an ember.');
         break;
+      case 'torch':
+        this.clickTorch();
+        break;
+      case 'strike':
+        this.hud.log('Look at an unlit campfire and press E to strike a spark into it. With the striker in your pack, a torch lights anywhere.');
+        break;
       default:
         this.hud.log(`${ITEMS[id].name} is raw material — nothing to do with it in hand.`);
     }
@@ -672,6 +696,16 @@ class Game {
    */
   thrust(eye, dir) {
     const f = this.fish.pick(eye, dir, THRUST_REACH, 0.9);
+    const octo = !f && this.reef.pick(eye, dir, THRUST_REACH, 'octopus');
+    if (octo) {
+      const body = this.reef.take(octo);
+      this.viewmodel.skewer(body);
+      if (!this.view.first) this.body.skewer(this.reef.bodyFor('octopus', 0.6));
+      this.addCatch('octopus');
+      this.hud.log('You spear an octopus. Its arms wrap the shaft.', 'good');
+      this.hud.refreshInventory(this.inv);
+      return;
+    }
     if (!f) {
       // A miss still scares everything near the point.
       if (this.player.submerged) this.fish.startle(eye.clone().addScaledVector(dir, THRUST_REACH), 2.5, 0.05);
@@ -730,6 +764,10 @@ class Game {
           ? { prompt: `<b>E</b> lay wood in the burnt-out fire${cooking}`, act: () => this.feedFire(o) }
           : { prompt: `Burnt out — it needs Wood before it will light again${cooking}`, act: null };
       }
+      if (held === 'striker' && this.inv.has('striker')) {
+        if (!this.inv.has('leaf')) return { prompt: 'You need 1 Palm as tinder to catch the spark', act: null };
+        return { prompt: '<b>E</b> strike a spark into the tinder (1 Palm)', act: () => this.strikeFire(o) };
+      }
       if (held === 'bowdrill' && this.inv.has('bowdrill')) {
         if (!this.inv.has('leaf')) return { prompt: 'You need 1 Palm as tinder to catch the ember', act: null };
         const p = this.drill?.rec === o ? this.drill.p : 0;
@@ -739,6 +777,9 @@ class Game {
       }
       return { prompt: (this.inv.has('bowdrill') ? 'Unlit — take out the bow drill to light it'
                                                  : 'Unlit — craft a bow drill (C) to light it') + cooking, act: null };
+    }
+    if (held === 'torch' && this.inv.has('torch') && !this.torch.lit) {
+      return { prompt: `<b>E</b> light your torch${cooking}`, act: () => this.lightTorch('at the fire') };
     }
     const raw = fishOf(held) && !isCooked(held) && this.inv.has(held) ? held : null;
     if (raw && o.spitFish.length < FIRE.spit) {
@@ -755,6 +796,86 @@ class Game {
   anyRawFish() {
     for (const [id, n] of this.inv.slots) if (n > 0 && fishOf(id) && !isCooked(id)) return id;
     return null;
+  }
+
+  /** A spark from the striker catches in the tinder: lit at once, no sawing. */
+  strikeFire(o) {
+    if (!this.inv.remove('leaf', 1)) return;
+    o.lit = true;
+    this.together.touched(o);
+    this.useAnim('eat');
+    this.hud.log('Flint on iron: a shower of sparks, and the palm fibre catches. The fire is lit.', 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  // ── the torch ──────────────────────────────────────────────────────────────
+  /** Click with a torch in hand: light it, if there is the means. */
+  clickTorch() {
+    if (this.torch.lit) {
+      this.hud.log(`Your torch is burning — about ${Math.ceil(this.torch.fuel / 60)} minute${this.torch.fuel > 60 ? 's' : ''} left in it.`);
+      return;
+    }
+    if (this.player.state === 'swim') { this.hud.log('Not in the water — it would only go straight out.'); return; }
+    if (this.inv.has('striker')) { this.lightTorch('with the striker'); return; }
+    this.hud.log('Light it at a burning campfire (look at the fire, E) — or craft a fire striker from cave flint, to light it anywhere.');
+  }
+
+  lightTorch(how) {
+    if (!this.inv.has('torch')) return;
+    // A torch put away keeps what it had left; a spent one, a new torch.
+    if (this.torch.fuel <= 0) this.torch.fuel = TORCH.burn;
+    this.torch.lit = true;
+    this.useAnim('eat');
+    this.hud.log(how === 'with the striker' ? 'Sparks from the striker, and the palm fibre flares: your torch is lit.'
+                                            : 'You hold the torch in the flames until it catches.', 'good');
+  }
+
+  /** Once a frame: the torch burns down, goes out in the water, and gives its light. */
+  updateTorch(dt, held) {
+    const t = this.torch;
+    if (t.lit && held !== 'torch') t.lit = false;                       // put away: out
+    if (t.lit && this.player.state === 'swim') {
+      t.lit = false;
+      this.hud.log('The water hisses over your torch, and it is out.', 'bad');
+    }
+    if (t.lit && (t.fuel -= dt) <= 0) {
+      t.lit = false;
+      t.fuel = 0;
+      this.inv.remove('torch', 1);
+      this.hud.log(this.inv.has('torch') ? 'Your torch burns down and gutters out. You have another.' : 'Your torch burns down and gutters out.', 'bad');
+      this.hud.refreshInventory(this.inv);
+      this.hud.refreshHotbar(this.hotbar, this.inv);
+    }
+    FLAME.uTime.value = this.time;
+    const flicker = 0.82 + 0.1 * Math.sin(this.time * 17.3) * Math.sin(this.time * 7.1 + 1) + 0.08 * Math.sin(this.time * 31);
+    // Where the flame is: up at your right hand, a little ahead.
+    const mine = this.torchLights[0], p = this.player, yaw = p.yaw;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    mine.position.set(p.pos.x + fx * 0.45 + rx * 0.3, p.pos.y + 1.75, p.pos.z + fz * 0.45 + rz * 0.3);
+    mine.intensity = t.lit ? 11 * flicker : 0;
+    this.viewmodel.glow.intensity = t.lit && this.view.first ? 1.6 * flicker : 0;
+    // The others' torches, as many as there are lights for.
+    let k = 1;
+    for (const r of this.net.remotes?.values?.() || []) {
+      if (k >= this.torchLights.length) break;
+      if (r.held !== 'torch_lit' || !r.body?.visible) continue;
+      this.torchLights[k].position.copy(r.body.gripPos).y += 0.45;
+      this.torchLights[k++].intensity = 11 * flicker;
+    }
+    for (; k < this.torchLights.length; k++) this.torchLights[k].intensity = 0;
+  }
+
+  /** Chip a flint face off a cave wall. */
+  chipFlint(f) {
+    const n = this.caves.chip(f);
+    this.inv.add('flint', n);
+    this.hotbar.autoAssign('flint');
+    this.useAnim('eat');
+    this.hud.log(`You work ${n === 1 ? 'a nodule of flint' : 'two nodules of flint'} out of the rock.` +
+                 (this.inv.count('flint') === n && !this.inv.has('striker') ? ' Struck on scrap iron, flint makes fire — see crafting (C).' : ''), 'good');
+    this.hud.refreshInventory(this.inv);
+    this.hud.refreshHotbar(this.hotbar, this.inv);
+    this.hud.refreshCraft(this.inv);
   }
 
   /** The ember catches: the fire is lit, and the tinder is gone. */
@@ -932,7 +1053,7 @@ class Game {
   describeCatch(fish) {
     const counts = new Map();
     for (const f of fish) counts.set(f.name, (counts.get(f.name) || 0) + 1);
-    const parts = [...counts].map(([name, n]) => (n === 1 ? `a ${name}` : `${n} ${name}`));
+    const parts = [...counts].map(([name, n]) => (n === 1 ? `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}` : `${n} ${name}`));
     return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
   }
 
@@ -992,6 +1113,28 @@ class Game {
     for (const r of this.rafts.list) for (const o of r.objs.values()) {
       if (o.type === 'statue') o.obj.getObjectByName('garland').visible = o === m?.o;
     }
+  }
+
+  /** The fresh water a look lands on, within reach — or null. Only near a river or a lake. */
+  freshLookedAt(eye, dir) {
+    const p = this.player;
+    if (!p.onLand || p.state === 'swim' || landAt(p.pos.x, p.pos.z).edge > 6) return null;
+    const at = this._fresh ||= new THREE.Vector3();
+    for (let t = 0.3; t <= 3.6; t += 0.15) {
+      at.copy(eye).addScaledVector(dir, t);
+      const w = freshWaterAt(at.x, at.z);
+      if (w && at.y <= w.level + 0.02) return w;
+      if (at.y < landHeight(at.x, at.z)) return null;       // the ground, before any water
+    }
+    return null;
+  }
+
+  drinkFresh(where) {
+    const p = this.player;
+    p.thirst = Math.min(100, p.thirst + 30);
+    this.useAnim('eat');
+    this.hud.log(p.thirst >= 100 ? `You drink your fill from ${where}.` : `You drink from ${where} — cold, and fresh.`, 'good');
+    this.hud.updateVitals(p);
   }
 
   /**
@@ -1181,7 +1324,7 @@ class Game {
       p.pos.set(at.x, raft.deckY(at.x, at.z), at.z);
       p.state = 'deck'; p.onLand = false; p.vel.set(0, 0, 0); p.vy = 0;
       if (Number.isFinite(w.localYaw)) p.yaw = w.localYaw + raft.heading;
-    } else if (w.where && w.where !== 'deck' && Array.isArray(w.pos)) this.player.standAt(w.pos[0], w.pos[2], w.yaw);
+    } else if (w.where && w.where !== 'deck' && Array.isArray(w.pos)) this.player.standAt(w.pos[0], w.pos[2], w.yaw, w.pos[1]);
     else this.respawn();
     this.markMine();
   }
@@ -1444,6 +1587,17 @@ class Game {
     if (spear) {
       return { prompt: '<b>E</b> take your spear', act: () => this.retrieveSpear(spear) };
     }
+    // A crab, near enough to grab — on the beach or on the reef.
+    const crab = this.reef.pick(eye, dir, this.player.state === 'swim' ? 2.2 : 2.6, 'crab');
+    if (crab) {
+      return { prompt: '<b>E</b> grab the crab', act: () => {
+        this.reef.take(crab);
+        this.addCatch('crab');
+        this.useAnim('eat');
+        this.hud.log('You grab the crab from behind, clear of its claws.', 'good');
+        this.hud.refreshInventory(this.inv);
+      } };
+    }
     const it = this.debris.pick(eye, dir, reach);
     if (it) {
       return { prompt: `<b>E</b> gather ${DEBRIS_KINDS[it.kind].label}`, act: () => this.gather(it) };
@@ -1498,6 +1652,21 @@ class Game {
       };
     }
 
+    // In a cave: flint in the walls to chip out, and the spring to drink from.
+    if (this.player.cave) {
+      const flint = this.caves.pickFlint(eye, dir);
+      if (flint) return { prompt: '<b>E</b> chip out the flint', act: () => this.chipFlint(flint) };
+      if (this.caves.pickSpring(eye, dir)) return { prompt: '<b>E</b> drink from the spring', act: () => this.drinkFresh('the spring') };
+    }
+
+    // Fresh water under the crosshair — a river, a lake, the pool under a
+    // fall: drink. (The sea is salt: that is what the collector is for.)
+    const fresh = this.freshLookedAt(eye, dir);
+    if (fresh) {
+      const where = { river: 'the river', lake: 'the lake', tarn: 'the lake', pool: 'the pool' }[fresh.kind];
+      return { prompt: `<b>E</b> drink from ${where}`, act: () => this.drinkFresh(where) };
+    }
+
     const plant = this.terrain.pickPlant(eye, dir);
     if (plant) {
       return {
@@ -1535,13 +1704,16 @@ class Game {
     // throw's (how far a spear stays fast enough to skewer) — offering a thrust at
     // a fish two metres out of reach is worse than saying nothing.
     const armed = this.hotbar.held === 'spear' && this.inv.has('spear');
+    const octo = this.reef.pick(eye, dir, this.player.submerged ? 3.7 : 9, 'octopus');
     if (armed) {
-      if (this.fish.pick(eye, dir, THRUST_REACH, 0.9)) {
+      if (this.fish.pick(eye, dir, THRUST_REACH, 0.9) || this.reef.pick(eye, dir, THRUST_REACH, 'octopus')) {
         return { prompt: '<b>Click</b> to thrust', act: null };
       }
-      if (this.fish.pick(eye, dir, this.player.submerged ? 3.7 : 9, 0.985)) {
+      if (this.fish.pick(eye, dir, this.player.submerged ? 3.7 : 9, 0.985) || octo) {
         return { prompt: '<b>Right-click</b> to throw', act: null };
       }
+    } else if (octo && octo.pos.distanceTo(eye) < 3.5) {
+      return { prompt: 'An octopus — it would take a spear', act: null };
     } else if (this.fish.pick(eye, dir, 3.0)) {
       return { prompt: 'Too quick to catch by hand — you need a spear', act: null };
     }
@@ -1670,7 +1842,7 @@ class Game {
     if (!this.player.onLand) {
       this.focus ||= new THREE.Vector3();
       this.focus.set(this.player.pos.x, 0, this.player.pos.z);
-      this.debris.focus = this.fish.focus = this.whale.focus = this.focus;
+      this.debris.focus = this.fish.focus = this.whale.focus = this.reef.focus = this.focus;
     }
     // Stepped onto another raft, or swimming by one: that is the raft now.
     {
@@ -1706,12 +1878,14 @@ class Game {
     const eye = this.eye.position;
     const dir = this.player.forward(this.tmpDir);
     // Stream terrain around whoever is looking at it, then run the ecosystem.
-    this.terrain.update(dt, this.player.pos, this.time);
+    this.terrain.update(dt, this.player.pos, this.time, this.sky.night);
+    this.caves.update(dt, this.player.pos);
     this.wildlife.setPlayerPos(this.player.pos);
     this.wildlife.update(dt, this.time, this.player,
                          this.player.state === 'deck' && this.player.onLand);
     this.debris.update(dt, this.time, this.player.pos);
     this.fish.update(dt, this.time, eye);      // the others it shies from too: sharedworld.js
+    this.reef.update(dt, this.time, eye, this.player.pos);
     this.whale.update(dt, this.time);
     this.spears.update(dt, this.time);
     this.hook.update(dt, eye.clone().addScaledVector(dir, 0.5), this.time, this.debris,
@@ -1838,13 +2012,28 @@ class Game {
     const light = this.underwater.update(dt, lens, submerged, depth, this.sky,
                                          this.scene, this.sky.night);
     this.hud.setUnderwater(submerged, submerged ? 1 - light : 0);
+    // In a cave, the daylight falls away with how far in you are: the sky's
+    // light, the moon's, and what lights your hands (caves.js has the rock's).
+    const day = this.caves.daylightAt(lens);
+    this.sky.hemi.intensity *= day;
+    this.sky.moon.intensity *= day;
+    this.viewmodel.shade = day;
+    this.ocean.uniforms.uShade.value = day;
+    if (this.player.cave && day < 0.25 && !this.torch.lit && !this.saidDark) {
+      this.saidDark = true;
+      this.hud.log('Past the first few metres it is black. A torch would light the way in — Wood and Palm, crafting (C). ' +
+                   'Nothing that hunts you out there can follow you in here.');
+    }
 
     // After underwater.update(), which has just dimmed the lights the tool
     // copies — so what is in your hand goes dark and blue with the world.
     const held = this.hotbar.held;
+    this.updateTorch(dt, held);
+    // A lit torch is a body of its own — flame and all — in your hand, on your body and in the others' view.
+    const shown = held === 'torch' && this.torch.lit ? 'torch_lit' : held;
     this.viewmodel.update(dt, {
       drift: this.player.drift,
-      held,
+      held: shown,
       owned: !!held && this.inv.has(held),
       hidden: held === 'hook' && this.hook.busy,     // it is out on the line
     });
@@ -1852,7 +2041,7 @@ class Game {
     const outside = !this.view.first;
     this.body.visible = outside;
     const inHand = held && this.inv.has(held) && !(held === 'hook' && this.hook.busy)
-      && !(held === 'spear' && !this.viewmodel.current) ? held : null;
+      && !(held === 'spear' && !this.viewmodel.current) ? shown : null;
     if (inHand !== this.body.heldId) this.body.hold(inHand, inHand ? this.viewmodel.cloneBody(inHand) : null);
     this.body.update(dt, this.player);
     this.net.update(dt, this.player, inHand, this.time, this.lineOut(), this.camera.position);
@@ -2032,7 +2221,7 @@ class Game {
     // Back where you were: on the deck (wherever it has got to), or ashore or
     // in the water where you left off.
     const was = d.player?.where, pos = d.player?.pos;
-    if (was && was !== 'deck' && Array.isArray(pos)) this.player.standAt(pos[0], pos[2], d.player.yaw);
+    if (was && was !== 'deck' && Array.isArray(pos)) this.player.standAt(pos[0], pos[2], d.player.yaw, pos[1]);
     else if (this.raft.size) this.player.respawnOnRaft();
     else this.player.standAt(this.origin.x, this.origin.z, this.origin.yaw);
     this.sky.time = d.time ?? this.sky.time;

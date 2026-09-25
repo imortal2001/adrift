@@ -8,7 +8,8 @@
 
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
-import { heightAt as landHeight, isLand } from './terrain.js';
+import { heightAt as landHeight, isLand, freshWaterAt, WADE } from './terrain.js';
+import { floorAt, clampInCave, collideArches, springAt } from './caves.js';
 
 // Side order matches Raft: 0 = -z, 1 = +x, 2 = +z, 3 = -x.
 const NEIGHBOUR_OFFSET = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -191,10 +192,19 @@ export class Player {
    * What is holding me up at this point — the raft, the land, or nothing.
    * Every state asks this, so they can never disagree about where the floor is.
    */
-  support(x, z) {
+  support(x, z, y = this.pos.y) {
     if (this.raft.solidAtWorld(x, z)) return { land: false, y: this.raft.deckY(x, z) };
+    // In a cave, or out on a rock shelf, what holds you up is its floor, not
+    // the ground's — which is the hill over your head (caves.js).
+    const cave = floorAt(x, z, y);
+    if (cave) return cave.y > WADE ? { land: true, y: cave.y, cave: cave.cave } : null;
     if (isLand(x, z)) return { land: true, y: landHeight(x, z) };
     return null;
+  }
+
+  /** The floor under you, where you are: a cave's or a shelf's if you are in one, else the ground. */
+  floorHere(x = this.pos.x, z = this.pos.z, y = this.pos.y) {
+    return floorAt(x, z, y)?.y ?? landHeight(x, z);
   }
 
   /** Slide along walls instead of stopping dead. */
@@ -208,12 +218,19 @@ export class Player {
     if (collide && this.terrain && this.pos.y > -0.3 && isLand(this.pos.x, this.pos.z)) {
       this.terrain.collideReef(this.pos, RADIUS, EYE);
     }
+    // A cave's walls, and a sea arch's legs.
+    this.cave = clampInCave(this.pos, RADIUS)?.cave ?? null;
+    collideArches(this.pos, RADIUS);
   }
 
   // ── on the deck ────────────────────────────────────────────────────────────
   walk(dt, time, wish, sprinting, input, moveLocked) {
     this.depth = 0;
-    const speed = (sprinting && this.hunger > 5 ? SPRINT : WALK);
+    let speed = (sprinting && this.hunger > 5 ? SPRINT : WALK);
+    // Wading: the deeper the river or lake is round you, the slower you go.
+    const fresh = this.onLand ? (springAt(this.pos.x, this.pos.z, this.pos.y) || freshWaterAt(this.pos.x, this.pos.z)) : null;
+    this.wading = fresh ? Math.max(0, fresh.level - this.pos.y) : 0;
+    if (this.wading > 0.25) speed *= 1 - 0.5 * Math.min(1, (this.wading - 0.25) / 0.9);
     const d = this.moveDir(wish, this._dir);
     const prev = this._prev.copy(this.pos);
     this.moveFlat(d.x * speed * dt, d.z * speed * dt);
@@ -249,6 +266,14 @@ export class Player {
     this.onLand = ground.land;
     // Step up onto a rise, but fall off anything you have walked over the top of.
     if (ground.y > this.pos.y + 0.75) { this.pos.copy(prev); return; }
+    // Walked off an edge — a cliff, the lip of a fall: you go over, and fall,
+    // rather than being set down at the foot of it.
+    if (ground.y < this.pos.y - 1.2) {
+      this.vel.set(d.x * speed, 0, d.z * speed);
+      this.vy = 0;
+      this.state = 'air';
+      return;
+    }
     this.pos.y = ground.y;
     this.bob += Math.hypot(d.x, d.z) * speed * dt * (sprinting ? 3.6 : 2.8);
   }
@@ -269,6 +294,9 @@ export class Player {
 
     this.vy -= GRAVITY * dt;
     this.pos.y += this.vy * dt;
+    // A cave's roof stops a jump.
+    const inCave = floorAt(this.pos.x, this.pos.z, this.pos.y);
+    if (inCave?.roof && this.pos.y > inCave.roof - EYE - 0.25) { this.pos.y = inCave.roof - EYE - 0.25; this.vy = Math.min(this.vy, 0); }
 
     if (this.vy <= 0) {
       const ground = this.support(this.pos.x, this.pos.z);
@@ -307,8 +335,9 @@ export class Player {
       }
     }
 
-    // Find your feet as soon as the seabed comes up to meet you.
-    const shore = landHeight(this.pos.x, this.pos.z);
+    // Find your feet as soon as the seabed comes up to meet you — or the
+    // shingle at the back of a sea cave.
+    const shore = this.floorHere();
     if (shore > waveHeight(this.pos.x, this.pos.z, time) - 0.55) {
       this.pos.y = shore;
       this.vy = 0;
@@ -352,7 +381,7 @@ export class Player {
     // The sea bed is a floor, not a suggestion. Over the shelf that is the
     // sand; over the basin the bed is below MAX_DEPTH and the depth cap is
     // what stops you, which is the intended feeling out there — no bottom.
-    const bed = landHeight(this.pos.x, this.pos.z);
+    const bed = this.floorHere();
     this.pos.y = THREE.MathUtils.clamp(this.pos.y + vy * dt,
                                        Math.max(MAX_DEPTH, bed), floatY + 0.35);
 
@@ -443,8 +472,9 @@ export class Player {
   }
 
   /** Stand at (x, z) on land, or float there in the water. */
-  standAt(x, z, yaw = this.yaw) {
-    const ground = landHeight(x, z);
+  standAt(x, z, yaw = this.yaw, y = null) {
+    // Where you were, if that was in a cave: its floor, not the hill over it.
+    const ground = (y !== null ? floorAt(x, z, y)?.y : undefined) ?? landHeight(x, z);
     this.vel.set(0, 0, 0);
     this.vy = 0;
     this.yaw = yaw;

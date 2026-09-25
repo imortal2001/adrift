@@ -16,6 +16,7 @@
 // off the surface, and a camera at that height behind them is under every
 // passing wave.
 
+import { caveAt, roofAt } from './caves.js';
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
 
@@ -114,6 +115,17 @@ export class CameraRig {
     const solid = this.raft.pickables.filter(m => m.userData.piece?.kind !== 'object');
     const hit = _ray.intersectObjects(solid, false)[0];
     if (hit) best = Math.min(best, hit.distance - CLEAR);
+    // In a cave, the tube round you: the camera keeps inside it (caves.js) —
+    // and the ground over you, the hill, is no floor of yours down here.
+    if (caveAt(from.x, from.z, from.y - 1.5)) {
+      for (let s = 0.1; s <= 1.0001; s += 0.1) {
+        const d = max * s;
+        const x = from.x + dir.x * d, y = from.y + dir.y * d, z = from.z + dir.z * d;
+        const hit = caveAt(x, z, y - 0.2);
+        if (!hit || y > roofAt(hit) - 0.15 || hit.d > hit.w * 0.75) { best = Math.min(best, d - max * 0.1 - CLEAR); break; }
+      }
+      return Math.max(0.15, best);
+    }
     // The ground and the sea bed, sampled along the line.
     if (this.terrain) {
       for (let s = 0.25; s <= 1.0001; s += 0.25) {

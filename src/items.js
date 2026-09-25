@@ -12,6 +12,15 @@ export const ITEMS = {
   // Hollow and sealed at every joint: it floats better than any timber.
   bamboo:  { name: 'Bamboo',  tool: false },
   scrap:   { name: 'Scrap',   tool: false },
+  // Chipped from the walls of the caves, deep in, where it is dark: nowhere else has it.
+  flint:   { name: 'Flint',   tool: false },
+  // A stick bound with palm fibre. Not a tool — you can carry several; each
+  // burns for TORCH.burn seconds once it is lit.
+  torch:   { name: 'Torch',   tool: false, action: 'torch',
+             hint: 'Light it at a burning campfire (E) — or anywhere, click, with a fire striker in your pack. Water puts it out' },
+  // Flint struck on scrap iron: sparks, and a fire at once.
+  striker: { name: 'Fire striker', short: 'Striker', tool: true, action: 'strike',
+             hint: 'At an unlit campfire, E to strike a spark into the tinder (1 Palm). With it in your pack, a torch lights anywhere' },
   coconut: { name: 'Coconut', tool: false, action: 'eat',
              hint: 'Click to eat' },
 
@@ -47,6 +56,12 @@ export const FIRE = {
   spit: 3,            // fish it can cook at once
 };
 
+// A torch: how long one burns, lit. Put away or wet, it goes out — and
+// keeps what it had left for when it is lit again.
+export const TORCH = {
+  burn: 240,
+};
+
 // Every fish you can catch is an item of its own, so what you caught is what
 // you carry: a red snapper stays a red snapper in the pack, in the hotbar and
 // in your hand, rather than all going into one sack of "raw fish". The names
@@ -54,10 +69,13 @@ export const FIRE = {
 // in the renderer). All of them eat the same, as FOOD.fish. Smallest first,
 // which is the order bait is picked in. A third name, where the full one is
 // too long for a hotbar slot, is what the slot shows.
+// The crab and the octopus are catches too (src/reeflife.js): a crab by
+// hand, an octopus on the spear; they go in the fish slot and cook the same.
 export const CATCHES = [
+  ['crab', 'Crab'],
   ['chromis', 'Chromis'], ['silver', 'Silverside'], ['wrasse', 'Wrasse'],
   ['tang', 'Yellow tang', 'Tang'], ['bluetang', 'Blue tang'], ['flounder', 'Flounder'],
-  ['porgy', 'Porgy'], ['snapper', 'Red snapper', 'Snapper'], ['mackerel', 'Mackerel'],
+  ['porgy', 'Porgy'], ['octopus', 'Octopus'], ['snapper', 'Red snapper', 'Snapper'], ['mackerel', 'Mackerel'],
   ['grouper', 'Grouper'], ['barracuda', 'Barracuda'], ['mahi', 'Mahi-mahi'],
   ['tuna', 'Yellowfin tuna', 'Tuna'], ['blacktip', 'Blacktip shark', 'Blacktip'],
 ];
@@ -89,6 +107,11 @@ export const FOOD = {
   coconut: { hunger: 26, thirst: 11,  text: 'You crack the coconut open. Milk and flesh.' },
   fish:    { hunger: 22, thirst: -3,  text: 'You eat the fish raw. Salty, but it keeps you going.' },
   cooked:  { hunger: 36, thirst: 0,   text: 'Hot fish off the fire. That is a meal.' },
+  // The same, in their own words.
+  fish_crab:       { hunger: 22, thirst: -3, text: 'You crack the crab open and eat it raw. Sweet, and salty.' },
+  cooked_crab:     { hunger: 36, thirst: 0,  text: 'You crack the shell and pick out the hot, sweet meat.' },
+  fish_octopus:    { hunger: 22, thirst: -3, text: 'You chew your way through raw octopus. It keeps you going.' },
+  cooked_octopus:  { hunger: 36, thirst: 0,  text: 'Octopus off the fire, charred at the tips. A good meal.' },
 };
 
 /** Items worth a hotbar slot: the ones that actually do something in hand. */
@@ -113,6 +136,10 @@ export const RECIPES = [
     desc: 'Move the raft. Stroke at one side to turn it the other way.' },
   { id: 'statue', out: ['statue', 1], cost: { wood: 6, rope: 2, leaf: 3 },
     desc: 'Set it up on land and register at it (E): if you die, you wake beside it.' },
+  { id: 'torch',  out: ['torch', 1],  cost: { wood: 1, leaf: 2 },
+    desc: 'A stick bound with palm fibre. Lit at a fire, it lights the dark — the caves — for four minutes.' },
+  { id: 'striker', out: ['striker', 1], cost: { flint: 1, scrap: 1 },
+    desc: 'Cave flint struck on scrap iron: sparks. Lights a campfire at once, and a torch anywhere.' },
 ];
 
 // kind: how the piece attaches to the raft grid.
