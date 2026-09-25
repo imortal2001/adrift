@@ -194,6 +194,12 @@ export class FishSchools {
     this.raft = raft;          // the mahi-mahi school holds station on it
     this.fallback = normalise(fallbackBody());
     this.lively = new Set();   // single fish out of their schools: on a spear, a line, a deck
+    // Playing together (sharedworld.js): the others, whom fish react to as
+    // they do to you; whether the schools follow the host's rather than
+    // wander off on their own; and who to tell when a fish is taken.
+    this.others = [];
+    this.follow = false;
+    this.onTake = null;
 
     this.groups = [];
     this.schools = [];
@@ -452,6 +458,8 @@ export class FishSchools {
         s.center.y = THREE.MathUtils.clamp(s.center.y, bottom, top);
       }
 
+      // Following the host's schools, where they go is the host's to say.
+      if (this.follow) continue;
       const far = Math.hypot(s.center.x, s.center.z);
       if (far > (s.kind === 'deep' ? DEEP_RANGE : HOME_RANGE)) this.respawn(s);
       else if (s.kind === 'reef' && (s.floor < ZONES.reef.floor[0] - 6)) this.respawn(s);
@@ -485,9 +493,10 @@ export class FishSchools {
         s.center.y + f.offset.y,
         s.center.z + f.offset.x * sa + f.offset.z * ca);
 
-      // ── reacting to you ──
+      // ── reacting to you ── or whichever of you is nearest
       f.look = null;
-      const dx = f.pos.x - playerPos.x, dy = f.pos.y - playerPos.y, dz = f.pos.z - playerPos.z;
+      const you = this.nearestOf(f.pos, playerPos);
+      const dx = f.pos.x - you.x, dy = f.pos.y - you.y, dz = f.pos.z - you.z;
       const pd = Math.hypot(dx, dy, dz);
       const react = f.sp.react || 'school';
       if (f.delay > 0 && (f.delay -= dt) <= 0) this.bolt(f);
@@ -497,22 +506,22 @@ export class FishSchools {
         switch (react) {
           case 'curious':
             // Turn and watch. Back off, slowly, only when you are close.
-            f.look = playerPos;
+            f.look = you;
             if (pd < 2.0) push = near * 2.5;
-            if (pd < 1.1) this.frighten(f, playerPos, 0.1);
+            if (pd < 1.1) this.frighten(f, you, 0.1);
             break;
           case 'retreat':
             // Back away toward the bottom, still facing you.
-            f.look = playerPos;
+            f.look = you;
             push = near * 3.0;
             this._tgt.y -= near * 1.2;
-            if (pd < 1.3) this.frighten(f, playerPos, 0.12);
+            if (pd < 1.3) this.frighten(f, you, 0.12);
             break;
           case 'circle': {
             // Swing the station round you, wide and slow, at your depth.
             const ang = time * 0.22 + f.orbit;
-            this._tgt.set(playerPos.x + Math.cos(ang) * CIRCLE, playerPos.y + Math.sin(ang * 0.7) * 1.2,
-                          playerPos.z + Math.sin(ang) * CIRCLE);
+            this._tgt.set(you.x + Math.cos(ang) * CIRCLE, you.y + Math.sin(ang * 0.7) * 1.2,
+                          you.z + Math.sin(ang) * CIRCLE);
             if (pd < 2.5) {
               f.vel.x += (-dz / pd) * near * 3 * dt;
               f.vel.z += (dx / pd) * near * 3 * dt;
@@ -527,7 +536,7 @@ export class FishSchools {
             }
             break;
           default:
-            this.frighten(f, playerPos, react === 'dart' ? 0.04 : 0.1);
+            this.frighten(f, you, react === 'dart' ? 0.04 : 0.1);
             push = near * 6;
         }
       }
@@ -620,6 +629,42 @@ export class FishSchools {
     }
 
     this.animateLively(dt, time);
+  }
+
+  /** You, or another player if one is nearer to `p`. */
+  nearestOf(p, you) {
+    let best = you, bd = p.distanceToSquared(you);
+    for (const o of this.others) {
+      const d = p.distanceToSquared(o);
+      if (d < bd) { bd = d; best = o; }
+    }
+    return best;
+  }
+
+  // ── playing together ───────────────────────────────────────────────────────
+  /** Where each school is: [x, y, z, alarm], in school order — the same on every machine. */
+  schoolState() {
+    const r = v => Math.round(v * 10) / 10;
+    return this.schools.map(s => [r(s.center.x), r(s.center.y), r(s.center.z), s.alarm > 0 ? r(s.alarm) : 0]);
+  }
+
+  /**
+   * Move the schools to where the host has them — eased if near, so the
+   * fish in them swim across rather than jump; put there if far (a school
+   * the host recycled somewhere else).
+   */
+  setSchools(list) {
+    list.forEach((st, i) => {
+      const s = this.schools[i];
+      if (!s || !Array.isArray(st)) return;
+      const [x, y, z, alarm] = st;
+      const d = Math.hypot(x - s.center.x, z - s.center.z);
+      if (d > 12) {
+        s.center.set(x, y, z);
+        for (const f of s.members) f.pos.set(x, y, z).add(f.offset);
+      } else s.center.lerp(this._v.set(x, y, z), 0.5);
+      if (alarm > s.alarm) { s.alarm = alarm; s.threat.copy(s.center); }
+    });
   }
 
   // ── fright ─────────────────────────────────────────────────────────────────
@@ -765,8 +810,12 @@ export class FishSchools {
     return out;
   }
 
-  /** Take a fish out of the water: gone from its school until it respawns. */
-  take(f) {
+  /**
+   * Take a fish out of the water: gone from its school until it respawns.
+   * `told`: someone else took it, and has told everyone already.
+   */
+  take(f, told = false) {
+    if (!told) this.onTake?.(this.fish.indexOf(f));
     // The rest of the shoal sees it go.
     this.startle(f.pos, 3.5, 0.05);
     f.caught = RESPAWN;

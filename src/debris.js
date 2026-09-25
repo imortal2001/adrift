@@ -108,7 +108,8 @@ export class DebrisField {
     this.scene = scene;
     this.raft = raft;
     this.items = [];
-    const make = shapes();
+    const make = this.make = shapes();
+    this.nut = null;          // the scanned coconut, once dress() has it
 
     for (let i = 0; i < POOL; i++) {
       const kind = WEIGHTED[(Math.random() * WEIGHTED.length) | 0];
@@ -143,15 +144,52 @@ export class DebrisField {
     let nut = null;
     entry?.scene.traverse(o => { if (o.isMesh && !nut) nut = o; });
     if (!nut) return;
-    for (const it of this.items) {
-      if (it.kind !== 'coconut') continue;
-      const m = nut.clone();
-      m.scale.setScalar(COCONUT_SCALE);
-      m.rotation.set(1.3 + Math.random() * 0.5, Math.random() * 7, 0);
-      m.castShadow = true;
-      it.obj.clear();
-      it.obj.add(m);
-    }
+    this.nut = nut;
+    for (const it of this.items) if (it.kind === 'coconut') this.dressNut(it.obj);
+  }
+
+  dressNut(obj) {
+    const m = this.nut.clone();
+    m.scale.setScalar(COCONUT_SCALE);
+    m.rotation.set(1.3 + Math.random() * 0.5, Math.random() * 7, 0);
+    m.castShadow = true;
+    obj.clear();
+    obj.add(m);
+  }
+
+  // ── playing together ───────────────────────────────────────────────────────
+  /** Every piece: [kind, x, z], in slot order. */
+  snapshot() {
+    const r = v => Math.round(v * 10) / 10;
+    return this.items.map(it => [it.kind, r(it.x), r(it.z)]);
+  }
+
+  /**
+   * The host's flotsam: each slot takes its kind (a new body if it differs)
+   * and its place — eased there if close, since both drift on the same
+   * current, put there if not (the host has recycled it). A piece you have
+   * on the hook stays yours until it is in.
+   */
+  adopt(list) {
+    list.forEach((st, i) => {
+      const it = this.items[i];
+      if (!it || !Array.isArray(st) || it.held) return;
+      const [kind, x, z] = st;
+      if (kind !== it.kind && DEBRIS_KINDS[kind]) this.rekind(it, kind);
+      if (Math.hypot(x - it.x, z - it.z) > 2) { it.x = x; it.z = z; }
+      else { it.x += (x - it.x) * 0.5; it.z += (z - it.z) * 0.5; }
+    });
+  }
+
+  rekind(it, kind) {
+    const obj = this.make[kind]();
+    obj.userData.debrisIndex = it.obj.userData.debrisIndex;
+    this.scene.remove(it.obj);
+    this.scene.add(obj);
+    if (kind === 'coconut' && this.nut) this.dressNut(obj);
+    it.obj = obj;
+    it.kind = kind;
+    it.buoy = kind === 'coconut' ? 0.02 : kind === 'palm' ? 0.01 : -0.04;
   }
 
   respawn(it, along = -SPAWN_DIST) {

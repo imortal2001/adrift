@@ -194,6 +194,7 @@ pause screen starts over.
 | `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
 | `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold. |
 | `src/net.js` | Playing together: joining a room through the relay, sending where you are and what you do, and drawing the others — their characters, smoothed between updates, holding what they hold, with a name over their heads. |
+| `src/sharedworld.js` | Playing together in one world, the host's: the time of day, the flotsam, the fish schools, the whale and the dinosaurs, a catch or a gather gone for everyone, the others' spears in flight, a bite on a guest sent to them. |
 | `src/together.js` | Playing together on one raft, the host's: your own put by while you are away from it, each change sent as it happens, and the host's copy settling anything contested. |
 | `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
@@ -778,8 +779,19 @@ jumped forward, never back). And heights are sent from what they stand on —
 above the deck on the raft, above the sea in the water — so whatever small
 difference is left, the others stand on your deck and swim in your sea.
 
-*Not shared yet* — the next stage: what floats past, the fish and the
-dinosaurs, a spear in flight, and the time of day.
+**One world.** The rest of it is the host's as well (`src/sharedworld.js`):
+the time of day, what floats past, where the fish schools are, the whale and
+the dinosaurs. The host's game runs them as it would alone and tells the
+others how they stand three times a second; the others' games take that on
+and carry it forward. The dinosaurs are the host's alone — a guest's are
+drawn where the host says — so they hunt whichever of you is on land, and a
+bite on a guest is sent to that guest. The flotsam, the whale and the
+schools go on moving everywhere and are eased back onto the host's; each
+school's fish are every machine's own, swimming round it and shying from
+whoever is nearest, and a fish someone catches is gone for everyone. What
+someone gathers is gone for everyone too. A thrown spear flies on every
+screen and lands in the same place; what it skewers, the thrower's game
+says. Your own time of day waits with your raft.
 
 On this machine, run the relay with `node server/dev-relay.mjs` and the game
 finds it. For the published game, deploy the relay to Cloudflare (free) and

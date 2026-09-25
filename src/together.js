@@ -14,13 +14,15 @@
 // the slow drift of fires burning down and collectors filling on each machine.
 
 import { Raft } from './raft.js';
+import { SharedWorld, WORLD_EVENTS } from './sharedworld.js';
 
 const SETTLE = 1.5;     // the host sends the raft this long after a change…
 const EVERY = 20;       // …and this often regardless
 const OWN = 1.2;        // a copy arriving this soon after your own change is already out of date
 
 /** Events that change the world rather than a player: they come here, not to a Remote. */
-export const WORLD = new Set(['raft', 'place', 'take', 'obj']);
+const RAFT = new Set(['raft', 'place', 'take', 'obj']);
+export const WORLD = new Set([...RAFT, ...WORLD_EVENTS]);
 
 const now = () => performance.now() / 1000;
 
@@ -32,6 +34,7 @@ export class Together {
     this.settle = null;         // seconds until the host sends the raft, after a change
     this.every = EVERY;
     this.edited = -Infinity;
+    this.world = new SharedWorld(game);   // the rest of it: the sky, the sea, what lives there
   }
 
   get net() { return this.game.net; }
@@ -56,6 +59,7 @@ export class Together {
   // ── coming and going ───────────────────────────────────────────────────────
   /** You are in a game. Hosting, the raft is yours already. */
   enter(host) {
+    this.world.enter(host);
     if (host || this.own) return;
     // Fish on your own fires go in the bag first; your raft waits without them.
     this.game.pocketSpit();
@@ -70,6 +74,7 @@ export class Together {
 
   /** Out of the game, however that happened: back to your own raft. */
   exit() {
+    this.world.exit();
     if (!this.own) return;
     const g = this.game;
     g.clearSpits();
@@ -83,7 +88,12 @@ export class Together {
   }
 
   // ── what the others do ─────────────────────────────────────────────────────
-  hear(e) {
+  /** Someone left, or the host did and this game is host now. */
+  left(id) { this.world.left(id); }
+  hosting() { this.world.hosting(); }
+
+  hear(e, from) {
+    if (!RAFT.has(e.k)) { this.world.hear(e, from); return; }
     const spit = (o, list) => this.game.setSpit(o, list);
     if (e.k === 'raft') {
       // The host's word; but a copy sent before your own change reached them
@@ -117,6 +127,7 @@ export class Together {
 
   // ── each frame ─────────────────────────────────────────────────────────────
   update(dt) {
+    this.world.update(dt);
     if (!this.net.isHost || !this.net.remotes.size) return;
     this.every -= dt;
     if (this.settle !== null) this.settle -= dt;

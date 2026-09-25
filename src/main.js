@@ -428,6 +428,7 @@ class Game {
   }
 
   gather(it) {
+    this.together.world.gathered(it);
     const { label, yield: y } = this.debris.harvest(it);
     const parts = [];
     for (const id in y) {
@@ -551,12 +552,14 @@ class Game {
     const heading = point.sub(from).normalize();
 
     this.inv.remove('spear', 1);
-    this.spears.throw(from, heading, submerged, !fish);
+    const thrown = this.spears.throw(from, heading, submerged, !fish);
+    this.together.world.threw(thrown, from, heading, submerged, !fish);
     this.viewmodel.release();
     this.hud.refreshInventory(this.inv);
   }
 
   retrieveSpear(s) {
+    this.together.world.tookBack(s);
     const { where, fish } = this.spears.take(s);
     this.inv.add('spear', 1);
     const how = { drifting: 'You catch the spear as it drifts up',
@@ -1036,7 +1039,7 @@ class Game {
     this.wildlife.update(dt, this.time, this.player,
                          this.player.state === 'deck' && this.player.onLand);
     this.debris.update(dt, this.time, this.player.pos);
-    this.fish.update(dt, this.time, eye);
+    this.fish.update(dt, this.time, eye);      // the others it shies from too: sharedworld.js
     this.whale.update(dt, this.time);
     this.spears.update(dt, this.time);
     this.hook.update(dt, eye.clone().addScaledVector(dir, 0.5), this.time, this.debris,
@@ -1181,7 +1184,12 @@ class Game {
     // A short grace period after being hit, so a pack cannot stack three bites
     // into the same instant. Caps incoming damage no matter how many close in,
     // which leaves time to run for the water — the only escape there is.
-    const bites = this.wildlife.events.splice(0);
+    // A bite on someone else, by the host's animals, is theirs to take (sharedworld.js).
+    const bites = this.wildlife.events.splice(0).filter(b => {
+      if (b.to === undefined) return true;
+      this.net.event({ k: 'bite', damage: b.damage, label: b.label }, b.to);
+      return false;
+    });
     // Report any species that upgraded itself to a glTF body.
     for (const u of this.wildlife.upgraded.splice(0)) {
       this.hud.log(`Loaded ${u.key} model (${u.count} animals, ${u.clips} clips).`, 'good');
@@ -1273,8 +1281,9 @@ class Game {
         player: this.player.toJSON(),
         view: this.view.mode,
         character: this.character,
-        time: this.sky.time,
-        day: this.sky.day,
+        // On someone else's raft, the time of day is theirs; yours is put by.
+        time: this.together.world.ownSky?.[0] ?? this.sky.time,
+        day: this.together.world.ownSky?.[1] ?? this.sky.day,
         goals: [...this.goalsDone],
       }));
     } catch { /* storage full or blocked — not worth interrupting play */ }

@@ -45,6 +45,7 @@ the whole repository as a website instead: say no.
 The free plan is enough for a small game. As Cloudflare's free tier stood
 when this was written: 100,000 Durable Object requests a day, with incoming
 WebSocket messages counted 20 to a request, and 13,000 GB-s of running time
-a day. Three players for three hours send about 390,000 messages — some
-20,000 requests — and keep one room running for about 1,400 GB-s: well
+a day. Three players for three hours send about 420,000 messages (where
+each is twelve times a second, and the host's word on the world three) —
+some 21,000 requests — and keep one room running for about 1,400 GB-s: well
 inside both. Check Cloudflare's current limits if you expect a crowd.

@@ -17,6 +17,7 @@ const CORPSE_TIME = 35;        // seconds a kill lies where it fell
 const STEER_EVERY = 0.2;       // seconds between an animal's look-aheads
 const MAX_SLOPE = 0.5;         // steeper than this is a cliff to an animal
 const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+const STATES = ['wander', 'graze', 'rest', 'hunt', 'flee', 'feed'];
 const approach = (v, goal, step) => v < goal ? Math.min(goal, v + step) : Math.max(goal, v - step);
 
 // How high each body stands is measured from the finished model at build time
@@ -305,6 +306,11 @@ export class Wildlife {
     this.events = [];          // damage dealt to the player
     this.kills = [];           // "X brought down a Y", for flavour near the player
     this.home = homeHint;      // a point on land to seed around
+    // Playing together (sharedworld.js). The host's animals hunt the others
+    // too — {id, pos, onLand}, a bite on one of them is an event `to` them —
+    // and everyone else's follow the host's rather than think for themselves.
+    this.others = [];
+    this.follow = false;
 
     for (const key in SPECIES) {
       const sp = SPECIES[key];
@@ -452,10 +458,15 @@ export class Wildlife {
       if (hunter.sp.scale < 1.5 && a.sp.scale > 2.2) continue;
       if (d < bestD) { bestD = d; best = a; }
     }
-    if (playerHuntable) {
-      const d = Math.hypot(player.pos.x - hunter.pos.x, player.pos.z - hunter.pos.z);
-      if (d < bestD * 0.85) return { player: true, pos: player.pos, dist: d };
-    }
+    // A person is prey too, if they are on land — you, or any of the others.
+    let who = null, whoD = bestD * 0.85;
+    const consider = (w, pos) => {
+      const d = Math.hypot(pos.x - hunter.pos.x, pos.z - hunter.pos.z);
+      if (d < whoD) { whoD = d; who = w; }
+    };
+    if (playerHuntable) consider('player', player.pos);
+    for (const o of this.others) if (o.onLand) consider({ remote: o.id, pos: o.pos }, o.pos);
+    if (who) return { who, pos: who === 'player' ? player.pos : who.pos, dist: whoD };
     return best ? { animal: best, pos: best.pos, dist: bestD } : null;
   }
 
@@ -471,6 +482,10 @@ export class Wildlife {
   }
 
   update(dt, time, player, playerOnLand) {
+    if (this.follow) {
+      for (const a of this.all) this.shadow(a, dt, time, player);
+      return;
+    }
     for (const a of this.all) {
       if (a.dead) {
         // A kill lies where it fell for a while, then is gone.
@@ -501,6 +516,75 @@ export class Wildlife {
     }
   }
 
+  // ── playing together ───────────────────────────────────────────────────────
+  /** Every animal: [x, z, heading, speed, state, dead, striking], in the same order everywhere. */
+  snapshot() {
+    const r = (v, k = 10) => Math.round(v * k) / k;
+    return this.all.map(a => [r(a.pos.x), r(a.pos.z), r(a.heading, 100), r(a.speed),
+                              STATES.indexOf(a.state), a.dead ? 1 : 0,
+                              a.bite > a.sp.biteEvery - 0.5 ? 1 : 0]);
+  }
+
+  /** The host's animals, as they were a moment ago; shadow() carries them on from there. */
+  adopt(list) {
+    const now = performance.now() / 1000;
+    list.forEach((st, i) => {
+      const a = this.all[i];
+      if (!a || !Array.isArray(st)) return;
+      const [x, z, h, speed, state, dead, strike] = st;
+      a.net = { x, z, h, speed, strike, at: now };
+      a.state = STATES[state] || 'wander';
+      if (dead && !a.dead) {
+        a.dead = true;
+        a.speed = 0;
+        a.corpse = CORPSE_TIME;
+        if (a.rig.model) playState(a.rig, 'death', 0.2);
+      } else if (!dead && a.dead) {
+        // Back again somewhere else: as update() brings one back.
+        a.dead = false;
+        a.corpse = a.sink = 0;
+        a.settled = false;
+        a.settleAt = 0;
+        a.roll = a.pitch = a.yawVel = 0;
+        a.rig.group.visible = true;
+        a.pos.set(x, heightAt(x, z), z);
+        a.y = a.pos.y;
+      }
+      if (Math.hypot(x - a.pos.x, z - a.pos.z) > 30) { a.pos.set(x, heightAt(x, z), z); a.y = a.pos.y; a.heading = h; }
+    });
+  }
+
+  /**
+   * Following the host: go where it said, carried on at the speed and
+   * heading it said, and eased onto that course; nothing decided here.
+   */
+  shadow(a, dt, time, player) {
+    if (a.dead) {
+      if (a.corpse > 0) {
+        a.corpse -= dt;
+        if (a.corpse <= 0) a.rig.group.visible = false;
+        else this.draw(a, dt, time, player);
+      }
+      return;
+    }
+    const n = a.net;
+    if (n) {
+      const t = performance.now() / 1000 - n.at;
+      const tx = n.x + Math.sin(n.h) * n.speed * t, tz = n.z + Math.cos(n.h) * n.speed * t;
+      const k = Math.min(1, dt * 3);
+      const before = a.heading;
+      a.pos.x += Math.sin(a.heading) * a.speed * dt + (tx - a.pos.x) * k;
+      a.pos.z += Math.cos(a.heading) * a.speed * dt + (tz - a.pos.z) * k;
+      a.heading = wrap(a.heading + wrap(n.h - a.heading) * k);
+      a.yawVel = wrap(a.heading - before) / Math.max(dt, 1e-4);
+      a.speed += (n.speed - a.speed) * k;
+      a.bite = n.strike ? a.sp.biteEvery : 0;
+    }
+    a.pos.y = heightAt(a.pos.x, a.pos.z);
+    this.fitGround(a, dt);
+    this.draw(a, dt, time, player);
+  }
+
   think(a, dt, player, playerOnLand) {
     const sp = a.sp;
     a.timer -= dt;
@@ -510,7 +594,7 @@ export class Wildlife {
       if (!a.prey || a.prey.dead || a.timer <= 0) {
         const found = this.findPrey(a, player, playerOnLand);
         if (found) {
-          a.prey = found.animal || 'player';
+          a.prey = found.animal || found.who;
           a.state = 'hunt';
         } else if (a.state === 'hunt') {
           a.state = 'wander';
@@ -520,13 +604,16 @@ export class Wildlife {
       }
       if (a.state === 'hunt') {
         const tgt = a.prey === 'player' ? player.pos : a.prey && a.prey.pos;
-        if (!tgt || (a.prey === 'player' && !playerOnLand)) { a.state = 'wander'; a.prey = null; }
+        // Someone else gone back to sea, or out of the game, is no longer prey.
+        const gone = a.prey?.remote && !this.others.some(o => o.id === a.prey.remote && o.onLand);
+        if (!tgt || (a.prey === 'player' && !playerOnLand) || gone) { a.state = 'wander'; a.prey = null; }
         else {
           const d = Math.hypot(tgt.x - a.pos.x, tgt.z - a.pos.z);
           if (d > sp.giveUp) { a.state = 'wander'; a.prey = null; }
           else if (d < sp.reach && a.bite <= 0) {
             a.bite = sp.biteEvery;
             if (a.prey === 'player') this.events.push({ damage: sp.damage, label: sp.label });
+            else if (a.prey.remote) this.events.push({ damage: sp.damage, label: sp.label, to: a.prey.remote });
             else this.wound(a, a.prey);
           }
         }

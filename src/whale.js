@@ -241,6 +241,35 @@ export class Whale {
     this.blows++;
   }
 
+  // ── playing together ───────────────────────────────────────────────────────
+  static STATES = ['cruise', 'rise', 'breathe', 'sound'];
+
+  /** Where it is and what it is doing, for the others: they swim it on from there. */
+  snapshot() {
+    if (!this.ready) return null;
+    const r = (v, k = 10) => Math.round(v * k) / k;
+    return [r(this.pos.x), r(this.pos.y), r(this.pos.z), r(this.yaw, 100), r(this.pitch, 100),
+            Whale.STATES.indexOf(this.state), r(this.timer), r(this.goal.x), r(this.goal.z),
+            this.blowsLeft ?? 0, r(this.descent ?? 0, 100)];
+  }
+
+  /** The host's whale: taken on here, eased into place if it is close, put there if not. */
+  adopt(st) {
+    if (!this.ready || !Array.isArray(st)) return;
+    const [x, y, z, yaw, pitch, state, timer, gx, gz, blows, descent] = st;
+    const far = Math.hypot(x - this.pos.x, z - this.pos.z) > 15;
+    const k = far ? 1 : 0.4;
+    this.pos.x += (x - this.pos.x) * k; this.pos.y += (y - this.pos.y) * k; this.pos.z += (z - this.pos.z) * k;
+    this.yaw += Math.atan2(Math.sin(yaw - this.yaw), Math.cos(yaw - this.yaw)) * k;
+    if (far) this.pitch = pitch;
+    this.state = Whale.STATES[state] || 'cruise';
+    this.timer = timer;
+    this.goal.set(gx, 0, gz);
+    this.blowsLeft = blows;
+    this.descent = descent;
+    this.steerIn = 0;
+  }
+
   update(dt, time) {
     this.time = time;
     this.updateSpout(dt);

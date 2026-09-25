@@ -60,8 +60,14 @@ export class ThrownSpears {
   /**
    * @param makeBody  returns a fresh spear Object3D in the tool frame (along
    *                  +Y, origin at the grip) — the same body the hand holds
+   * @param ghost     the others' spears, thrown on their machines: they fly
+   *                  and land here the same, but what they catch is theirs to
+   *                  say (skewer()), not found here
    */
-  constructor(scene, terrain, raft, fish, makeBody) {
+  constructor(scene, terrain, raft, fish, makeBody, ghost = false) {
+    this.ghost = ghost;
+    this.onSkewer = null;      // (spear, fish index) — playing together, the others hear of it
+    this.next = 1;
     this.scene = scene;
     this.terrain = terrain;
     this.raft = raft;
@@ -101,6 +107,7 @@ export class ThrownSpears {
       where: null,            // what it stuck in, for the pickup message
       age: 0,
       catch: [],              // { key, name } per fish on the shaft
+      id: this.next++,
     };
     if (!underwater && loft) s.vel.y += LOFT;
     this.list.push(s);
@@ -145,11 +152,12 @@ export class ThrownSpears {
     // A spear through the water frightens what it passes — after each fish's
     // reaction time, so one it was aimed at is hit before it can get away.
     if (wet && speed > 4) this.fish.startle(tip, 1.4, 0.2);
-    if (speed > 2.5 && s.catch.length < SKEWER_MAX) {
+    if (speed > 2.5 && s.catch.length < SKEWER_MAX && !this.ghost) {
       this._hits.length = 0;
       for (const f of this.fish.hitSegment(this._prevTip, tip, this._hits)) {
         if (s.catch.length >= SKEWER_MAX) break;
         this.skewer(s, this.fish.bodyFor(this.fish.take(f)));
+        this.onSkewer?.(s, this.fish.fish.indexOf(f));
         s.vel.multiplyScalar(FISH_DRAG);
       }
     }
@@ -202,6 +210,12 @@ export class ThrownSpears {
     s.body.add(body);
     s.catch.push(body.userData.fish);
   }
+
+  /** A spear by the id it was thrown with. */
+  find(id) { return this.list.find(s => s.id === id); }
+
+  /** Out of the world, as take() is, without anything to hand back. */
+  drop(s) { if (s) this.take(s); }
 
   /** Bury the point `EMBED` past the contact and freeze it there. */
   stick(s, tip, surface, where) {

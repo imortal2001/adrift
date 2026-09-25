@@ -9,8 +9,9 @@
 // room and passes their messages on; each browser draws the others from what
 // it hears. The world they stand in is the same world — the land, the reef,
 // the raft's place — because every copy of the game builds it the same way.
-// The raft itself is the host's, shared (together.js); what floats past, the
-// fish, the dinosaurs and the time of day are still each player's own.
+// What changes in it is the host's, shared: the raft (together.js), and the
+// time of day, the flotsam, the fish, the whale and the dinosaurs
+// (sharedworld.js).
 
 import * as THREE from 'three';
 import { PlayerBody } from './body.js';
@@ -109,6 +110,7 @@ class Remote {
     p.yaw = lerpAngle(a.s.y || 0, b.s.y || 0, k);
     p.pitch = (a.s.pi || 0) + ((b.s.pi || 0) - (a.s.pi || 0)) * k;
     p.state = { d: 'deck', a: 'air', s: 'swim' }[b.s.st] || 'deck';
+    p.onLand = !!b.s.l;
     // Head under here, they are swimming under water (body.js swims that differently).
     p.submerged = p.state === 'swim' && p.pos.y + 1.62 < waveHeight(x, z, this.net.time);
     // Only a sudden leap (they respawned, or climbed aboard) is not smoothed.
@@ -259,7 +261,7 @@ export class Net {
       this.onChange();
     } else if (m.t === 'leave') {
       const r = this.remotes.get(m.id);
-      if (r) { this.log(`${r.name} has gone.`); r.dispose(); this.remotes.delete(m.id); this.onChange(); }
+      if (r) { this.log(`${r.name} has gone.`); r.dispose(); this.remotes.delete(m.id); this.together?.left(m.id); this.onChange(); }
     } else if (m.t === 'state') {
       this.remotes.get(m.id)?.hear(m.s);
     } else if (m.t === 'ev' && m.e) {
@@ -267,7 +269,7 @@ export class Net {
       else this.remotes.get(m.id)?.event(m.e);
     } else if (m.t === 'host') {
       this.host = m.id;
-      if (m.id === this.id) this.log('You are the host now.');
+      if (m.id === this.id) { this.log('You are the host now.'); this.together?.hosting(); }
       this.onChange();
     } else if (m.t === 'full') {
       this.status = `${this.code} is full`;
@@ -340,6 +342,7 @@ export class Net {
                 st: { deck: 'd', air: 'a', swim: 's' }[player.state] || 'd', h: held || null };
     if (deck) s.r = 1;
     else if (swim) s.r = 2;
+    if (player.onLand && !swim) s.l = 1;         // on land: prey, to the host's dinosaurs
     const text = JSON.stringify({ t: 'state', s });
     if (text === this.last && this.idle < IDLE_SEND) return;
     this.last = text;
