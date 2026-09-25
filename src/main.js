@@ -108,7 +108,7 @@ class Game {
     this.terrain.shareSky(this.ocean.uniforms);
     this.player = new Player(this.eye, this.raft, this.terrain);
     // Where you came to (spawn.js) and the statue you wake at (statue.js).
-    this.start = null;
+    this.origin = null;
     this.statues = new Statues(this.scene);
     this.registered = null;          // {id, world} or {raft: raft id, cx, cz, world}: world null for your own, else the room's code
     this.statueTip = false;          // told, this session, what a statue is for
@@ -944,7 +944,7 @@ class Game {
     this.build.inv = this.inv;
     this.hotbar = new Hotbar();
     Object.assign(this.player, { health: 100, hunger: 100, thirst: 100, breath: 100 });
-    const st = this.start = pickStart(kind);
+    const st = this.origin = pickStart(kind);
     this.rafts.load([]);
     this.setRaft(this.rafts.make());
     const heading = Math.random() * Math.PI * 2;
@@ -1030,7 +1030,7 @@ class Game {
       this.hud.log('You black out, and wake beside your statue.', 'bad');
       return;
     }
-    const st = this.start || { x: 0, z: 0, yaw: 0 };
+    const st = this.origin || { x: 0, z: 0, yaw: 0 };
     // Come to on a raft or on wreckage, you wake on it — wherever it has got to.
     const home = st.raft && this.rafts.byId(st.raft);
     if (home?.size) {
@@ -1099,7 +1099,7 @@ class Game {
   /** You, in the room's world. */
   meJSON() {
     return { v: 1, character: this.character, inv: this.carried(false), hotbar: this.hotbar.toJSON(),
-             player: this.player.toJSON(), start: this.start, registered: this.registered,
+             player: this.player.toJSON(), start: this.origin, registered: this.registered,
              goals: [...this.goalsDone] };
   }
 
@@ -1168,7 +1168,7 @@ class Game {
     this.build.inv = this.inv;
     this.hotbar = Hotbar.fromJSON(me.hotbar);
     this.player.load(me.player);
-    this.start = me.start || pickStart();
+    this.origin = me.start || pickStart();
     this.registered = me.registered || null;
     for (const g of me.goals || []) this.goalsDone.add(g);
     if (me.character && me.character !== this.character) this.dress(me.character);
@@ -1196,7 +1196,7 @@ class Game {
     this.build.inv = this.inv;
     this.hotbar = new Hotbar();
     Object.assign(this.player, { health: 100, hunger: 100, thirst: 100 });
-    const st = this.start = pickStart();
+    const st = this.origin = pickStart();
     this.registered = null;
     const heading = Math.random() * Math.PI * 2;
     // The empty raft you were given coming in will do; there is no need of two.
@@ -1987,7 +1987,7 @@ class Game {
         rafts: this.rafts.toJSON(this.raft),
         raftId: this.raft.id,
         statues: this.statues.toJSON(),
-        start: this.start,
+        start: this.origin,
         registered: this.registered,
         scattered: true,
         inv,
@@ -2012,7 +2012,7 @@ class Game {
     this.rafts.load(d.rafts || d.raft || {});
     this.setRaft(this.rafts.byId(d.raftId) || this.rafts.list[0] || this.rafts.make());
     // Before starts were chosen, everyone started on the raft, here.
-    this.start = d.start || { kind: 'raft', x: 0, z: 0, yaw: 0 };
+    this.origin = d.start || { kind: 'raft', x: 0, z: 0, yaw: 0 };
     this.statues.load(d.statues);
     // A save from before statues stood about the land gets them now.
     if (!d.scattered) for (const s of scatter()) this.statues.add(s);
@@ -2034,7 +2034,7 @@ class Game {
     const was = d.player?.where, pos = d.player?.pos;
     if (was && was !== 'deck' && Array.isArray(pos)) this.player.standAt(pos[0], pos[2], d.player.yaw);
     else if (this.raft.size) this.player.respawnOnRaft();
-    else this.player.standAt(this.start.x, this.start.z, this.start.yaw);
+    else this.player.standAt(this.origin.x, this.origin.z, this.origin.yaw);
     this.sky.time = d.time ?? this.sky.time;
     this.sky.day = d.day ?? 1;
     for (const g of d.goals || []) this.goalsDone.add(g);
