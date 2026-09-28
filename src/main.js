@@ -23,6 +23,7 @@ import { Fishing } from './fishing.js';
 import { Terrain, heightAt as landHeight, coastDistance, CHUNK, landAt, freshWaterAt } from './terrain.js';
 import { Caves } from './caves.js';
 import { FLAME } from './viewmodel.js';
+import * as sound from './sound.js';
 import { Wildlife } from './wildlife.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
@@ -548,6 +549,8 @@ class Game {
   /** A use of what is in hand, seen: the arm in first person, the body outside it. */
   useAnim(kind) {
     this.viewmodel.use(kind);
+    // The axe going through the air, a moment into the swing.
+    if (kind === 'chop') sound.swish(this.player.eyePos.addScaledVector(this.player.forward(), 0.5), CHOP_TIME * 0.34);
     const g = { spear: 'thrust', build: 'swing', eat: 'eat', hook: 'toss', paddle: 'paddle', chop: 'chop' }[kind];
     this.body.gesture(g);
     this.net.event({ k: 'g', g });                // the others see it too
@@ -920,19 +923,25 @@ class Game {
     this.chops.set(plant.key, c);
     const last = c.n >= plant.sp.chop;
     this.terrain.burst(bite, away, bamboo ? 'bamboo' : 'wood', last ? 26 : 12);
+    sound.chop(bite, { bamboo, last });
     if (!last) { this.terrain.shake(plant, away); return; }
     const name = plant.sp.label.toLowerCase();
     this.chops.delete(plant.key);
     const got = this.terrain.harvest(plant);
     if (!plant.sp.falls) { this.gain(got, `You chop the ${name} up`); return; }
     this.hud.log(`The ${name} creaks, and leans…`);
-    this.terrain.topple(plant, away, f => {
+    const fell = this.terrain.topple(plant, away, f => {
       this.gain(got, `The ${name} comes down with a crash`);
+      sound.crash(new THREE.Vector3(plant.x + away.x * f.H * 0.45, plant.y + 1, plant.z + away.z * f.H * 0.45), Math.min(1, f.H / 45));
       // Felt underfoot, if you are near.
       const d = Math.hypot(plant.x + away.x * f.H * 0.5 - this.player.pos.x, plant.z + away.z * f.H * 0.5 - this.player.pos.z);
       const k = Math.max(0, 1 - d / 40) * Math.min(1, f.H / 20);
       if (k > 0) this.quake = { t: 0, amp: 0.09 * k };
     });
+    // As it goes: the creak of it giving way, then the rush of it coming down.
+    const size = Math.min(1, fell.H / 45);
+    sound.creak(new THREE.Vector3(plant.x, plant.y + 2, plant.z), fell.fall * 0.55);
+    sound.fall(new THREE.Vector3(plant.x + away.x * fell.H * 0.35, plant.y + fell.H * 0.35, plant.z + away.z * fell.H * 0.35), fell.fall, size);
   }
 
   /** Chip a flint face off a cave wall. */
@@ -2198,6 +2207,7 @@ class Game {
       quake = new THREE.Vector3(Math.sin(this.quake.t * 61) * k, Math.sin(this.quake.t * 47 + 1) * k, Math.sin(this.quake.t * 53 + 2) * k);
       this.camera.position.add(quake);
     } else this.quake = null;
+    sound.listen(this.camera);
     this.renderer.render(this.scene, this.camera);
     if (this.view.first) this.viewmodel.render();
     if (quake) this.camera.position.sub(quake);

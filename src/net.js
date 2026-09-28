@@ -17,6 +17,8 @@ import * as THREE from 'three';
 import { PlayerBody } from './body.js';
 import { waveHeight } from './ocean.js';
 import { WORLD } from './together.js';
+import * as sound from './sound.js';
+import { CHOP_TIME, CHOP_HIT } from './items.js';
 
 // Where the relay is. On this machine, the local stand-in; on the published
 // game, the Worker you deployed — set this to its address (server/README.md).
@@ -344,7 +346,15 @@ class Remote {
 
   event(e) {
     if (e.k === 'pub' && typeof e.pub === 'string') this.pub = e.pub.slice(0, 24);
-    else if (e.k === 'g') this.body.gesture(e.g);
+    else if (e.k === 'g') {
+      this.body.gesture(e.g);
+      // Their axe: you hear it, the swish and the bite, where their hands are.
+      // (What they are chopping is theirs to see fall; the sound carries.)
+      if (e.g === 'chop') {
+        sound.swish(this.body.gripPos, CHOP_TIME * 0.34);
+        setTimeout(() => sound.chop(this.body.gripPos.clone().add(new THREE.Vector3(0, 0.1, 0))), CHOP_TIME * CHOP_HIT * 1000);
+      }
+    }
     else if (e.k === 'chat' && e.text) {
       const text = String(e.text).replace(/[\u0000-\u001f]/g, '').slice(0, SAY);
       this.say(text);

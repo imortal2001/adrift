@@ -213,6 +213,7 @@ pause screen starts over.
 | `src/reef.js` | What lives on the sea bed: coral, sponges, anemones, seagrass, kelp, urchins, starfish, giant clams and rock, plus the surge that bends the soft ones. |
 | `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Used by the reef. |
 | `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers, and the falls and lakes on them), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
+| `src/sound.js` | Sound, made on the spot with the Web Audio API — no recordings: the axe (swish, bite, the last stroke), a tree creaking, falling and crashing down; each placed in the world, heard from the camera. |
 | `src/caves.js` | Caves, sea caves, sea arches and rock shelves: where they are (surveyed from the land), their meshes, the dark inside them, and the floors and walls you walk on and within there; flint to chip, and the springs. |
 | `src/waterfall.js` | The lakes' still water, cut to their shores, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
@@ -397,6 +398,17 @@ it lands — the ground shakes if you are close — and the wood is yours as it
 hits. It lies a few seconds, then sinks out of sight. A log or a stump is
 chopped up where it lies, in a burst of chips. Leave one half-chopped a
 minute and you start again.
+
+And you hear it (`src/sound.js`): the swish of the swing and the thunk and
+crack of the bite — a hollow tock off bamboo — then, the last stroke, the
+creak of the tree giving way, the rush of the air and its leaves as it comes
+down, and the crash: a thump, branches snapping, the leaves settling. None of
+it is recorded: each sound is made on the spot from noise and oscillators
+with the Web Audio API, so there are no files, and no two strokes sound quite
+alike. They come from where they happen — a tree going down behind you, or
+across the valley, sounds like it — and playing together you hear the
+others' axes too. The browser keeps a page quiet until you first click or
+press a key.
 
 ### The reef
 

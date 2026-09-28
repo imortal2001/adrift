@@ -1777,8 +1777,10 @@ export class Terrain {
       }
     }
     this.falling = this.falling || [];
-    this.falling.push({ m, p, t: 0, H, stop, fall: 1.3 + H / 40, dir: dir.clone(),
-                        axis: new THREE.Vector3(dir.z, 0, -dir.x).normalize(), onLand, landed: false });
+    const f = { m, p, t: 0, H, stop, fall: 1.3 + H / 40, dir: dir.clone(),
+                axis: new THREE.Vector3(dir.z, 0, -dir.x).normalize(), onLand, landed: false };
+    this.falling.push(f);
+    return f;
   }
 
   /** Once a frame: the shudders, the falls, and the bits flying. */
