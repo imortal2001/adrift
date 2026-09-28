@@ -10,7 +10,7 @@
 
 Terrain, water, sky, flora, the reef, raft and debris are generated
 procedurally at load time. The wildlife models in `assets/models/` are **not** —
-see the table below, and read the warning attached to it. Nor are the three
+see the table below, and read the warning attached to it. Nor are the four
 held tools, which have their own section at the end.
 
 `assets/models/reef_fish.glb` is the exception among the files in that folder:
@@ -80,7 +80,7 @@ because the problem is common in converted rigs.
 
 ### Held tools
 
-What you see in your hand, drawn by `src/viewmodel.js`. All three are CC BY 4.0,
+What you see in your hand, drawn by `src/viewmodel.js`. All four are CC BY 4.0,
 confirmed on their Sketchfab pages (none carries a NoAI restriction), and the
 author, licence and source are also embedded in each original file's
 `asset.extras`. Unlike the wildlife above, there is nothing disputed about
@@ -91,14 +91,21 @@ these: the licence is the uploader's own work, attributed here as it asks.
 | `assets/models/tool_hammer.glb` | Stone hammer Axe (Free) | wolfgar74 | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/stone-hammer-axe-free-a0e76cba79784776b4346e6ae1732472) |
 | `assets/models/tool_spear.glb` | Stone Age Spear | Ben | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/stone-age-spear-2e9bb69fa7934df3901cf6313c540e8d) |
 | `assets/models/tool_rod.glb` | Fishing Rod | KOREA HERITAGE SERVICE [KHS] | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/fishing-rod-c6e7d4f5672348aaa874f181454ceb05) |
+| `assets/models/tool_axe.glb` | Axe | Pablo88 | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/axe-11654de384f440d7ba70c71febdff3cc) |
 
-**Changes made.** CC BY asks that modifications be indicated. All three were put
+This work is based on "Axe" (https://sketchfab.com/3d-models/axe-11654de384f440d7ba70c71febdff3cc)
+by Pablo88 (https://sketchfab.com/Pablo88), licensed under CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/).
+
+**Changes made.** CC BY asks that modifications be indicated. All four were put
 through `tools/build_tools.py`, which:
 
 - reorients each to stand along +Y, rescales it to a real-world length
-  (hammer 0.46 m, spear 1.75 m, rod 2.20 m) and moves its origin to the grip;
-- **hammer and rod:** downsizes the embedded textures (base colour to JPEG at
-  1024, data maps to 512). The hammer went from 19 MB to 1.5 MB;
+  (hammer 0.46 m, spear 1.75 m, rod 2.20 m, axe 0.62 m) and moves its origin
+  to the grip; the axe is turned about its haft so its edge leads;
+- **hammer, rod and axe:** downsizes the embedded textures (base colour to
+  JPEG at 1024, data maps to 512). The hammer went from 19 MB to 1.5 MB, the
+  axe from 15 MB to 1.6 MB;
 - **spear:** replaces its three untextured white materials with wood, knapped
   stone and rawhide, painted as vertex colours; and **lengthens the shaft**
   about 3.2x along its own axis. The head and lashing are the author's geometry
@@ -183,6 +190,83 @@ NoAI tag.
 The shape, colours and the rest of its textures are the author's, unchanged.
 
 Everything else in `assets/models/reef_fish.glb` is original (see above).
+
+### Reef and pond animals
+
+| File | Model | Author | Licence | Source |
+|---|---|---|---|---|
+| `assets/models/sea_turtle.glb` | Sea turtle low poly | C.J..Goldman | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/sea-turtle-low-poly-c92be549c8194136914883309a13a6b5) |
+| `assets/models/tortoise.glb` | Tortoise - turtle | Daniel Zuleta Art | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/tortoise-turtle-031b140380654dedb3b18e7cdd8c190c) |
+| `assets/models/pond_turtle.glb` | CC0 ニホンイシガメ 🐢 ♀ Japanese Pond Turtle | ffish.asia / floraZia.com | [CC0 1.0](http://creativecommons.org/publicdomain/zero/1.0/) | [Sketchfab](https://sketchfab.com/3d-models/cc0-japanese-pond-turtle-f9dbea5a423543a9a38dc0ec0c30a7a9) |
+| `assets/models/crab.glb` | Blue crab | Julian Johnson-Mortimer | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/blue-crab-084c87634fab4f2bbc3a5866789014e3) |
+| `assets/models/octopus.glb` | Octopus | kenchoo | [CC BY 4.0](http://creativecommons.org/licenses/by/4.0/) | [Sketchfab](https://sketchfab.com/3d-models/octopus-330402cc0ade4fc5bb147f3d618e58c3) |
+| `assets/models/stingray.glb` | Stingray | LostBoyz2078 | [CC BY-NC 4.0](http://creativecommons.org/licenses/by-nc/4.0/) — **non-commercial, see below** | [Sketchfab](https://sketchfab.com/3d-models/stingray-48e5264c0f0941fdb2f49e25d5513b5c) |
+
+This work is based on "Sea turtle low poly"
+(https://sketchfab.com/3d-models/sea-turtle-low-poly-c92be549c8194136914883309a13a6b5)
+by C.J..Goldman (https://sketchfab.com/C.J..Goldman), licensed under
+CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
+
+This work is based on "Tortoise - turtle"
+(https://sketchfab.com/3d-models/tortoise-turtle-031b140380654dedb3b18e7cdd8c190c)
+by Daniel Zuleta Art (https://sketchfab.com/dalez92), licensed under CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/).
+
+This work is based on "CC0 Japanese Pond Turtle"
+(https://sketchfab.com/3d-models/cc0-japanese-pond-turtle-f9dbea5a423543a9a38dc0ec0c30a7a9)
+by ffish.asia / floraZia.com (https://sketchfab.com/ffishAsia-and-floraZia),
+dedicated to the public domain under CC0-1.0 (credit not required; given
+anyway).
+
+This work is based on "Blue crab"
+(https://sketchfab.com/3d-models/blue-crab-084c87634fab4f2bbc3a5866789014e3)
+by Julian Johnson-Mortimer (https://sketchfab.com/FreddyFoxFreddy), licensed
+under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/).
+
+This work is based on "Octopus"
+(https://sketchfab.com/3d-models/octopus-330402cc0ade4fc5bb147f3d618e58c3)
+by kenchoo (https://sketchfab.com/kenchoo), licensed under CC-BY-4.0
+(http://creativecommons.org/licenses/by/4.0/).
+
+This work is based on "Stingray"
+(https://sketchfab.com/3d-models/stingray-48e5264c0f0941fdb2f49e25d5513b5c)
+by LostBoyz2078 (https://sketchfab.com/LostModels2025), licensed under
+CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/).
+
+> ⚠️ **`stingray.glb` is non-commercial.** Like the player models, its
+> licence forbids commercial use. It is in the tree by choice, for a free,
+> personal prototype; **if the game is ever sold, this file has to be
+> replaced** — or deleted, and the stingray falls back to the one built in
+> code (`rayBody()` in `src/reeflife.js`), which is original work.
+
+**Changes made.** All six were put through `tools/build_sealife.py`, which:
+
+- **sea turtle:** drops the see-through outer lenses of its eyes (as a plain
+  material they would be opaque balls over the painted eyes beneath),
+  decimates it from 11,354 triangles to 7,000 and scales it to a metre;
+
+- **tortoise:** decimates it to 7,000 triangles, makes its materials
+  plain lit ones (it came half metallic) and scales it to 0.55 m; the game
+  lifts its colour (its texture is painted near black, shading and all);
+- **pond turtle:** joins the photoscan's 25 pieces (one mesh, cut at the
+  65,536-vertex limit) and welds them along the cuts, drops a 1 cm cube
+  that came with it, decimates the 1.6 million triangles to about 6,000, and
+  makes its unlit material a lit one; scaled to 22 cm;
+- **crab:** drops its "hair" meshes, joins the shell's pieces into one and
+  decimates the lot, keeping the claws and ten legs separate, each with its
+  origin moved to its joint and named for its side and place; 34 cm across;
+- **octopus** and **stingray:** keep their rigs (and the stingray its swim
+  clip), turned into the game's frame; the octopus is decimated to 9,000
+  triangles (the stingray, at 1,366, is left as it is), and its arms are
+  curled by the game itself;
+- all of them: turned to face the game's forward, standing on y = 0,
+  materials made non-metallic, textures downsized to 1024² JPEG.
+
+In the game their legs, heads, arms and wings are moved in code
+(`src/reefmodels.js`). The shapes, colours and textures are the authors'.
+
+The source files are not in the repository. To rebuild, download them from the
+links above into `~/Downloads` and run the script.
 
 ### Food
 

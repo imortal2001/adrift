@@ -15,7 +15,10 @@
 // The one you are registered at wears a garland of flowers — on your screen.
 
 import * as THREE from 'three';
-import { heightAt, slopeAt, coastDistance, WORLD } from './terrain.js';
+import { heightAt, slopeAt, coastDistance, WORLD, landAt } from './terrain.js';
+
+/** Dry ground, a few metres clear of any river or lake. */
+const dry = (x, z) => { const L = landAt(x, z); return !(L.water > 0) && L.edge > 4; };
 
 const mat = (c, r = 0.85) => new THREE.MeshStandardMaterial({ color: c, roughness: r });
 const M = {};
@@ -83,7 +86,7 @@ export class Statues {
 
   /** Can one stand here: on land, not too steep, not crowding another? */
   canStand(x, z) {
-    if (heightAt(x, z) < 0.3 || slopeAt(x, z) > 0.3) return false;
+    if (heightAt(x, z) < 0.3 || slopeAt(x, z) > 0.3 || !dry(x, z)) return false;
     return !this.list.some(s => Math.hypot(s.x - x, s.z - z) < 2.5);
   }
 
@@ -161,7 +164,7 @@ export function scatter(n = 24) {
     const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * (WORLD.radius + 60);
     const x = WORLD.cx + Math.cos(a) * r, z = WORLD.cz + Math.sin(a) * r;
     const h = heightAt(x, z);
-    if (h < 0.6 || h > 85 || slopeAt(x, z) > 0.22) continue;
+    if (h < 0.6 || h > 85 || slopeAt(x, z) > 0.22 || !dry(x, z)) continue;
     const near = coastDistance(x, z) < 70;
     if (out.length < coastal ? !near : near && Math.random() < 0.7) continue;
     if (out.some(s => Math.hypot(s.x - x, s.z - z) < 90)) continue;

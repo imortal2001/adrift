@@ -899,7 +899,8 @@ export class FishSchools {
 
   /** Species data by key — name, length range, colour — or undefined. */
   species(key) {
-    return this.groups.find(g => g.sp.key === key)?.sp;
+    // Not a fish: a crab or an octopus (reeflife.js), which are caught and cooked as fish are.
+    return this.groups.find(g => g.sp.key === key)?.sp ?? this.extra?.species(key) ?? undefined;
   }
 
   /**
@@ -911,7 +912,7 @@ export class FishSchools {
    */
   displayBody(key, length) {
     const g = this.groups.find(x => x.sp.key === key);
-    if (!g) return null;
+    if (!g) return this.extra?.bodyFor(key, length) ?? null;
     const c = new THREE.Color(g.sp.color).offsetHSL((Math.random() - 0.5) * 0.05,
                                                     (Math.random() - 0.5) * 0.15,
                                                     (Math.random() - 0.5) * 0.12);

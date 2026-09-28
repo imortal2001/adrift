@@ -12,6 +12,7 @@ import { REEF, reefGeometry, reefMaterial, setReefTime } from './reef.js';
 import { applyCaustics } from './underwater.js';
 import { applyGroundDetail } from './detail.js';
 import { SPECIES, LAYERS, speciesGeometry, speciesMaterial, floraMaterials, drapeGeometry, setFloraTime } from './flora.js';
+import { Waterfall, lakeGeometry } from './waterfall.js';
 
 export const WORLD = {
   cx: 660, cz: -480,     // continent centre; nearest shoreline is ~80m from the
@@ -24,6 +25,50 @@ export const WORLD = {
 };
 
 export const CHUNK = 64;
+
+// ── cave mouths (caves.js) ───────────────────────────────────────────────────
+// The heightfield has no holes, so where a cave's tube comes out through the
+// cliff face the ground is not drawn: the terrain's shader throws away what is
+// inside the mouth — an elliptical capsule from the mouth a few metres in,
+// above the tube's floor. caves.js fills these in each frame, nearest first.
+export const CAVE_CUT = {
+  uCutA: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },   // mouth end: centre, half-width
+  uCutB: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },   // inner end: centre, half-height
+  uCutF: { value: Array.from({ length: 8 }, () => new THREE.Vector2()) },   // the floor at each end
+  uCutN: { value: 0 },
+};
+// Round the nearest caves, the far land is not drawn at all (buildFar): the
+// coarse sheet of it runs through the hills — through the caves in them.
+export const CAVE_FAR = { uCaveFar: { value: Array.from({ length: 4 }, () => new THREE.Vector3(0, 0, -1)) } };  // x, z, radius
+// And no flowers, trees or vines in them: { x, z, r } (caves.js survey()).
+export const CAVE_MOUTHS = [];
+const nearCaveMouth = (x, z) => CAVE_MOUTHS.some(m => Math.hypot(x - m.x, z - m.z) < m.r);
+
+function applyCaveCut(material) {
+  const prev = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (prev) prev(shader, renderer);
+    Object.assign(shader.uniforms, CAVE_CUT);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        uniform vec4 uCutA[8];
+        uniform vec4 uCutB[8];
+        uniform vec2 uCutF[8];
+        uniform int uCutN;`)
+      .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+        for (int i = 0; i < 8; i++) {
+          if (i >= uCutN) break;
+          vec3 a = uCutA[i].xyz, ab = uCutB[i].xyz - a;
+          float t = clamp(dot(vDetailPos - a, ab) / dot(ab, ab), 0.0, 1.0);
+          vec3 o = vDetailPos - (a + ab * t);
+          vec2 e = vec2(length(o.xz) / uCutA[i].w, o.y / uCutB[i].w);
+          if (dot(e, e) < 1.0 && vDetailPos.y > mix(uCutF[i].x, uCutF[i].y, t) + 0.25) discard;
+        }`);
+  };
+  const key = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () => `cavecut-${key ? key() : ''}`;
+  return material;
+}
 const VIEW_CHUNKS = 7;                     // ~450m of terrain around the viewer
 const LOD_SEGMENTS = [64, 32, 16, 8, 8];   // by chunk-distance band
 const REEF_LOD = 1;                        // and beyond this, no reef — you cannot
@@ -185,7 +230,7 @@ function ridged(x, z) {
   return sum / norm;
 }
 
-const _land = { h: 0, m: 0, plain: 0, mountain: 0, cliff: 0, mesa: 0, river: 1e9, edge: 1e9, water: 0, bank: 0 };
+const _land = { h: 0, m: 0, plain: 0, mountain: 0, cliff: 0, mesa: 0, river: 1e9, edge: 1e9, water: 0, bank: 0, lake: null };
 
 /**
  * Everything the land knows about one spot: its height and the masks it was
@@ -200,6 +245,7 @@ export function landAt(x, z, out = _land) {
   out.river = 1e9;
   out.edge = 1e9;
   out.water = 0;
+  out.lake = null;
 
   // One surface, two halves: sea bed below the waterline, land above it.
   let h;
@@ -265,6 +311,11 @@ export function landAt(x, z, out = _land) {
   // continuous surface rather than two that meet at a seam.
   h += smooth(-10, 18, m) * (1 - out.cliff) * (fbm(x * 0.027, z * 0.027, 3) - 0.5) * 8;  // undulation
   h += smooth(-6, 12, m) * (fbm(x * 0.11, z * 0.11, 2) - 0.5) * 1.6;                     // surface detail
+  // Lakes last, after the detail, so how deep they are is exactly as dished.
+  if (m >= 0 && LAKES.length) h = carveLakes(x, z, h, out);
+  // And no river deeper than wading either — the detail above can dig a
+  // hole in its bed, and you would walk along it with your head under.
+  if (out.water > 0 && h < out.water - WADING) h = out.water - WADING;
   out.h = h;
   return out;
 }
@@ -302,6 +353,10 @@ export const RIVERS = [
     from: 0.28, width: [4, 20], depth: 1.25 },
 ];
 const RIVER_STEP = 4;                                  // metres between water-level samples
+// The lakes and falls on them (placeWater, below): empty while the rivers are surveyed.
+export const LAKES = [];
+export const FALLS = [];
+const WADING = 1.3;              // m: no river, lake, pool or tarn is deeper than this anywhere
 
 function riverBearing(rv, r) {
   const [a1, k1, p1, a2, k2, p2] = rv.wander;
@@ -316,7 +371,9 @@ function riverTurn(rv, r) {                            // d(bearing)/dr
 function riverAt(rv, r) {
   const t = (r - rv.r0) / RIVER_STEP;
   if (t < 0 || t >= rv.level.length - 1) return null;
-  const k = Math.floor(t), f = t - k;
+  const k = Math.floor(t);
+  // Over the lip of a fall the water drops in half a metre, not four: a cliff.
+  const f = k === rv.fallK ? smooth(0.4, 0.52, t - k) : t - k;
   const along = (r - rv.r0) / (rv.r1 - rv.r0);
   return {
     level: rv.level[k] * (1 - f) + rv.level[k + 1] * f,
@@ -339,7 +396,18 @@ function carveRivers(x, z, h, m, out) {
     const at = riverAt(rv, Math.min(Math.max(r, rv.r0), rv.r1 - 0.01));
     if (!at) continue;
     const half = at.width * 0.5 * at.open;
-    const W = at.level;
+    let W = at.level;
+    // At a fall the drop is sheer only across the river itself: to either
+    // side the valley comes down a steep slope instead, so the cliff is a
+    // notch the water pours through, not a wall across the country.
+    if (rv.fallK >= 0) {
+      const rl = rv.r0 + (rv.fallK + 0.46) * RIVER_STEP;
+      if (r > rl - 12 && r < rl + 30) {
+        const top = rv.level[rv.fallK], bottom = rv.level[rv.fallK + 1];
+        const ramp = top + (bottom - top) * smooth(rl - 12, rl + 30, r);
+        W += (ramp - W) * smooth(half + 3, half + 14, d);
+      }
+    }
     // Deeper cuts need wider valley walls, or they would be sheer everywhere.
     const plainW = 6 + at.width * 1.4;
     const wall = 26 + Math.min(Math.max(0, h - W), 300) * 1.05;
@@ -401,6 +469,174 @@ function surveyRivers() {
 }
 surveyRivers();
 
+// ── lakes and falls ──────────────────────────────────────────────────────────
+// Where a river comes down off the range fastest, it does not run down a
+// ramp: it goes over a lip and falls, into a pool it has dug at the foot. The
+// stretch above the lip is flattened into a lake — a tarn in the hills that
+// spills over the falls. And where the first river idles across the plain, it
+// widens into a lake of its own. All of them sit on the rivers, at the level
+// the survey found, so every one has a way in and a way out; all of them are
+// wading water — chest deep at most, as the rivers are.
+//
+// Each lake is an ellipse along the river, its shore wobbled; inside it the
+// land is dished out below the water, round it the ground comes up to a low
+// bank and blends back into the country, like a river's valley.
+const LAKE_DEPTH = 1.2;
+const FALL_MAX = 22;             // m: the tallest drop
+
+/** Where river `rv` is at radius r: a point, its level, width and the way downstream. */
+function courseAt(rv, r) {
+  const b = riverBearing(rv, r), at = riverAt(rv, r);
+  const x = WORLD.cx + Math.cos(b) * r, z = WORLD.cz + Math.sin(b) * r;
+  const b2 = riverBearing(rv, r + 2);
+  const x2 = WORLD.cx + Math.cos(b2) * (r + 2), z2 = WORLD.cz + Math.sin(b2) * (r + 2);
+  const len = Math.hypot(x2 - x, z2 - z) || 1;
+  return { x, z, level: at?.level ?? 0, width: at ? at.width * at.open : 4, dx: (x2 - x) / len, dz: (z2 - z) / len };
+}
+
+function addLake(kind, c, a, b, level, seed) {
+  const k = Math.atan2(c.dz, c.dx);
+  const lake = { kind, x: c.x, z: c.z, a, b, level, depth: LAKE_DEPTH, cos: Math.cos(k), sin: Math.sin(k),
+                 s1: seed * 1.7, s2: seed * 2.9 + 1, s3: seed * 4.3 + 2 };
+  lake.reach = Math.max(a, b) * 1.25 + 40;
+  LAKES.push(lake);
+  return lake;
+}
+
+/** A lake's shore, as a distance from its middle, at angle `th` in its own frame. */
+export function lakeShore(L, th) {
+  const c = Math.cos(th), s = Math.sin(th);
+  const e = 1 / Math.sqrt((c / L.a) ** 2 + (s / L.b) ** 2);
+  if (L.kind === 'pool') return e;
+  return e * (1 + 0.12 * Math.sin(3 * th + L.s1) + 0.07 * Math.sin(5 * th + L.s2) + 0.04 * Math.sin(9 * th + L.s3));
+}
+
+function placeWater() {
+  LAKES.length = FALLS.length = 0;
+  RIVERS.forEach((rv, ri) => {
+    const lv = rv.level, n = lv.length, rAt = i => rv.r0 + i * RIVER_STEP;
+    rv.fallK = -1;
+    // The fall: the steepest hundred metres, clear of the spring and the plain.
+    const span = 24;
+    let best = -1, drop = 0;
+    for (let i = 0; i + span < n; i++) {
+      const along = i / n;
+      if (along < 0.1 || along > 0.7 || rAt(i) - rv.r0 < 90) continue;
+      const d = lv[i] - lv[i + span];
+      if (d > drop) { drop = d; best = i; }
+    }
+    if (best >= 0 && drop >= 7) {
+      const i = best, top = lv[i], H = Math.min(FALL_MAX, drop), bottom = top - H;
+      rv.fallK = i;
+      // Below the lip: the gorge it has cut, at the foot of the drop.
+      for (let k = i + 1; k < n && lv[k] > bottom; k++) lv[k] = bottom;
+      const lip = courseAt(rv, rAt(i) + RIVER_STEP * 0.46);
+      // The cliff runs round the continent at the lip's radius, so it faces
+      // straight out from the middle — whichever way the river crosses it.
+      const rl = Math.hypot(lip.x - WORLD.cx, lip.z - WORLD.cz);
+      const face = { dx: (lip.x - WORLD.cx) / rl, dz: (lip.z - WORLD.cz) / rl };
+      // The pool it falls into, dug a little wider than the river.
+      const pr = Math.min(10, Math.max(5, 3 + lip.width * 0.45));
+      for (let k = i + 1; k <= i + Math.ceil((pr * 2 + 3) / RIVER_STEP) && k < n; k++) lv[k] = bottom;
+      // How wide the curtain is along the cliff: the channel, crossed at an angle.
+      const across = (lip.width + 1) / Math.max(0.5, Math.abs(lip.dx * face.dx + lip.dz * face.dz));
+      FALLS.push({ river: ri, x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, flow: { x: lip.dx, z: lip.dz },
+                   top, bottom, height: H, width: Math.min(across, lip.width * 1.8 + 1) });
+      // Starting just past the foot of the cliff, so it never eats into the lip.
+      const pc = courseAt(rv, rAt(i) + RIVER_STEP * 0.46 + pr + 0.4);
+      // The cliff is the fall's: the pool's banks leave everything above the lip alone.
+      addLake('pool', pc, pr, pr, bottom, ri * 7 + 3).cut = { x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, side: 1 };
+      // And above it, a tarn: flat water right up to the lip.
+      let j = i;
+      while (j > 0 && lv[j - 1] - top < 3 && i - j < 30) j--;
+      const a = Math.min(60, Math.max(14, (i - j) * RIVER_STEP / 2 + 4));
+      const from = Math.max(0, i - Math.ceil(2 * a / RIVER_STEP));
+      for (let k = from; k <= i; k++) lv[k] = top;
+      // Its shore a metre short of the lip, whichever way it wobbles; the
+      // river carries the water over the last of it.
+      const tarn = addLake('tarn', courseAt(rv, rAt(i) - a), a, Math.min(a * 0.8, Math.max(10, lip.width * 1.6)), top, ri * 7 + 1);
+      const reachDown = lakeShore(tarn, 0);
+      const tc = courseAt(rv, rAt(i) + RIVER_STEP * 0.46 - 1 - reachDown);
+      // …and the tarn's leave everything below it.
+      Object.assign(tarn, { x: tc.x, z: tc.z, outlet: true, cut: { x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, side: -1 } });
+      const k = Math.atan2(tc.dz, tc.dx);
+      tarn.cos = Math.cos(k); tarn.sin = Math.sin(k);
+    }
+    // Lower down, where the first river falls least over sixty-odd metres,
+    // it is dammed into a lake: level at its lowest, the stretch above
+    // coming in over a short run of rapids.
+    if (ri === 0) {
+      const run = 16;
+      let bi = -1, least = Infinity;
+      const after = rv.fallK >= 0 ? rv.fallK + 30 : 0;
+      for (let i = Math.max(after, Math.floor(n * 0.45)); i + run < n * 0.9; i++) {
+        const d = lv[i] - lv[i + run];
+        if (d < least) { least = d; bi = i; }
+      }
+      if (bi >= 0 && least < 4.5) {
+        const e = bi + run, L = lv[e];
+        for (let k = bi; k <= e; k++) lv[k] = L;
+        const a = run * RIVER_STEP / 2 * 0.95;
+        const c = courseAt(rv, rAt(bi) + run * RIVER_STEP / 2);
+        const lake = addLake('lake', c, a, Math.min(a * 0.75, Math.max(18, c.width * 2.4)), L, 11);
+        // Its ends inside the levelled stretch, however its shore wobbles —
+        // so the river leaves it at its own level, not from a ledge.
+        lake.a /= Math.max(lakeShore(lake, 0), lakeShore(lake, Math.PI)) / lake.a;
+      }
+    }
+  });
+}
+placeWater();
+
+function carveLakes(x, z, h, out) {
+  for (const L of LAKES) {
+    const dx = x - L.x, dz = z - L.z;
+    if (Math.abs(dx) > L.reach || Math.abs(dz) > L.reach) continue;
+    // Across a fall's lip, a pool's banks fade out upstream and a tarn's downstream.
+    const cut = L.cut ? smooth(-1, 7, ((x - L.cut.x) * L.cut.dx + (z - L.cut.z) * L.cut.dz) * L.cut.side) : 1;
+    if (cut <= 0) continue;
+    const u = dx * L.cos + dz * L.sin, v = -dx * L.sin + dz * L.cos;
+    const rho = Math.hypot(u, v), R = lakeShore(L, Math.atan2(v, u));
+    const d = rho - R, W = L.level;
+    let carved;
+    if (d < 0) {
+      // A shelf round the edge, then down to the deep middle — never deeper
+      // than wading, whatever hollow was here.
+      const floor = W - 0.05 - L.depth * smooth(0, 0.45, 1 - rho / R);
+      carved = Math.max(Math.min(h, floor), W - WADING);
+    } else {
+      const floor = W + 0.15 + smooth(0, 3, d) * 0.45;
+      const wall = 14 + Math.min(Math.abs(h - W), 200) * 1.0;
+      const k = smooth(2, 2 + wall, d);
+      if (k >= 1) continue;
+      carved = floor + (h - floor) * k;
+      // A river running in or out keeps its channel through the bank.
+      if (out.water > 0 && h < carved) carved = h;
+      carved = h + (carved - h) * cut;
+    }
+    h = carved;
+    if (d < out.edge) {
+      out.edge = d;
+      out.river = Math.min(out.river, Math.max(0, d) + 2);
+      out.bank = Math.max(out.bank, 1 - smooth(2, 16, d));
+    }
+    if (d < 0) { out.water = W; out.lake = L; }
+  }
+  return h;
+}
+
+/**
+ * Fresh water at (x, z): { level, depth, kind } — a river, a lake, a tarn or
+ * a plunge pool — or null on dry land and in the sea.
+ */
+export function freshWaterAt(x, z) {
+  const L = landAt(x, z);
+  // (Deeper than any of it is wading: that is the face of a fall, where the
+  // water is in the air.)
+  if (!(L.water > 0) || L.water <= L.h || L.water - L.h > WADING + 0.6) return null;
+  return { level: L.water, depth: L.water - L.h, kind: L.lake ? L.lake.kind : 'river' };
+}
+
 /** Points down the middle of each river, for the water surface. */
 export function riverCourse(rv, step = 6) {
   const pts = [];
@@ -436,20 +672,31 @@ export function isLand(x, z) { return heightAt(x, z) > WADE; }
  * z)`, if given, limits it to part of the course.
  */
 export function riverGeometry(rv, keep = null) {
-  const pts = riverCourse(rv, 4).filter(p => !keep || keep(p.x, p.z));
-  if (pts.length < 2) return null;
+  // Not where a lake has the water, and broken over a fall (waterfall.js
+  // draws that): a ribbon for each run between.
+  const inLake = p => LAKES.some(L => {
+    const dx = p.x - L.x, dz = p.z - L.z;
+    const u = dx * L.cos + dz * L.sin, v = -dx * L.sin + dz * L.cos;
+    return Math.hypot(u, v) < lakeShore(L, Math.atan2(v, u)) - 1.5;
+  });
+  const pts = riverCourse(rv, 4).map(p => ((keep && !keep(p.x, p.z)) || inLake(p) ? null : p));
+  if (pts.filter(Boolean).length < 2) return null;
   const pos = [], uv = [], idx = [];
-  let along = 0;
+  let along = 0, n = 0, prev = null;
   pts.forEach((p, k) => {
-    const q = pts[Math.min(pts.length - 1, k + 1)], o = pts[Math.max(0, k - 1)];
+    if (!p) { prev = null; return; }
+    const q = pts[k + 1] || p, o = pts[k - 1] || p;
     const dx = q.x - o.x, dz = q.z - o.z, len = Math.hypot(dx, dz) || 1;
     const sx = -dz / len, sz = dx / len;
-    if (k) along += Math.hypot(p.x - pts[k - 1].x, p.z - pts[k - 1].z);
+    if (prev) along += Math.hypot(p.x - prev.x, p.z - prev.z);
     const w = p.width / 2 + 2.2;
     pos.push(p.x - sx * w, p.level, p.z - sz * w, p.x + sx * w, p.level, p.z + sz * w);
     uv.push(0, along / 7, w * 2 / 7, along / 7);
-    if (k) { const a = (k - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    if (prev && prev.level - p.level < 6) { const a = (n - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    prev = p;
+    n++;
   });
+  if (!idx.length) return null;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -574,9 +821,9 @@ export class Terrain {
     this.queued = new Map();          // key -> its job in the queue, so each chunk waits once
     // The sea bed and the land are one material; the caustics injection gates
     // itself on being below the waterline, so the beach stays dry-looking.
-    this.material = applyGroundDetail(applyCaustics(new THREE.MeshStandardMaterial({
+    this.material = applyCaveCut(applyGroundDetail(applyCaustics(new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 0.96, metalness: 0,
-    })));
+    }))));
     this.reefMaterial = reefMaterial();
     this._c = new THREE.Color();
     this._dummy = new THREE.Object3D();
@@ -603,15 +850,18 @@ export class Terrain {
     this.rivers.sky.top = oceanUniforms.uSkyTop;
     this.rivers.sky.horizon = oceanUniforms.uSkyHorizon;
     this.rivers.material.needsUpdate = true;
+    this.rivers.still.needsUpdate = true;
   }
 
   lodFor(dist) { return LOD_SEGMENTS[Math.min(dist, LOD_SEGMENTS.length - 1)]; }
 
   /** Keep the chunks around `focus` loaded at the right detail. */
-  update(dt, focus, time = 0) {
+  update(dt, focus, time = 0, night = 0) {
     setReefTime(time);
     setFloraTime(time);
     this.rivers.flow.offset.y = -time * 0.22;
+    this.rivers.stillFlow.offset.set(time * 0.012, -time * 0.017);
+    for (const w of this.rivers.falls) w.update(dt, time, focus, night);
     const pi = Math.round(focus.x / CHUNK), pj = Math.round(focus.z / CHUNK);
     this.far.focus.value.set(pi * CHUNK, pj * CHUNK);
     const wanted = new Set();
@@ -654,6 +904,7 @@ export class Terrain {
     }
 
     this.regrow(dt);
+    this.animateFelling(dt);
 
     // Build a couple per frame so walking never stutters.
     let built = 0;
@@ -833,6 +1084,7 @@ export class Terrain {
           const x = ox + (ci + hash(i * 7919 + s, j * 104729)) * cell;
           const z = oz + (cj + hash(i * 104729, j * 7919 + s)) * cell;
           if (x >= ox + CHUNK || z >= oz + CHUNK) continue;
+          if (CAVE_MOUTHS.length && nearCaveMouth(x, z)) continue;
           this.siteAt(grid, x, z, site);
           let sum = 0;
           const wet = site.edge < 0.6;       // in the river, or at its very edge
@@ -956,6 +1208,7 @@ export class Terrain {
         pz += (nrm.z / (flat || 1)) * 1.1;
       }
       if (pts.length < 4) continue;
+      if (CAVE_MOUTHS.length && (nearCaveMouth(x, z) || nearCaveMouth(pts.at(-1).x, pts.at(-1).z))) continue;
       normalAt(x, z, nrm);
       const side = new THREE.Vector3(-nrm.z, 0, nrm.x).normalize();
       strands.push({ pts, side, normal: nrm.clone() });
@@ -1040,14 +1293,23 @@ export class Terrain {
       mat.onBeforeCompile = (shader, renderer) => {
         if (detailCompile) detailCompile(shader, renderer);
         shader.uniforms.uFarFocus = focus;
+        Object.assign(shader.uniforms, CAVE_FAR);
         shader.vertexShader = shader.vertexShader
           .replace('#include <common>', `#include <common>
             uniform vec2 uFarFocus;
+            uniform vec3 uCaveFar[4];
             varying float vFarY;`)
           .replace('#include <begin_vertex>', `#include <begin_vertex>
             {
               vec2 rel = abs(transformed.xz - uFarFocus);
               if (max(rel.x, rel.y) < ${(half - 0.5).toFixed(1)}) transformed.y -= ${drop.toFixed(1)};
+              // Round a cave, gone altogether (under the sea, so thrown away below):
+              // sunk only a little, it runs through the hills — through the caves in them.
+              if (max(rel.x, rel.y) < ${(half - 70).toFixed(1)}) {
+                for (int i = 0; i < 4; i++) {
+                  if (uCaveFar[i].z > 0.0 && distance(transformed.xz, uCaveFar[i].xy) < uCaveFar[i].z) transformed.y -= 400.0;
+                }
+              }
               vFarY = transformed.y;
             }`);
         shader.fragmentShader = shader.fragmentShader
@@ -1126,7 +1388,27 @@ export class Terrain {
       this.scene.add(mesh);
       meshes.push(mesh);
     }
-    return { flow, meshes, material: mat, sky };
+    // Still water: the same, but its ripples barely drift.
+    const stillFlow = flow.clone();
+    stillFlow.needsUpdate = true;
+    stillFlow.repeat.set(0.45, 0.45);             // broad, soft ripples: no tiling to see from above
+    const still = mat.clone();
+    still.normalMap = stillFlow;
+    still.normalScale = new THREE.Vector2(0.3, 0.3);
+    still.onBeforeCompile = mat.onBeforeCompile;
+    for (const L of LAKES) {
+      const mesh = new THREE.Mesh(lakeGeometry(L), still);
+      mesh.receiveShadow = true;
+      mesh.renderOrder = 1;
+      this.scene.add(mesh);
+      meshes.push(mesh);
+    }
+    const falls = FALLS.map(f => {
+      const w = new Waterfall(f);
+      this.scene.add(w.group);
+      return w;
+    });
+    return { flow, stillFlow, meshes, material: mat, still, falls, sky };
   }
 
   /**
@@ -1408,6 +1690,162 @@ export class Terrain {
     return best;
   }
 
+  /**
+   * A stroke of the axe: the plant shudders, leaning away from `dir` (the
+   * way the blow came, flat) for a moment and back.
+   */
+  shake(p, dir) {
+    this.shaking = this.shaking || [];
+    this.shaking = this.shaking.filter(s => s.p !== p);
+    this.shaking.push({ p, t: 0, ax: dir.z, az: -dir.x });
+  }
+
+  /** Where an axe bites a plant struck from `dir`: the near face of its trunk, chest high (a log: its top). */
+  bitePoint(p, dir, out = new THREE.Vector3()) {
+    const scale = p.matrix.getMaxScaleOnAxis();
+    if (p.sp.lying) return out.set(p.x, p.y + 0.35 * scale, p.z);
+    const r = Math.min(1.4, (p.sp.trunk ?? 0.3) * scale * 0.42);
+    return out.set(p.x - dir.x * r, p.y + (p.sp.name === 'stump' ? 0.5 : 1.1), p.z - dir.z * r);
+  }
+
+  /**
+   * Bits flying: `kind` 'wood' (chips, pale with bark), 'bamboo', 'leaves'
+   * (drifting down) or 'dust' (a puff); `n` of them from `at`, thrown back
+   * along -`dir` (toward whoever struck) and up.
+   */
+  burst(at, dir, kind, n) {
+    const fx = this.fx ||= this.makeBits();
+    const [a, b] = BIT_COLOURS[kind];
+    const big = kind === 'leaves' || kind === 'dust';
+    const pool = big ? fx.big : fx.small;
+    const ground = heightAt(at.x, at.z);
+    for (let k = 0; k < n; k++) {
+      const i = pool.next = (pool.next + 1) % pool.max, q = pool.bits[i];
+      const side = (Math.random() - 0.5) * 2;
+      q.x = at.x + (Math.random() - 0.5) * (big ? 1.5 : 0.2);
+      q.y = at.y + (Math.random() - 0.5) * (big ? 1.2 : 0.2);
+      q.z = at.z + (Math.random() - 0.5) * (big ? 1.5 : 0.2);
+      const out = big ? 0.6 + Math.random() * 1.2 : 1.4 + Math.random() * 2.2;
+      q.vx = -dir.x * out + dir.z * side * (big ? 1.4 : 1.6);
+      q.vz = -dir.z * out - dir.x * side * (big ? 1.4 : 1.6);
+      q.vy = big ? 0.4 + Math.random() * 1.6 : 1.2 + Math.random() * 2.4;
+      q.life = kind === 'leaves' ? 2.2 + Math.random() : kind === 'dust' ? 1.2 + Math.random() * 0.6 : 0.9 + Math.random() * 0.5;
+      q.kind = kind;
+      q.floor = Math.min(ground, at.y - 0.3) + 0.03;
+      _bitColour.copy(a).lerp(b, Math.random());
+      pool.col.setXYZ(i, _bitColour.r, _bitColour.g, _bitColour.b);
+    }
+    pool.col.needsUpdate = true;
+  }
+
+  makeBits() {
+    const pool = (max, size) => {
+      const g = new THREE.BufferGeometry();
+      const pos = new THREE.BufferAttribute(new Float32Array(max * 3).fill(-1e4), 3);
+      const col = new THREE.BufferAttribute(new Float32Array(max * 3), 3);
+      g.setAttribute('position', pos); g.setAttribute('color', col);
+      const pts = new THREE.Points(g, new THREE.PointsMaterial({ size, vertexColors: true, sizeAttenuation: true }));
+      pts.frustumCulled = false;
+      this.scene.add(pts);
+      return { max, pos, col, next: 0, bits: Array.from({ length: max }, () => ({ life: 0 })) };
+    };
+    return { small: pool(240, 0.085), big: pool(160, 0.16) };
+  }
+
+  /**
+   * Bring a tree down: a copy of it, in its place, topples away from `dir` —
+   * slowly at first, then fast — to where it meets the ground (on a slope,
+   * sooner), bounces, throws up leaves and dust, lies a while and sinks out
+   * of sight. `onLand` is called as it hits. (The plant itself is harvested as
+   * ever: gone, and growing back in its own time.)
+   */
+  topple(p, dir, onLand = null) {
+    const m = new THREE.InstancedMesh(p.inst.geometry, p.inst.material, 1);
+    m.setMatrixAt(0, p.matrix);
+    m.castShadow = true;
+    m.frustumCulled = false;
+    this.scene.add(m);
+    const geo = p.inst.geometry;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const H = Math.max(2, geo.boundingBox.max.y * p.matrix.getMaxScaleOnAxis());
+    // How far over before some of it meets the ground.
+    let stop = 1.53;
+    search: for (let a = 0.15; a < 1.56; a += 0.02) {
+      for (const f of [0.3, 0.6, 0.9]) {
+        const x = p.x + dir.x * Math.sin(a) * H * f, z = p.z + dir.z * Math.sin(a) * H * f;
+        if (p.y + Math.cos(a) * H * f < heightAt(x, z) + 0.35) { stop = a; break search; }
+      }
+    }
+    this.falling = this.falling || [];
+    const f = { m, p, t: 0, H, stop, fall: 1.3 + H / 40, dir: dir.clone(),
+                axis: new THREE.Vector3(dir.z, 0, -dir.x).normalize(), onLand, landed: false };
+    this.falling.push(f);
+    return f;
+  }
+
+  /** Once a frame: the shudders, the falls, and the bits flying. */
+  animateFelling(dt) {
+    const R = this._fallR ||= new THREE.Matrix4(), T = this._fallT ||= new THREE.Matrix4(), out = this._fallM ||= new THREE.Matrix4();
+    const ax = this._ax ||= new THREE.Vector3();
+    for (const s of this.shaking || []) {
+      s.t += dt;
+      if (this.felled.has(s.p.key)) continue;
+      // Away from the blow and back; the last frame puts it exactly where it stood.
+      const lean = s.t < 0.35 ? Math.sin((s.t / 0.35) * Math.PI) * 0.05 : 0;
+      R.makeRotationAxis(ax.set(s.ax, 0, s.az).normalize(), lean);
+      out.makeTranslation(s.p.x, s.p.y, s.p.z).multiply(R).multiply(T.makeTranslation(-s.p.x, -s.p.y, -s.p.z)).multiply(s.p.matrix);
+      s.p.inst.setMatrixAt(s.p.index, out);
+      s.p.inst.instanceMatrix.needsUpdate = true;
+    }
+    if (this.shaking) this.shaking = this.shaking.filter(s => s.t < 0.35);
+    for (const f of this.falling || []) {
+      f.t += dt;
+      let angle;
+      if (f.t < f.fall) angle = f.stop * Math.pow(f.t / f.fall, 2.4);           // over, gathering speed
+      else {
+        const u = f.t - f.fall;                                                  // down: a bounce, and still
+        angle = f.stop - 0.07 * Math.exp(-4 * u) * Math.abs(Math.sin(9 * u));
+        if (!f.landed) {
+          f.landed = true;
+          const crown = _bitAt.set(f.p.x + f.dir.x * Math.sin(f.stop) * f.H * 0.85, f.p.y + Math.cos(f.stop) * f.H * 0.85,
+                                   f.p.z + f.dir.z * Math.sin(f.stop) * f.H * 0.85);
+          this.burst(crown, f.dir.clone().negate(), f.p.sp.name === 'bamboo' ? 'bamboo' : 'leaves', 50);
+          for (const k of [0.25, 0.5]) {
+            _bitAt.set(f.p.x + f.dir.x * f.H * k, heightAt(f.p.x + f.dir.x * f.H * k, f.p.z + f.dir.z * f.H * k) + 0.3, f.p.z + f.dir.z * f.H * k);
+            this.burst(_bitAt, f.dir.clone().negate(), 'dust', 14);
+          }
+          f.onLand?.(f);
+        }
+      }
+      const sink = Math.max(0, f.t - f.fall - 4) * 1.3;
+      R.makeRotationAxis(f.axis, angle);
+      out.makeTranslation(f.p.x, f.p.y - sink, f.p.z).multiply(R).multiply(T.makeTranslation(-f.p.x, -f.p.y, -f.p.z)).multiply(f.p.matrix);
+      f.m.setMatrixAt(0, out);
+      f.m.instanceMatrix.needsUpdate = true;
+      if (f.t > f.fall + 5.6) { this.scene.remove(f.m); f.m.dispose(); f.done = true; }
+    }
+    if (this.falling) this.falling = this.falling.filter(f => !f.done);
+    // The bits: thrown, falling (leaves drifting), resting where they land; gone when their time is up.
+    for (const pool of this.fx ? [this.fx.small, this.fx.big] : []) {
+      let live = false;
+      pool.bits.forEach((q, i) => {
+        if (q.life <= 0) return;
+        live = true;
+        q.life -= dt;
+        const drag = q.kind === 'leaves' ? 2.6 : q.kind === 'dust' ? 3.5 : 0.4;
+        const g = q.kind === 'leaves' ? 2.2 : q.kind === 'dust' ? -0.3 : 9.8;
+        q.vx -= q.vx * drag * dt; q.vz -= q.vz * drag * dt;
+        q.vy -= (g + q.vy * (q.kind === 'wood' || q.kind === 'bamboo' ? 0 : drag)) * dt;
+        q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt;
+        if (q.y < q.floor) { q.y = q.floor; q.vx *= 0.3; q.vz *= 0.3; q.vy = 0; }
+        if (q.kind === 'leaves') { q.x += Math.sin(q.life * 5 + i) * 0.4 * dt; }
+        if (q.life <= 0) pool.pos.setXYZ(i, 0, -1e4, 0);
+        else pool.pos.setXYZ(i, q.x, q.y, q.z);
+      });
+      if (live) pool.pos.needsUpdate = true;
+    }
+  }
+
   /** Fell a plant: hide that one instance and let it grow back later. */
   harvest(p) {
     this.felled.set(p.key, p.sp.regrow);
@@ -1449,6 +1887,15 @@ export class Terrain {
     return n;
   }
 }
+
+// What flies when a tree is cut or comes down: two colours each, mixed.
+const BIT_COLOURS = {
+  wood:   [new THREE.Color(0xdcc594), new THREE.Color(0x5e4330)],   // the pale wood, and bark
+  bamboo: [new THREE.Color(0xcfc57e), new THREE.Color(0x6f8a3a)],
+  leaves: [new THREE.Color(0x3f6b2a), new THREE.Color(0x7a9a3c)],
+  dust:   [new THREE.Color(0x9c8a6a), new THREE.Color(0xb8a888)],
+};
+const _bitColour = new THREE.Color(), _bitAt = new THREE.Vector3();
 
 // An instance matrix that puts something out of sight: a felled plant.
 const HIDDEN = new THREE.Matrix4().makeTranslation(0, -400, 0).multiply(new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4));

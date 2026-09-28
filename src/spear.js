@@ -160,6 +160,12 @@ export class ThrownSpears {
         this.onSkewer?.(s, this.fish.fish.indexOf(f));
         s.vel.multiplyScalar(FISH_DRAG);
       }
+      // And an octopus in the way (reeflife.js).
+      for (const o of this.extra ? this.extra.hitSegment(this._prevTip, tip) : []) {
+        if (s.catch.length >= SKEWER_MAX) break;
+        this.skewer(s, this.extra.take(o));
+        s.vel.multiplyScalar(FISH_DRAG);
+      }
     }
 
     if (this.raft.solidAtWorld(tip.x, tip.z)) {
