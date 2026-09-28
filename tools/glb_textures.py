@@ -61,8 +61,21 @@ def write_glb(path, js, bin_):
 
 
 def png_size(blob):
+    """(width, height) of a PNG or a JPEG — a JPEG too, or one that came as a
+    JPEG already would never be resized, only re-encoded at the size it was."""
     if blob[:8] == PNG_SIG:
         return struct.unpack(">II", blob[16:24])
+    if blob[:2] == b"\xff\xd8":
+        i = 2
+        while i + 9 < len(blob):
+            if blob[i] != 0xFF:
+                i += 1
+                continue
+            marker = blob[i + 1]
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):   # a start-of-frame
+                h, w = struct.unpack(">HH", blob[i + 5:i + 9])
+                return (w, h)
+            i += 2 + struct.unpack(">H", blob[i + 2:i + 4])[0]
     return None
 
 

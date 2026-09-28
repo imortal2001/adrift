@@ -228,7 +228,7 @@ pause screen starts over.
 | `tools/build_sealife.py` | Converts the six third-party reef and pond animals (sea turtle, tortoise, pond turtle, crab, octopus, stingray — see CREDITS.md; the stingray is CC BY-NC) for the game: decimated to a few thousand triangles (the pond turtle's 25-piece photoscan joined and welded first), textures 1024² JPEG, plain lit materials, in the game's frame at their real sizes; the crab kept as 13 parts pivoting at their joints, the octopus and stingray keeping their rigs. |
 | `tools/build_shark.py` | Converts a third-party blacktip reef shark (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, one mesh and one texture atlas, fin tags for the swim shader, a normal map. |
 | `tools/simulate_fight.mjs` | Plays the rod's fight thousands of times per species with five kinds of player, for tuning `fight.js` by numbers rather than feel. |
-| `tools/build_tools.py` | Puts the three third-party tool models in the frame the hand holds them by, colours the spear, and shrinks their textures. |
+| `tools/build_tools.py` | Puts the four third-party tool models (hammer, spear, rod, axe) in the frame the hand holds them by, colours the spear, and shrinks their textures (`--only NAME` for one). |
 | `tools/make_starters.py` | Generates a correctly set up starter `.blend` per species. |
 | `tools/convert_glb.py` | Round-trips a third-party `.glb` through Blender to fix deprecated materials. |
 | `tools/export_models.py` | Blender-side exporter: settings, manifest upkeep and pre-flight checks. |
@@ -383,13 +383,20 @@ it grows back.
 What comes away in your hands, you take with **E**: fallen branches, and the
 fronds of the shrubs, palms, cycads, magnolias and tree ferns. What does not
 — a standing **redwood** or **araucaria**, a **fallen log**, a **stump**,
-**bamboo** — takes an **axe** (a scrap-iron blade on a plank haft: 1 Plank,
-1 Rope, 1 Scrap). Hold it and click (or E) at the tree: each stroke it
-shudders, and a few strokes on — six for a redwood, four for an araucaria,
-three for a log or a stump, two for bamboo — it is down. A standing tree
-leans, falls away from you and lies a moment before it is gone; a log or a
-stump is chopped up where it lies. Leave one half-chopped a minute and you
-start again.
+**bamboo** — takes an **axe** (an iron blade on a haft: 1 Plank,
+1 Rope, 1 Scrap — a third-party model, CREDITS.md). Hold it and click (or E) at the tree: each stroke is
+a woodcutter's swing — drawn up and back over your shoulder, driven across
+and down into the trunk, a jolt as the blade bites, pulled out — and the blow
+lands when the blade does, not on the click: the tree shudders and chips fly
+from the cut (pale wood and bark; green-gold off bamboo). A few strokes on —
+six for a redwood, four for an araucaria, three for a log or a stump, two
+for bamboo — it is down. A standing tree creaks and leans, slowly, then
+falls away from you ever faster, meets the ground where the ground is (on a
+slope uphill, it stops short), bounces, and throws up leaves and dust where
+it lands — the ground shakes if you are close — and the wood is yours as it
+hits. It lies a few seconds, then sinks out of sight. A log or a stump is
+chopped up where it lies, in a burst of chips. Leave one half-chopped a
+minute and you start again.
 
 ### The reef
 

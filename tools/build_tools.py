@@ -1,9 +1,9 @@
 """
-Prepare the hand-held tools: take three third-party .glb models, put each one
-in the frame the game holds it by, and export them to assets/models/.
+Prepare the hand-held tools: take four third-party models, put each one in
+the frame the game holds it by, and export them to assets/models/.
 
     /Applications/Blender.app/Contents/MacOS/Blender --background \
-        --python tools/build_tools.py -- [SOURCE_DIR] [--preview OUT_DIR]
+        --python tools/build_tools.py -- [SOURCE_DIR] [--preview OUT_DIR] [--only NAME]
 
 SOURCE_DIR defaults to ~/Downloads. The sources are not in the repository —
 the hammer alone is 19 MB — so fetch them from the Sketchfab pages listed in
@@ -89,6 +89,14 @@ TOOLS = {
     "rod": dict(
         src="fishing_rod.glb",
         up="+X", spin=0, length=2.20, grip=0.10,
+        textures=dict(colour=1024, data=512),
+    ),
+    # Unzipped as it came (a folder with scene.gltf). Its edge points +X as
+    # authored: turned to lead, as the hammer's face does. Held low on the
+    # binding, where you would hold it to swing.
+    "axe": dict(
+        src="axe/scene.gltf",
+        up="+Z", spin=-90, length=0.62, grip=0.2,
         textures=dict(colour=1024, data=512),
     ),
 }
@@ -372,10 +380,15 @@ def main():
         i = argv.index("--preview")
         preview_dir = os.path.expanduser(argv[i + 1])
         del argv[i:i + 2]
+    only = None
+    if "--only" in argv:
+        i = argv.index("--only")
+        only = argv[i + 1]
+        del argv[i:i + 2]
     src_dir = os.path.expanduser(argv[0]) if argv else os.path.expanduser("~/Downloads")
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    built = [n for n in (build(k, v, src_dir, preview_dir) for k, v in TOOLS.items()) if n]
+    built = [n for n in (build(k, v, src_dir, preview_dir) for k, v in TOOLS.items() if not only or k == only) if n]
     print(f"\nbuilt: {', '.join(built) or 'nothing'}")
     print("Add any new ones to assets/models/manifest.json as tool_<name>.")
 

@@ -28,7 +28,7 @@ import { Player } from './player.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { BuildMode } from './build.js';
-import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, TORCH, fishItem, fishOf, foodOf, cookedItem, isCooked } from './items.js';
+import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, TORCH, CHOP_TIME, CHOP_HIT, fishItem, fishOf, foodOf, cookedItem, isCooked } from './items.js';
 import { Hotbar, SLOTS } from './hotbar.js';
 
 const SAVE_KEY = 'adrift.save.v2';
@@ -548,7 +548,7 @@ class Game {
   /** A use of what is in hand, seen: the arm in first person, the body outside it. */
   useAnim(kind) {
     this.viewmodel.use(kind);
-    const g = { spear: 'thrust', build: 'swing', eat: 'eat', hook: 'toss', paddle: 'paddle' }[kind];
+    const g = { spear: 'thrust', build: 'swing', eat: 'eat', hook: 'toss', paddle: 'paddle', chop: 'chop' }[kind];
     this.body.gesture(g);
     this.net.event({ k: 'g', g });                // the others see it too
   }
@@ -608,8 +608,8 @@ class Game {
         // At a tree (or anything else you could take): the same as E.
         const plant = this.terrain.pickPlant(eye, dir);
         if (plant?.sp.chop) this.chop(plant, dir);
-        else if (plant) { this.useAnim('build'); this.takePlant(plant); }
-        else { this.useAnim('build'); }
+        else if (plant) { this.useAnim('chop'); this.takePlant(plant); }
+        else { this.useAnim('chop'); }
         break;
       }
       case 'strike':
@@ -877,8 +877,12 @@ class Game {
 
   /** A plant down, or picked: what it gives, into the pack. */
   takePlant(plant, how = null) {
-    const { label, yield: y } = this.terrain.harvest(plant);
+    this.gain(this.terrain.harvest(plant), how);
     this.chops.delete(plant.key);
+  }
+
+  /** What a plant gave (terrain.harvest()), into the pack, and said. */
+  gain({ label, yield: y }, how = null) {
     const parts = [];
     for (const id in y) {
       this.inv.add(id, y[id]);
@@ -896,19 +900,39 @@ class Game {
    * enough of them, and it is down — a standing one falls, away from you.
    */
   chop(plant, dir) {
-    if (this.time - (this.lastChop ?? -9) < 0.5) return;          // one stroke at a time
+    if (this.time - (this.lastChop ?? -9) < CHOP_TIME) return;     // one stroke at a time
     this.lastChop = this.time;
-    this.useAnim('build');
+    this.useAnim('chop');
+    // The blow lands when the blade does, a moment into the swing.
+    this.pendingChop = { plant, dir: dir.clone(), at: this.time + CHOP_TIME * CHOP_HIT };
+  }
+
+  /** The axe bites: the tree shudders and the chips fly — or, the last stroke, down it comes. */
+  landChop({ plant, dir }) {
+    if (this.terrain.felled.has(plant.key)) return;               // gone meanwhile (a regrow timer, a reload)
     const away = new THREE.Vector3(plant.x - this.player.pos.x, 0, plant.z - this.player.pos.z);
     if (away.lengthSq() < 1e-6) away.set(dir.x, 0, dir.z);
     away.normalize();
+    const bamboo = plant.sp.name === 'bamboo';
+    const bite = this.terrain.bitePoint(plant, away);
     const c = this.chops.get(plant.key) || { n: 0 };
     c.n++; c.at = this.time;
     this.chops.set(plant.key, c);
-    if (c.n < plant.sp.chop) { this.terrain.shake(plant, away); return; }
+    const last = c.n >= plant.sp.chop;
+    this.terrain.burst(bite, away, bamboo ? 'bamboo' : 'wood', last ? 26 : 12);
+    if (!last) { this.terrain.shake(plant, away); return; }
     const name = plant.sp.label.toLowerCase();
-    if (plant.sp.falls) this.terrain.topple(plant, away);
-    this.takePlant(plant, plant.sp.falls ? `The ${name} creaks, leans, and comes down` : `You chop the ${name} up`);
+    this.chops.delete(plant.key);
+    const got = this.terrain.harvest(plant);
+    if (!plant.sp.falls) { this.gain(got, `You chop the ${name} up`); return; }
+    this.hud.log(`The ${name} creaks, and leans…`);
+    this.terrain.topple(plant, away, f => {
+      this.gain(got, `The ${name} comes down with a crash`);
+      // Felt underfoot, if you are near.
+      const d = Math.hypot(plant.x + away.x * f.H * 0.5 - this.player.pos.x, plant.z + away.z * f.H * 0.5 - this.player.pos.z);
+      const k = Math.max(0, 1 - d / 40) * Math.min(1, f.H / 20);
+      if (k > 0) this.quake = { t: 0, amp: 0.09 * k };
+    });
   }
 
   /** Chip a flint face off a cave wall. */
@@ -2074,6 +2098,7 @@ class Game {
     // copies — so what is in your hand goes dark and blue with the world.
     const held = this.hotbar.held;
     this.updateTorch(dt, held);
+    if (this.pendingChop && this.time >= this.pendingChop.at) { const c = this.pendingChop; this.pendingChop = null; this.landChop(c); }
     // A tree left half-chopped long enough is whole again, as far as you are concerned.
     for (const [key, c] of this.chops) if (this.time - c.at > 60) this.chops.delete(key);
     // A lit torch is a body of its own — flame and all — in your hand, on your body and in the others' view.
@@ -2166,8 +2191,16 @@ class Game {
     this.checkGoals();
     if (this.time - this.lastSave > 10) { this.save(); this.lastSave = this.time; }
 
+    // A tree coming down near you: the ground shakes, for half a second.
+    let quake = null;
+    if (this.quake && (this.quake.t += dt) < 0.6) {
+      const k = this.quake.amp * (1 - this.quake.t / 0.6);
+      quake = new THREE.Vector3(Math.sin(this.quake.t * 61) * k, Math.sin(this.quake.t * 47 + 1) * k, Math.sin(this.quake.t * 53 + 2) * k);
+      this.camera.position.add(quake);
+    } else this.quake = null;
     this.renderer.render(this.scene, this.camera);
     if (this.view.first) this.viewmodel.render();
+    if (quake) this.camera.position.sub(quake);
     input.endFrame();
   }
 

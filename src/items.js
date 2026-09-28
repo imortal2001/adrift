@@ -60,6 +60,11 @@ export const FIRE = {
   spit: 3,            // fish it can cook at once
 };
 
+// An axe's stroke: how long it takes, and when in it (0..1) the blade bites —
+// main.js lands the blow then, not on the click; viewmodel.js and body.js
+// swing it to the same beat.
+export const CHOP_TIME = 0.62, CHOP_HIT = 0.46;
+
 // A torch: how long one burns, lit. Put away or wet, it goes out — and
 // keeps what it had left for when it is lit again.
 export const TORCH = {

@@ -24,7 +24,7 @@ import { statueBody } from './statue.js';
 import { ModelLibrary } from './models.js';
 import { logTexture, woodTexture, metalTexture } from './textures.js';
 import { leafAtlas, CELL, ATLAS_SIZE } from './flora.js';
-import { ITEMS, fishOf } from './items.js';
+import { ITEMS, fishOf, CHOP_TIME, CHOP_HIT } from './items.js';
 
 // Where each item sits in camera space (the camera looks down -Z, +X is
 // right) and how it is turned there. `model` names the glTF body in
@@ -52,7 +52,8 @@ export const POSES = {
   // hiding end-on behind it.
   spear:   { model: 'tool_spear',  pos: [0.24, -0.30, -0.18], rot: [-1.28, 0.0, -0.10] },
   // Held like the hammer, ready to swing, the blade's edge toward what you are looking at.
-  axe:     { model: null,          pos: [0.30, -0.40, -0.58], rot: [-0.30, 0.45, 0.30] },
+  // (A little smaller than life in the hand: the model's bearded head is broad.)
+  axe:     { model: 'tool_axe',    pos: [0.34, -0.50, -0.70], rot: [-0.30, 0.55, 0.30], scale: 0.85 },
   rod:     { model: 'tool_rod',    pos: [0.27, -0.38, -0.34], rot: [-0.95, 0.0, 0.22] },
   hook:    { model: null,          pos: [0.19, -0.17, -0.52], rot: [0.12, 0.0, 0.20], scale: 1.3 },
   // The grip low at the right and the shaft going down over the side, the
@@ -106,6 +107,18 @@ const USES = {
     return { rx, py, pz: -0.05 * Math.sin(Math.PI * Math.min(1, t * 1.6)) };
   } },
   spear: { time: 0.50, curve: t => thrust(t) },    // spear: point on target, drive
+  // Axe: wound up back over the right shoulder, driven across and down into
+  // the trunk ahead, a jolt as the blade bites (at CHOP_HIT), and pulled out.
+  chop: { time: CHOP_TIME, curve: t => {
+    const up = ease(t / 0.36), strike = ease((t - 0.36) / 0.1), back = ease((t - 0.55) / 0.45);
+    const jolt = t > CHOP_HIT && t < 0.58 ? Math.sin(((t - CHOP_HIT) / (0.58 - CHOP_HIT)) * Math.PI) * 0.14 : 0;
+    // (Raised up and out to the right for the wind-up, where you can see it drawn back.)
+    if (t < 0.36) return { rx: 0.6 * up, rz: 0.35 * up, px: 0.14 * up, py: 0.24 * up, pz: 0.02 * up };
+    if (t < 0.55) return { rx: 0.6 - 1.6 * strike + jolt, rz: 0.35 - 0.9 * strike, ry: -0.25 * strike,
+                           px: 0.14 - 0.3 * strike, py: 0.24 - 0.32 * strike, pz: 0.02 - 0.14 * strike };
+    const k = 1 - back;
+    return { rx: -1.05 * k, rz: -0.55 * k, ry: -0.25 * k, px: -0.16 * k, py: -0.08 * k, pz: -0.12 * k };
+  } },
   rod: { time: 0.75, curve: t => {               // rod: swing it back, flick
     const back = ease(t / 0.38), flick = ease((t - 0.38) / 0.16), rest = ease((t - 0.54) / 0.46);
     const rx = t < 0.38 ? 0.75 * back : t < 0.54 ? 0.75 - 1.25 * flick : -0.50 * (1 - rest);
@@ -295,14 +308,17 @@ const BODIES = {
     const blade = new THREE.Shape();
     blade.moveTo(0, 0.045); blade.lineTo(0.13, 0.075); blade.quadraticCurveTo(0.16, 0, 0.13, -0.075);
     blade.lineTo(0, -0.045); blade.lineTo(-0.035, 0); blade.lineTo(0, 0.045);
-    const head = new THREE.Mesh(new THREE.ExtrudeGeometry(blade, { depth: 0.022, bevelEnabled: true, bevelSize: 0.004, bevelThickness: 0.004, bevelSegments: 1 })
-      .translate(0, 0, -0.011), mat(0x55504a, 0.45, { metalness: 0.55 }));
-    head.position.y = 0.44;
-    g.add(head);
+    // (The edge leads, toward +Z, as the model's does — tools/build_tools.py.)
+    const iron = new THREE.Group();
+    iron.rotation.y = -Math.PI / 2;
+    iron.position.y = 0.44;
+    g.add(iron);
+    iron.add(new THREE.Mesh(new THREE.ExtrudeGeometry(blade, { depth: 0.022, bevelEnabled: true, bevelSize: 0.004, bevelThickness: 0.004, bevelSegments: 1 })
+      .translate(0, 0, -0.011), mat(0x55504a, 0.45, { metalness: 0.55 })));
     // The ground edge, brighter.
     const edge = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.13, 0.026), mat(0x9a948a, 0.3, { metalness: 0.7 }));
-    edge.position.set(0.148, 0.44, 0);
-    g.add(edge);
+    edge.position.x = 0.148;
+    iron.add(edge);
     for (const y of [0.39, 0.49]) {
       const t = new THREE.Mesh(new THREE.TorusGeometry(0.02, 0.005, 5, 12), mat(0xb39360, 0.95));
       t.rotation.x = Math.PI / 2;

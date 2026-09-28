@@ -25,7 +25,7 @@
 
 import * as THREE from 'three';
 import { clone as cloneSkinned } from '../vendor/jsm/utils/SkeletonUtils.js';
-import { ITEMS } from './items.js';
+import { ITEMS, CHOP_TIME, CHOP_HIT } from './items.js';
 
 const SKIN = 0xc08a62, HIDE = 0x86633f, HIDE_DARK = 0x5e4430, HAIR = 0x2b1d14;
 const EYE = 1.62;
@@ -254,6 +254,20 @@ function applyRig(r, a) {
 // the point arrives.
 const ease = t => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
 const GESTURES = {
+  // The axe: the arm drawn up and back over the shoulder, out to the side,
+  // then driven down and across into the trunk — the chest coming round
+  // with it — a jolt as it bites, and back. Timed as the first person's.
+  chop: { time: CHOP_TIME,
+    aim: u => (u > 0.4 && u < 0.62 ? 1 : 0),
+    pose: u => {
+      const up = ease(u / 0.36), strike = ease((u - 0.36) / 0.1), back = ease((u - 0.55) / 0.45);
+      const w = u < 0.36 ? up : u < 0.55 ? 1 - strike : 0;          // how wound up
+      const s = u < 0.36 ? 0 : u < 0.55 ? strike : 1 - back;        // how far through the stroke
+      const jolt = u > CHOP_HIT && u < 0.58 ? Math.sin(((u - CHOP_HIT) / (0.58 - CHOP_HIT)) * Math.PI) : 0;
+      return { armR: 0.3 + 1.9 * w + 0.35 * s - 0.12 * jolt, elbowR: 0.6 + 0.8 * w - 0.35 * s,
+               openR: 0.25 + 0.55 * w - 0.5 * s, foreInR: 0.1 + 0.3 * s,
+               armL: 0.35 + 0.45 * s, elbowL: 0.9, chest: -0.1 * w + 0.3 * s };
+    } },
   swing: { time: 0.45, pose: u => {
     const up = Math.sin(Math.min(1, u / 0.35) * Math.PI / 2), down = u > 0.35 ? (u - 0.35) / 0.65 : 0;
     return { armR: 0.3 + 1.7 * up * (1 - down) - 0.5 * Math.sin(down * Math.PI), elbowR: 0.6 };
@@ -661,9 +675,12 @@ export class PlayerBody {
     const fist = index.sub(pinky).normalize();
     const fwd = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw));
     // Carried upright and a little forward — a rod well forward, its tip out
-    // ahead as a rod is carried, not stood up like a staff.
-    const lean = this.heldId === 'rod' ? 1.35 : 0.3;
-    const want = new THREE.Vector3(0, 1, 0).addScaledVector(fwd, lean).normalize()
+    // ahead as a rod is carried, not stood up like a staff; an axe hanging
+    // head down at your side, as an axe is carried (upright, its broad head
+    // would be in front of your face).
+    const axe = this.heldId === 'axe';
+    const lean = this.heldId === 'rod' ? 1.35 : axe ? 0.35 : 0.3;
+    const want = new THREE.Vector3(0, axe ? -1 : 1, 0).addScaledVector(fwd, lean).normalize()
       .lerp(this.aimDir, this.aimK).normalize();
     // Both onto the plane square to the forearm: the roll is the angle
     // between them there. Nothing to do if what it should point along is the

@@ -1700,22 +1700,88 @@ export class Terrain {
     this.shaking.push({ p, t: 0, ax: dir.z, az: -dir.x });
   }
 
+  /** Where an axe bites a plant struck from `dir`: the near face of its trunk, chest high (a log: its top). */
+  bitePoint(p, dir, out = new THREE.Vector3()) {
+    const scale = p.matrix.getMaxScaleOnAxis();
+    if (p.sp.lying) return out.set(p.x, p.y + 0.35 * scale, p.z);
+    const r = Math.min(1.4, (p.sp.trunk ?? 0.3) * scale * 0.42);
+    return out.set(p.x - dir.x * r, p.y + (p.sp.name === 'stump' ? 0.5 : 1.1), p.z - dir.z * r);
+  }
+
   /**
-   * Bring a tree down: a copy of it, in its place, topples away from `dir`
-   * — slowly, then fast — lies a moment, and sinks out of sight. (The plant
-   * itself is harvested as ever: gone, and growing back in its own time.)
+   * Bits flying: `kind` 'wood' (chips, pale with bark), 'bamboo', 'leaves'
+   * (drifting down) or 'dust' (a puff); `n` of them from `at`, thrown back
+   * along -`dir` (toward whoever struck) and up.
    */
-  topple(p, dir) {
+  burst(at, dir, kind, n) {
+    const fx = this.fx ||= this.makeBits();
+    const [a, b] = BIT_COLOURS[kind];
+    const big = kind === 'leaves' || kind === 'dust';
+    const pool = big ? fx.big : fx.small;
+    const ground = heightAt(at.x, at.z);
+    for (let k = 0; k < n; k++) {
+      const i = pool.next = (pool.next + 1) % pool.max, q = pool.bits[i];
+      const side = (Math.random() - 0.5) * 2;
+      q.x = at.x + (Math.random() - 0.5) * (big ? 1.5 : 0.2);
+      q.y = at.y + (Math.random() - 0.5) * (big ? 1.2 : 0.2);
+      q.z = at.z + (Math.random() - 0.5) * (big ? 1.5 : 0.2);
+      const out = big ? 0.6 + Math.random() * 1.2 : 1.4 + Math.random() * 2.2;
+      q.vx = -dir.x * out + dir.z * side * (big ? 1.4 : 1.6);
+      q.vz = -dir.z * out - dir.x * side * (big ? 1.4 : 1.6);
+      q.vy = big ? 0.4 + Math.random() * 1.6 : 1.2 + Math.random() * 2.4;
+      q.life = kind === 'leaves' ? 2.2 + Math.random() : kind === 'dust' ? 1.2 + Math.random() * 0.6 : 0.9 + Math.random() * 0.5;
+      q.kind = kind;
+      q.floor = Math.min(ground, at.y - 0.3) + 0.03;
+      _bitColour.copy(a).lerp(b, Math.random());
+      pool.col.setXYZ(i, _bitColour.r, _bitColour.g, _bitColour.b);
+    }
+    pool.col.needsUpdate = true;
+  }
+
+  makeBits() {
+    const pool = (max, size) => {
+      const g = new THREE.BufferGeometry();
+      const pos = new THREE.BufferAttribute(new Float32Array(max * 3).fill(-1e4), 3);
+      const col = new THREE.BufferAttribute(new Float32Array(max * 3), 3);
+      g.setAttribute('position', pos); g.setAttribute('color', col);
+      const pts = new THREE.Points(g, new THREE.PointsMaterial({ size, vertexColors: true, sizeAttenuation: true }));
+      pts.frustumCulled = false;
+      this.scene.add(pts);
+      return { max, pos, col, next: 0, bits: Array.from({ length: max }, () => ({ life: 0 })) };
+    };
+    return { small: pool(240, 0.085), big: pool(160, 0.16) };
+  }
+
+  /**
+   * Bring a tree down: a copy of it, in its place, topples away from `dir` —
+   * slowly at first, then fast — to where it meets the ground (on a slope,
+   * sooner), bounces, throws up leaves and dust, lies a while and sinks out
+   * of sight. `onLand` is called as it hits. (The plant itself is harvested as
+   * ever: gone, and growing back in its own time.)
+   */
+  topple(p, dir, onLand = null) {
     const m = new THREE.InstancedMesh(p.inst.geometry, p.inst.material, 1);
     m.setMatrixAt(0, p.matrix);
     m.castShadow = true;
     m.frustumCulled = false;
     this.scene.add(m);
+    const geo = p.inst.geometry;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const H = Math.max(2, geo.boundingBox.max.y * p.matrix.getMaxScaleOnAxis());
+    // How far over before some of it meets the ground.
+    let stop = 1.53;
+    search: for (let a = 0.15; a < 1.56; a += 0.02) {
+      for (const f of [0.3, 0.6, 0.9]) {
+        const x = p.x + dir.x * Math.sin(a) * H * f, z = p.z + dir.z * Math.sin(a) * H * f;
+        if (p.y + Math.cos(a) * H * f < heightAt(x, z) + 0.35) { stop = a; break search; }
+      }
+    }
     this.falling = this.falling || [];
-    this.falling.push({ m, p, t: 0, axis: new THREE.Vector3(dir.z, 0, -dir.x).normalize() });
+    this.falling.push({ m, p, t: 0, H, stop, fall: 1.3 + H / 40, dir: dir.clone(),
+                        axis: new THREE.Vector3(dir.z, 0, -dir.x).normalize(), onLand, landed: false });
   }
 
-  /** Once a frame: the shudders and the falls. */
+  /** Once a frame: the shudders, the falls, and the bits flying. */
   animateFelling(dt) {
     const R = this._fallR ||= new THREE.Matrix4(), T = this._fallT ||= new THREE.Matrix4(), out = this._fallM ||= new THREE.Matrix4();
     const ax = this._ax ||= new THREE.Vector3();
@@ -1723,7 +1789,7 @@ export class Terrain {
       s.t += dt;
       if (this.felled.has(s.p.key)) continue;
       // Away from the blow and back; the last frame puts it exactly where it stood.
-      const lean = s.t < 0.35 ? Math.sin((s.t / 0.35) * Math.PI) * 0.035 : 0;
+      const lean = s.t < 0.35 ? Math.sin((s.t / 0.35) * Math.PI) * 0.05 : 0;
       R.makeRotationAxis(ax.set(s.ax, 0, s.az).normalize(), lean);
       out.makeTranslation(s.p.x, s.p.y, s.p.z).multiply(R).multiply(T.makeTranslation(-s.p.x, -s.p.y, -s.p.z)).multiply(s.p.matrix);
       s.p.inst.setMatrixAt(s.p.index, out);
@@ -1732,16 +1798,50 @@ export class Terrain {
     if (this.shaking) this.shaking = this.shaking.filter(s => s.t < 0.35);
     for (const f of this.falling || []) {
       f.t += dt;
-      // Over in 1.8 s, gathering speed; down 2.5 s; then into the ground.
-      const k = Math.min(1, f.t / 1.8), angle = 1.52 * k * k;
-      const sink = Math.max(0, f.t - 4.3) * 1.2;
+      let angle;
+      if (f.t < f.fall) angle = f.stop * Math.pow(f.t / f.fall, 2.4);           // over, gathering speed
+      else {
+        const u = f.t - f.fall;                                                  // down: a bounce, and still
+        angle = f.stop - 0.07 * Math.exp(-4 * u) * Math.abs(Math.sin(9 * u));
+        if (!f.landed) {
+          f.landed = true;
+          const crown = _bitAt.set(f.p.x + f.dir.x * Math.sin(f.stop) * f.H * 0.85, f.p.y + Math.cos(f.stop) * f.H * 0.85,
+                                   f.p.z + f.dir.z * Math.sin(f.stop) * f.H * 0.85);
+          this.burst(crown, f.dir.clone().negate(), f.p.sp.name === 'bamboo' ? 'bamboo' : 'leaves', 50);
+          for (const k of [0.25, 0.5]) {
+            _bitAt.set(f.p.x + f.dir.x * f.H * k, heightAt(f.p.x + f.dir.x * f.H * k, f.p.z + f.dir.z * f.H * k) + 0.3, f.p.z + f.dir.z * f.H * k);
+            this.burst(_bitAt, f.dir.clone().negate(), 'dust', 14);
+          }
+          f.onLand?.(f);
+        }
+      }
+      const sink = Math.max(0, f.t - f.fall - 4) * 1.3;
       R.makeRotationAxis(f.axis, angle);
       out.makeTranslation(f.p.x, f.p.y - sink, f.p.z).multiply(R).multiply(T.makeTranslation(-f.p.x, -f.p.y, -f.p.z)).multiply(f.p.matrix);
       f.m.setMatrixAt(0, out);
       f.m.instanceMatrix.needsUpdate = true;
-      if (f.t > 6.5) { this.scene.remove(f.m); f.m.dispose(); f.done = true; }
+      if (f.t > f.fall + 5.6) { this.scene.remove(f.m); f.m.dispose(); f.done = true; }
     }
     if (this.falling) this.falling = this.falling.filter(f => !f.done);
+    // The bits: thrown, falling (leaves drifting), resting where they land; gone when their time is up.
+    for (const pool of this.fx ? [this.fx.small, this.fx.big] : []) {
+      let live = false;
+      pool.bits.forEach((q, i) => {
+        if (q.life <= 0) return;
+        live = true;
+        q.life -= dt;
+        const drag = q.kind === 'leaves' ? 2.6 : q.kind === 'dust' ? 3.5 : 0.4;
+        const g = q.kind === 'leaves' ? 2.2 : q.kind === 'dust' ? -0.3 : 9.8;
+        q.vx -= q.vx * drag * dt; q.vz -= q.vz * drag * dt;
+        q.vy -= (g + q.vy * (q.kind === 'wood' || q.kind === 'bamboo' ? 0 : drag)) * dt;
+        q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt;
+        if (q.y < q.floor) { q.y = q.floor; q.vx *= 0.3; q.vz *= 0.3; q.vy = 0; }
+        if (q.kind === 'leaves') { q.x += Math.sin(q.life * 5 + i) * 0.4 * dt; }
+        if (q.life <= 0) pool.pos.setXYZ(i, 0, -1e4, 0);
+        else pool.pos.setXYZ(i, q.x, q.y, q.z);
+      });
+      if (live) pool.pos.needsUpdate = true;
+    }
   }
 
   /** Fell a plant: hide that one instance and let it grow back later. */
@@ -1785,6 +1885,15 @@ export class Terrain {
     return n;
   }
 }
+
+// What flies when a tree is cut or comes down: two colours each, mixed.
+const BIT_COLOURS = {
+  wood:   [new THREE.Color(0xdcc594), new THREE.Color(0x5e4330)],   // the pale wood, and bark
+  bamboo: [new THREE.Color(0xcfc57e), new THREE.Color(0x6f8a3a)],
+  leaves: [new THREE.Color(0x3f6b2a), new THREE.Color(0x7a9a3c)],
+  dust:   [new THREE.Color(0x9c8a6a), new THREE.Color(0xb8a888)],
+};
+const _bitColour = new THREE.Color(), _bitAt = new THREE.Vector3();
 
 // An instance matrix that puts something out of sight: a felled plant.
 const HIDDEN = new THREE.Matrix4().makeTranslation(0, -400, 0).multiply(new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4));
