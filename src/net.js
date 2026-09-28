@@ -22,7 +22,7 @@ import { CHOP_TIME, CHOP_HIT } from './items.js';
 
 // Where the relay is. On this machine, the local stand-in; on the published
 // game, the Worker you deployed — set this to its address (server/README.md).
-const DEPLOYED_RELAY = 'wss://adrift-relay.kan0-adrift.workers.dev';
+const DEPLOYED_RELAY = 'wss://adrift-relay.kan0.workers.dev';
 const LOCAL = ['localhost', '127.0.0.1', '0.0.0.0'].includes(location.hostname);
 export const RELAY = LOCAL ? `ws://${location.hostname}:8787` : DEPLOYED_RELAY;
 
