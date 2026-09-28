@@ -26,6 +26,10 @@ export const ITEMS = {
 
   hammer:  { name: 'Hammer',  tool: true, action: 'build',
              hint: 'Held out to build — wheel or [ ] picks the piece' },
+  // A blade of scrap iron ground to an edge, lashed to a haft. Trees, logs,
+  // stumps and bamboo need it; branches and fronds come away in your hands.
+  axe:     { name: 'Axe',     tool: true, action: 'chop',
+             hint: 'Click (or E) at a tree, a fallen log, a stump or bamboo to chop it — a few strokes and it is down' },
   hook:    { name: 'Hook',    tool: true, action: 'hook',
              hint: 'Click to throw it at debris out of reach' },
   spear:   { name: 'Spear',   tool: true, action: 'spear',
@@ -124,6 +128,8 @@ export const RECIPES = [
     desc: 'Twist palm fibre into cord.' },
   { id: 'hammer', out: ['hammer', 1], cost: { plank: 2, rope: 1 },
     desc: 'Needed for every piece of construction.' },
+  { id: 'axe',    out: ['axe', 1],    cost: { plank: 1, rope: 1, scrap: 1 },
+    desc: 'Scrap iron ground to an edge and lashed to a haft. Fells trees and cuts logs and bamboo — branches and fronds you take by hand.' },
   { id: 'hook',   out: ['hook', 1],   cost: { plank: 1, rope: 2, scrap: 1 },
     desc: 'Right-click to throw and reel in distant debris.' },
   { id: 'spear',  out: ['spear', 1],  cost: { plank: 2, rope: 1, scrap: 1 },

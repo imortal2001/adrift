@@ -79,7 +79,7 @@ code and models, runs on this machine only, and has its own
 | Arrow keys | also turn the view |
 | `Space` | jump — and climb aboard when you are in the water |
 | `V` | change the view: first person → third (behind you) → second (facing you) |
-| `E` | gather the debris you are looking at, drink from a collector — or a river, lake, pool or cave spring ashore — grab a crab, take back a thrown spear, chip flint out of a cave wall; at a campfire, cook the raw fish in hand, take fish that are done, feed it wood, light your torch in it, or strike a spark into it with the fire striker |
+| `E` | gather the debris you are looking at, take branches and fronds (a tree needs the axe in hand), drink from a collector — or a river, lake, pool or cave spring ashore — grab a crab, take back a thrown spear, chip flint out of a cave wall; at a campfire, cook the raw fish in hand, take fish that are done, feed it wood, light your torch in it, or strike a spark into it with the fire striker |
 | `1`–`5`, wheel | pick a hotbar slot |
 | Left-click | use whatever is in your hands |
 | `I` | pack — register tools and items into the five slots |
@@ -110,6 +110,7 @@ instead of a key per tool:
 | Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
 | Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes, and goes out if you put it away or get in the water — keeping what it had left |
 | Fire striker | nothing in hand — `E` at an unlit campfire strikes a spark into it (1 Palm for tinder), at once |
+| Axe | a stroke at the tree, log, stump or bamboo on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
 | Material, or nothing | nothing |
 
 Build mode is no longer a toggle: it is simply *holding the hammer*. Take out
@@ -376,8 +377,19 @@ rather than stopping), full trees within ~100 m and a cheap build of each out
 to ~220 m, the far canopy beyond; landmarks — crags and spires — to the edge
 of the chunks. Foliage sways in the wind in the vertex shader. Trunks, stumps
 and rocks are solid; you walk round them. Anything with a harvest can be
-felled, and stays felled — through a rebuild or a reload of its chunk — until
+taken, and stays gone — through a rebuild or a reload of its chunk — until
 it grows back.
+
+What comes away in your hands, you take with **E**: fallen branches, and the
+fronds of the shrubs, palms, cycads, magnolias and tree ferns. What does not
+— a standing **redwood** or **araucaria**, a **fallen log**, a **stump**,
+**bamboo** — takes an **axe** (a scrap-iron blade on a plank haft: 1 Plank,
+1 Rope, 1 Scrap). Hold it and click (or E) at the tree: each stroke it
+shudders, and a few strokes on — six for a redwood, four for an araucaria,
+three for a log or a stump, two for bamboo — it is down. A standing tree
+leans, falls away from you and lies a moment before it is gone; a log or a
+stump is chopped up where it lies. Leave one half-chopped a minute and you
+start again.
 
 ### The reef
 
@@ -819,7 +831,7 @@ They look like what they are made of and handle the same. Poles and logs
 run the length of a square, and where one square's meet the next is set per
 row by the boundary between them, so both sides agree: the joints are
 staggered like a real raft's and the ends at its edges are ragged. Bamboo
-comes from the **bamboo groves** along the river banks (E harvests 4) and from
+comes from the **bamboo groves** along the river banks (the axe cuts 4) and from
 **bundles of it adrift** (2).
 
 **Statues are respawn points, nothing more.** Two dozen stand here and there

@@ -904,6 +904,7 @@ export class Terrain {
     }
 
     this.regrow(dt);
+    this.animateFelling(dt);
 
     // Build a couple per frame so walking never stutters.
     let built = 0;
@@ -1687,6 +1688,60 @@ export class Terrain {
       }
     }
     return best;
+  }
+
+  /**
+   * A stroke of the axe: the plant shudders, leaning away from `dir` (the
+   * way the blow came, flat) for a moment and back.
+   */
+  shake(p, dir) {
+    this.shaking = this.shaking || [];
+    this.shaking = this.shaking.filter(s => s.p !== p);
+    this.shaking.push({ p, t: 0, ax: dir.z, az: -dir.x });
+  }
+
+  /**
+   * Bring a tree down: a copy of it, in its place, topples away from `dir`
+   * — slowly, then fast — lies a moment, and sinks out of sight. (The plant
+   * itself is harvested as ever: gone, and growing back in its own time.)
+   */
+  topple(p, dir) {
+    const m = new THREE.InstancedMesh(p.inst.geometry, p.inst.material, 1);
+    m.setMatrixAt(0, p.matrix);
+    m.castShadow = true;
+    m.frustumCulled = false;
+    this.scene.add(m);
+    this.falling = this.falling || [];
+    this.falling.push({ m, p, t: 0, axis: new THREE.Vector3(dir.z, 0, -dir.x).normalize() });
+  }
+
+  /** Once a frame: the shudders and the falls. */
+  animateFelling(dt) {
+    const R = this._fallR ||= new THREE.Matrix4(), T = this._fallT ||= new THREE.Matrix4(), out = this._fallM ||= new THREE.Matrix4();
+    const ax = this._ax ||= new THREE.Vector3();
+    for (const s of this.shaking || []) {
+      s.t += dt;
+      if (this.felled.has(s.p.key)) continue;
+      // Away from the blow and back; the last frame puts it exactly where it stood.
+      const lean = s.t < 0.35 ? Math.sin((s.t / 0.35) * Math.PI) * 0.035 : 0;
+      R.makeRotationAxis(ax.set(s.ax, 0, s.az).normalize(), lean);
+      out.makeTranslation(s.p.x, s.p.y, s.p.z).multiply(R).multiply(T.makeTranslation(-s.p.x, -s.p.y, -s.p.z)).multiply(s.p.matrix);
+      s.p.inst.setMatrixAt(s.p.index, out);
+      s.p.inst.instanceMatrix.needsUpdate = true;
+    }
+    if (this.shaking) this.shaking = this.shaking.filter(s => s.t < 0.35);
+    for (const f of this.falling || []) {
+      f.t += dt;
+      // Over in 1.8 s, gathering speed; down 2.5 s; then into the ground.
+      const k = Math.min(1, f.t / 1.8), angle = 1.52 * k * k;
+      const sink = Math.max(0, f.t - 4.3) * 1.2;
+      R.makeRotationAxis(f.axis, angle);
+      out.makeTranslation(f.p.x, f.p.y - sink, f.p.z).multiply(R).multiply(T.makeTranslation(-f.p.x, -f.p.y, -f.p.z)).multiply(f.p.matrix);
+      f.m.setMatrixAt(0, out);
+      f.m.instanceMatrix.needsUpdate = true;
+      if (f.t > 6.5) { this.scene.remove(f.m); f.m.dispose(); f.done = true; }
+    }
+    if (this.falling) this.falling = this.falling.filter(f => !f.done);
   }
 
   /** Fell a plant: hide that one instance and let it grow back later. */

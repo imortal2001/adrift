@@ -114,6 +114,8 @@ class Game {
     // the scene, dark until lit: adding a light later would make every
     // material in the world recompile at the moment you lit it.
     this.torch = { lit: false, fuel: 0 };
+    // Trees part-chopped: plant key → { n: strokes so far, at: when the last was }.
+    this.chops = new Map();
     this.torchLights = [0, 1, 2].map(() => {
       const l = new THREE.PointLight(0xffa35a, 0, 20, 2);
       this.scene.add(l);
@@ -602,6 +604,14 @@ class Game {
       case 'torch':
         this.clickTorch();
         break;
+      case 'chop': {
+        // At a tree (or anything else you could take): the same as E.
+        const plant = this.terrain.pickPlant(eye, dir);
+        if (plant?.sp.chop) this.chop(plant, dir);
+        else if (plant) { this.useAnim('build'); this.takePlant(plant); }
+        else { this.useAnim('build'); }
+        break;
+      }
       case 'strike':
         this.hud.log('Look at an unlit campfire and press E to strike a spark into it. With the striker in your pack, a torch lights anywhere.');
         break;
@@ -863,6 +873,42 @@ class Game {
       this.torchLights[k++].intensity = 11 * flicker;
     }
     for (; k < this.torchLights.length; k++) this.torchLights[k].intensity = 0;
+  }
+
+  /** A plant down, or picked: what it gives, into the pack. */
+  takePlant(plant, how = null) {
+    const { label, yield: y } = this.terrain.harvest(plant);
+    this.chops.delete(plant.key);
+    const parts = [];
+    for (const id in y) {
+      this.inv.add(id, y[id]);
+      this.hotbar.autoAssign(id);
+      parts.push(`${y[id]} ${ITEMS[id].name}`);
+    }
+    this.hud.log(`${how || label}: ${parts.join(', ')}`, 'good');
+    this.hud.refreshInventory(this.inv);
+    this.hud.refreshHotbar(this.hotbar, this.inv);
+    this.hud.refreshCraft(this.inv);
+  }
+
+  /**
+   * A stroke of the axe at a tree (or a log, a stump, bamboo): it shudders;
+   * enough of them, and it is down — a standing one falls, away from you.
+   */
+  chop(plant, dir) {
+    if (this.time - (this.lastChop ?? -9) < 0.5) return;          // one stroke at a time
+    this.lastChop = this.time;
+    this.useAnim('build');
+    const away = new THREE.Vector3(plant.x - this.player.pos.x, 0, plant.z - this.player.pos.z);
+    if (away.lengthSq() < 1e-6) away.set(dir.x, 0, dir.z);
+    away.normalize();
+    const c = this.chops.get(plant.key) || { n: 0 };
+    c.n++; c.at = this.time;
+    this.chops.set(plant.key, c);
+    if (c.n < plant.sp.chop) { this.terrain.shake(plant, away); return; }
+    const name = plant.sp.label.toLowerCase();
+    if (plant.sp.falls) this.terrain.topple(plant, away);
+    this.takePlant(plant, plant.sp.falls ? `The ${name} creaks, leans, and comes down` : `You chop the ${name} up`);
   }
 
   /** Chip a flint face off a cave wall. */
@@ -1669,22 +1715,21 @@ class Game {
 
     const plant = this.terrain.pickPlant(eye, dir);
     if (plant) {
-      return {
-        prompt: `<b>E</b> harvest ${plant.sp.label}`,
-        act: () => {
-          const { label, yield: y } = this.terrain.harvest(plant);
-          const parts = [];
-          for (const id in y) {
-            this.inv.add(id, y[id]);
-            this.hotbar.autoAssign(id);
-            parts.push(`${y[id]} ${ITEMS[id].name}`);
-          }
-          this.hud.log(`${label}: ${parts.join(', ')}`, 'good');
-          this.hud.refreshInventory(this.inv);
-          this.hud.refreshHotbar(this.hotbar, this.inv);
-          this.hud.refreshCraft(this.inv);
-        },
-      };
+      // A tree, a log, a stump, bamboo: that takes an axe. Branches and
+      // fronds come away in your hands.
+      if (plant.sp.chop) {
+        const name = plant.sp.label.toLowerCase();
+        if (this.hotbar.held === 'axe' && this.inv.has('axe')) {
+          const done = this.chops.get(plant.key)?.n ?? 0;
+          return { prompt: `<b>Click</b> or <b>E</b>: chop the ${name}${done ? ` — ${done} of ${plant.sp.chop}` : ''}`,
+                   act: () => this.chop(plant, dir) };
+        }
+        return { prompt: this.inv.has('axe') ? `Take out the axe to chop the ${name}`
+                                             : `The ${name} is too big to break by hand — it needs an axe (craft one: C)`, act: null };
+      }
+      const what = plant.sp.label.toLowerCase();
+      const verb = plant.sp.name === 'deadfall' ? `gather the ${what}` : plant.sp.yield?.leaf ? `strip the fronds from the ${what}` : `take the ${what}`;
+      return { prompt: `<b>E</b> ${verb}`, act: () => this.takePlant(plant) };
     }
 
     const beast = this.wildlife.pick(eye, dir);
@@ -2029,6 +2074,8 @@ class Game {
     // copies — so what is in your hand goes dark and blue with the world.
     const held = this.hotbar.held;
     this.updateTorch(dt, held);
+    // A tree left half-chopped long enough is whole again, as far as you are concerned.
+    for (const [key, c] of this.chops) if (this.time - c.at > 60) this.chops.delete(key);
     // A lit torch is a body of its own — flame and all — in your hand, on your body and in the others' view.
     const shown = held === 'torch' && this.torch.lit ? 'torch_lit' : held;
     this.viewmodel.update(dt, {

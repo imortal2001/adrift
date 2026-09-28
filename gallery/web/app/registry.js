@@ -592,7 +592,8 @@ export async function loadRegistry() {
               ['Size', `×${sp.scale[0]}–${sp.scale[1]} of this`],
               ['Drawn', `out to ${sp.rings} chunk${sp.rings > 1 ? 's' : ''} (${Math.round((sp.rings + 0.5) * CHUNK)} m)` +
                         (sp.farFrom !== undefined ? `, the cheap build from ${Math.round((sp.farFrom - 0.5) * CHUNK)} m` : '')],
-              ...(sp.yield ? [['Harvest', Object.entries(sp.yield).map(([k, n]) => `${n} ${k}`).join(', ')],
+              ...(sp.yield ? [['Harvest', Object.entries(sp.yield).map(([k, n]) => `${n} ${k}`).join(', ') +
+                                          (sp.chop ? ` — with an axe, ${sp.chop} strokes${sp.falls ? ', and it falls' : ''}` : ' — by hand (E)')],
                               ['Regrows', `${sp.regrow} s`]] : []),
               ...(sp.trunk || sp.solid ? [['Blocks you', 'yes']] : [])],
       async build(variant) {

@@ -1438,7 +1438,9 @@ export function drapeGeometry(strands) {
 // `layer` sets the spacing of the scatter grid (and so the densest it can
 // get); `where(site)` is the chance, 0..1, that a grid cell here grows this;
 // `rings` is how many chunks out it is drawn (and `farFrom`, from which ring
-// the cheap `lod` build is used). Harvestable species carry a `yield`.
+// the cheap `lod` build is used). Harvestable species carry a `yield`; those
+// too big to take by hand carry `chop`, the strokes of an axe it takes (and
+// `falls` if it comes down when it goes, rather than being chopped up where it lies).
 //
 // `site` is what the terrain knows about the spot:
 //   h        height above the sea            slope   0 flat .. 1 sheer
@@ -1462,10 +1464,10 @@ const band = (x, a, b, c, d) => (x <= a || x >= d) ? 0 : x < b ? (x - a) / (b - 
 
 export const SPECIES = [
   { name: 'redwood', group: 'Canopy trees', habitat: 'moist forest from 6 m up to the treeline; not on steep ground, and set back from the rivers', label: 'Giant redwood', layer: 'canopy', make: redwood, variants: 3, material: 'tree',
-    rings: 3, farFrom: 2, scale: [0.72, 1.25], trunk: 2.6, reach: 5.5, regrow: 300, yield: { wood: 8 },
+    rings: 3, farFrom: 2, scale: [0.72, 1.25], trunk: 2.6, reach: 5.5, regrow: 300, yield: { wood: 8 }, chop: 6, falls: true,
     where: s => s.forest * s.wet * 1.3 * band(s.h, 6, 16, 150, TREE_H) * (s.slope < 0.42 ? 1 : 0) * (s.edge > 18 ? 1 : 0.25) },
   { name: 'araucaria', group: 'Canopy trees', habitat: 'drier forest and its edges, the foothills, and alone out on the plains', label: 'Araucaria', layer: 'canopy', make: araucaria, variants: 2, material: 'tree',
-    rings: 3, farFrom: 2, scale: [0.75, 1.3], trunk: 1.4, reach: 3.6, regrow: 220, yield: { wood: 5 },
+    rings: 3, farFrom: 2, scale: [0.75, 1.3], trunk: 1.4, reach: 3.6, regrow: 220, yield: { wood: 5 }, chop: 4, falls: true,
     // Drier ground than the redwoods, the forest edge, and alone on the plains.
     where: s => (s.forest * (1.05 - s.wet) * 0.9 + s.plain * 0.05 + s.mountain * s.forest * 0.3) *
                 band(s.h, 4, 12, TREE_H - 10, TREE_H + 15) * (s.slope < 0.5 ? 1 : 0) },
@@ -1505,10 +1507,10 @@ export const SPECIES = [
     // In the shallows at the edge and up the bank, not out in the stream.
     where: s => band(s.edge, -1.2, -0.2, 2.5, 6) * 0.9 },
   { name: 'log', group: 'Deadfall', habitat: 'the forest floor, and washed up on the beaches', label: 'Fallen log', layer: 'debris', make: log, variants: 3, material: 'tree',
-    rings: 2, farFrom: 2, scale: [0.7, 1.4], reach: 3.2, regrow: 400, yield: { wood: 4 }, lying: true,
+    rings: 2, farFrom: 2, scale: [0.7, 1.4], reach: 3.2, regrow: 400, yield: { wood: 4 }, lying: true, chop: 3,
     where: s => (s.forest * 0.5 + s.beach * 0.25) * (s.slope < 0.3 ? 1 : 0) * (s.h > 0.8 ? 1 : 0) },
   { name: 'stump', group: 'Deadfall', habitat: 'the forest floor', label: 'Stump', layer: 'debris', make: stump, variants: 2, material: 'tree',
-    rings: 2, farFrom: 2, scale: [0.8, 1.3], trunk: 1.4, reach: 2.8, regrow: 400, yield: { wood: 2 },
+    rings: 2, farFrom: 2, scale: [0.8, 1.3], trunk: 1.4, reach: 2.8, regrow: 400, yield: { wood: 2 }, chop: 3,
     where: s => s.forest * 0.1 * (s.slope < 0.4 ? 1 : 0) * (s.h > 4 ? 1 : 0) },
   { name: 'deadfall', group: 'Deadfall', habitat: 'the forest floor', label: 'Fallen branches', layer: 'ground', make: branches, variants: 2, material: 'tree',
     rings: 1, scale: [0.8, 1.3], reach: 2, regrow: 150, yield: { wood: 1 },
@@ -1526,7 +1528,7 @@ export const SPECIES = [
     where: s => s.cliff * band(-s.shore, 8, 20, 70, 110) * 0.9 + s.plain * s.rare * 0.8 },
   // Last in the list, so adding it moved nothing else that grows.
   { name: 'bamboo', group: 'Understorey', habitat: 'groves along the river banks, and in the wet lowlands behind the beaches', label: 'Bamboo', layer: 'under', make: bamboo, variants: 3, material: 'tree',
-    rings: 2, farFrom: 2, scale: [0.8, 1.25], trunk: 0.45, reach: 3.2, regrow: 180, yield: { bamboo: 4 },
+    rings: 2, farFrom: 2, scale: [0.8, 1.25], trunk: 0.45, reach: 3.2, regrow: 180, yield: { bamboo: 4 }, chop: 2, falls: true,
     where: s => (band(s.edge, 1.5, 4, 16, 34) * 0.4 + band(s.shore, 8, 16, 50, 90) * s.wet * 0.12) *
                 band(s.h, 1.5, 3, 45, 70) * (s.slope < 0.4 ? 1 : 0) },
 ];
