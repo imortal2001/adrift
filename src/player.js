@@ -16,7 +16,7 @@ const NEIGHBOUR_OFFSET = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 
 const EYE = 1.62;
 const RADIUS = 0.36;
-const WALK = 3.2, SPRINT = 5.3, SWIM = 2.4;
+const WALK = 3.2, SPRINT = 5.3, SWIM = 2.4, BACK_SWIM = 0.6;
 const GRAVITY = 19, JUMP = 5.0;
 const AIR_ACCEL = 8.0, AIR_DRAG = 0.8;
 const CLIMB_REACH = 2.1;
@@ -350,7 +350,8 @@ export class Player {
 
     const sea = waveHeight(this.pos.x, this.pos.z, time);
     const floatY = sea - EYE + SURFACE_EYE;    // eyes just above the waterline
-    const speed = SWIM * (sprinting ? 1.45 : 1);
+    // Backing away is a slower stroke than swimming ahead (body.js paddles it upright).
+    const speed = SWIM * (sprinting ? 1.45 : 1) * (wish.z > 0 && Math.abs(wish.z) >= Math.abs(wish.x) ? BACK_SWIM : 1);
     const diving = !moveLocked && input.down('KeyZ');
     const rising = !moveLocked && input.down('Space');
 

@@ -370,6 +370,17 @@ const STROKES = {
              thighL: 0.85 + 0.25 * s, thighR: 0.85 - 0.25 * s, kneeL: -1.25 + 0.35 * c, kneeR: -1.25 - 0.35 * c,
              spread: 0.04, legs: 0.55 + 0.12 * c, neck: 0, roll: 0, bob: 0.035 * Math.sin(u * TAU * 2) };
   } },
+  // Backing away: upright, leaning back a little, both hands shoving the
+  // water ahead of you — out from the chest to arm's length, fast — and
+  // drawn back in edge-on, slow; the legs pedalling backwards under you.
+  back: { time: 1.1, pose: u => {
+    const push = u < 0.35, k = push ? ease(u / 0.35) : 1 - ease((u - 0.35) / 0.65);
+    const s = Math.sin(u * TAU), c = Math.cos(u * TAU);
+    return { armL: 0.55 + 0.75 * k, armR: 0.55 + 0.75 * k, elbowL: 1.7 - 1.45 * k, elbowR: 1.7 - 1.45 * k,
+             openL: push ? 0.15 : 0.55 * Math.sin(Math.PI * (u - 0.35) / 0.65), openR: push ? 0.15 : 0.55 * Math.sin(Math.PI * (u - 0.35) / 0.65),
+             thighL: 0.7 + 0.4 * s, thighR: 0.7 - 0.4 * s, kneeL: -1.0 - 0.5 * Math.max(0, c), kneeR: -1.0 - 0.5 * Math.max(0, -c),
+             spread: 0.05, legs: 0.35, neck: -0.1, roll: 0, bob: 0.04 * Math.sin(u * TAU) };
+  } },
 };
 
 /** Blend two poses: from `a` toward `b` by k, joint by joint. */
@@ -409,7 +420,8 @@ export class PlayerBody {
     this.swim = 0;                           // 0 treading water upright .. 1 lying out, swimming
     this.under = 0;                          // 0 at the surface (crawl) .. 1 under it (breaststroke)
     this.tilt = 0;                           // how far the body is tipped over, about the head
-    this.stroke = { crawl: 0, breast: 0, tread: 0 };   // each stroke's progress, in strokes
+    this.stroke = { crawl: 0, breast: 0, tread: 0, back: 0 };   // each stroke's progress, in strokes
+    this.back = 0;                           // 0 going forward (or nowhere) .. 1 backing away
     this.useKind = 'swing';
     this.aimK = 0;
     this.aimDir = new THREE.Vector3(0, 0, -1);
@@ -519,7 +531,11 @@ export class PlayerBody {
     const up = p.state === 'swim' && p.submerged ? p.pos.y - this.lastPos.y : 0;
     // Carried by the raft is not walking: `drift` is how far it moved them.
     const cx = p.drift ? p.drift.x : 0, cz = p.drift ? p.drift.z : 0;
-    const moved = Math.hypot(p.pos.x - this.lastPos.x - cx, p.pos.z - this.lastPos.z - cz, up) / Math.max(dt, 1e-4);
+    const mx = p.pos.x - this.lastPos.x - cx, mz = p.pos.z - this.lastPos.z - cz;
+    const moved = Math.hypot(mx, mz, up) / Math.max(dt, 1e-4);
+    // Which way that was, against the way you face: backwards is -1.
+    const flat = Math.hypot(mx, mz);
+    this.heading = flat > 1e-5 ? (-mx * Math.sin(p.yaw) - mz * Math.cos(p.yaw)) / flat : 0;
     this.lastPos.copy(p.pos);
     // `p.speed` stands in for real movement (the gallery walks it on the spot).
     this.speed += (Math.min(p.speed ?? moved, 8) - this.speed) * Math.min(1, dt * 8);
@@ -542,7 +558,9 @@ export class PlayerBody {
     const air = p.state === 'air';
     // Swimming somewhere, lying out: a crawl at the surface, breaststroke
     // under it. Not going anywhere, upright, treading water.
-    this.swim += ((swimming && v > 0.6 ? 1 : 0) - this.swim) * Math.min(1, dt * 3);
+    // Backing away you stay upright and paddle back: you do not lie out for it.
+    this.back += ((swimming && v > 0.3 && (this.heading ?? 0) < -0.35 ? 1 : 0) - this.back) * Math.min(1, dt * 4);
+    this.swim += ((swimming && v > 0.6 && this.back < 0.5 ? 1 : 0) - this.swim) * Math.min(1, dt * 3);
     this.under += ((swimming && p.submerged ? 1 : 0) - this.under) * Math.min(1, dt * 2.5);
 
     // The stride: faster and longer the faster you go.
@@ -559,7 +577,8 @@ export class PlayerBody {
       for (const k in this.stroke) this.stroke[k] += dt / STROKES[k].time * (k === 'tread' ? 1 : pace);
       const at = k => { const n = Math.floor(this.stroke[k]); return STROKES[k].pose(this.stroke[k] - n, n); };
       const going = blend(at('crawl'), at('breast'), this.under);
-      a = { chest: 0, ...blend(at('tread'), going, this.swim) };
+      const upright = blend(at('tread'), at('back'), this.back);
+      a = { chest: 0, ...blend(upright, going, this.swim) };
       roll = a.roll; bob = a.bob;
       // A tool in hand goes ahead of you, where you are looking — a spear
       // ready — and the other arm and the legs do the swimming.
@@ -572,7 +591,8 @@ export class PlayerBody {
       // head drops from treading height to the waterline.
       const lie = -(Math.PI / 2 - 0.2);
       const dive = THREE.MathUtils.clamp(p.pitch, -1.3, 1.1) * 0.9;
-      const want = -0.12 + (lie + dive * this.under + 0.12) * this.swim;
+      // (Backing away, leaning back into it.)
+      const want = -0.12 + (lie + dive * this.under + 0.12) * this.swim + 0.4 * this.back * (1 - this.swim);
       this.tilt += (want - this.tilt) * Math.min(1, dt * 4);
     } else {
       this.tilt += (0 - this.tilt) * Math.min(1, dt * 8);
