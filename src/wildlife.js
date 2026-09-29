@@ -524,15 +524,34 @@ export class Wildlife {
   }
 
   /** Somewhere an animal can stand: land, not too steep, not up in the range. */
-  footing(x, z) {
+  footing(x, z, wade = 0.5) {
     if (coastDistance(x, z) < 8) return false;
     const h = heightAt(x, z);
     if (h > 150 || h < 1.5) return false;
-    // Not out into a lake or a river past their knees.
+    // Not out into a lake or a river past their knees (see wade).
     const w = freshWaterAt(x, z);
-    if (w && w.depth > 0.5) return false;
+    if (w && w.depth > wade) return false;
     return this.steepness(x, z) < MAX_SLOPE * 1.1;
   }
+
+  /**
+   * How far from somewhere it can stand (0: it can): too steep, or too deep.
+   * Infinite at the sea, and up in the range.
+   */
+  badness(x, z, wade = 0.5) {
+    if (coastDistance(x, z) < 8) return Infinity;
+    const h = heightAt(x, z);
+    if (h > 150 || h < 1.5) return Infinity;
+    const w = freshWaterAt(x, z);
+    return Math.max(0, this.steepness(x, z) - MAX_SLOPE * 1.1) + Math.max(0, (w ? w.depth : 0) - wade) * 4;
+  }
+
+  /**
+   * How deep it will go into fresh water: to the knees, as a rule, but one
+   * running from a hunter wades out as far as a third of its height — out of
+   * reach of a tyrannosaur, for a sauropod.
+   */
+  wade(a) { return a.state === 'flee' ? Math.max(0.5, a.tall * 0.3) : 0.5; }
 
   steepness(x, z) {
     const e = 2;
@@ -549,20 +568,28 @@ export class Wildlife {
     const reach = a.radius + 2.5 + Math.abs(a.speed) * 1.8;
     const solids = this.terrain ? this.terrain.solidsNear(a.pos.x, a.pos.z, reach + 4, this._near) : [];
     let best = 0, bestCost = Infinity;
+    // A big animal shoulders through ferns, cycads and palms, and a sauropod
+    // through saplings too; only a real trunk turns it.
+    const shoulders = a.radius > 0.9 ? Math.max(0.6, a.radius * 0.5) : 0;
+    const wade = this.wade(a);
     // (Fleeing, and cornered — the water, a drop — it will bolt along the
-    // bank rather than stand there; never back toward the hunter.)
+    // bank rather than stand there; never back toward the hunter. Just going
+    // about, with everything ahead shut, it turns right round.)
     const offs = a.state === 'flee' ? [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6, 1.9, -1.9, 2.2, -2.2]
-                                    : [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6];
+               : a.state === 'hunt' ? [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6]
+                                    : [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6, 2.2, -2.2, 2.7, -2.7, 3.1];
+    let ahead = Infinity;
     for (const off of offs) {
       const dir = want + off;
       const dx = Math.sin(dir), dz = Math.cos(dir);
       let cost = Math.abs(off) * 1.2 + (Math.sign(off) !== Math.sign(a.avoid) && off ? 0.4 : 0);
       // The next step as well as the way ahead: a lip of steeper ground just
       // in front refuses every step (move), however clear it is beyond.
-      if (!this.footing(a.pos.x + dx * reach, a.pos.z + dz * reach)) cost += 20;
-      else if (!this.footing(a.pos.x + dx * reach * 0.5, a.pos.z + dz * reach * 0.5)) cost += 20;
-      else if (!this.footing(a.pos.x + dx * 0.8, a.pos.z + dz * 0.8)) cost += 20;
+      if (!this.footing(a.pos.x + dx * reach, a.pos.z + dz * reach, wade)) cost += 20;
+      else if (!this.footing(a.pos.x + dx * reach * 0.5, a.pos.z + dz * reach * 0.5, wade)) cost += 20;
+      else if (!this.footing(a.pos.x + dx * 0.8, a.pos.z + dz * 0.8, wade)) cost += 20;
       for (const p of solids) {
+        if (p.hit < shoulders) continue;
         // Distance from the prop's axis to the path ahead.
         const px = p.x - a.pos.x, pz = p.z - a.pos.z;
         const t = Math.min(reach, Math.max(0, px * dx + pz * dz));
@@ -570,9 +597,10 @@ export class Wildlife {
         if (gap < 0.6) cost += 8 * (1 - t / (reach + 1)) + 4;
       }
       if (cost < bestCost) { bestCost = cost; best = off; }
+      if (Math.abs(off) < 2 && cost < ahead) ahead = cost;
     }
     a.avoid = best;
-    a.blocked = bestCost >= 20;
+    a.blocked = ahead >= 20;
   }
 
   /**
@@ -649,15 +677,18 @@ export class Wildlife {
     let best = null, bestD = hunter.sp.sight;
     for (const a of this.all) {
       if (a.dead || a === hunter || a.sp.diet !== 'plants' ||
-          ((hunter.shun?.prey === a || hunter.shun?.kind === a.key) && this.clock < hunter.shun.until)) continue;
+          (hunter.shun?.prey === a && this.clock < hunter.shun.until) ||
+          (hunter.wary?.kind === a.key && this.clock < hunter.wary.until)) continue;
       const d = Math.hypot(a.pos.x - hunter.pos.x, a.pos.z - hunter.pos.z);
       // Big game is worth chasing further, but a raptor takes on nothing its
       // size or more: not a sauropod, and not an armoured stegosaur's tail.
       if (hunter.sp.scale < 1.5 && a.sp.scale >= 1.5) continue;
-      // And anything bigger than itself — a grown sauropod, to a tyrannosaur —
-      // only if it is right there: a hunter takes what it can bring down.
-      const cost = d * (a.sp.scale > hunter.sp.scale ? 2.5 : 1);
-      if (cost < bestD) { bestD = cost; best = a; }
+      // And anything well beyond its size — a grown sauropod, to a
+      // tyrannosaur — only if it is right there: a hunter takes what it can
+      // bring down. (A pack brings down more: a parasaur, to raptors.)
+      const cost = d * (a.sp.scale > hunter.sp.scale * (hunter.sp.pack ? 1.5 : 1.2) ? 4 : 1);
+      // (Nor anything across the river from it: it cannot get there.)
+      if (cost < bestD && this.walkable(hunter.pos.x, hunter.pos.z, a.pos.x, a.pos.z)) { bestD = cost; best = a; }
     }
     // A person is prey too, if they are on land — you, or any of the others.
     let who = null, whoD = bestD * 0.85;
@@ -666,7 +697,7 @@ export class Wildlife {
     const consider = (w, pos) => {
       if (shunned(w)) return;
       const d = Math.hypot(pos.x - hunter.pos.x, pos.z - hunter.pos.z);
-      if (d < whoD) { whoD = d; who = w; }
+      if (d < whoD && this.walkable(hunter.pos.x, hunter.pos.z, pos.x, pos.z)) { whoD = d; who = w; }
     };
     // Not anyone gone into a cave, past its mouth: too narrow for a dinosaur to follow (caves.js).
     const sheltered = p => (caveAt(p.x, p.z, p.y)?.s ?? 0) > 2.5;
@@ -681,6 +712,9 @@ export class Wildlife {
     let best = null, bestD = a.sp.flee;
     for (const p of this.all) {
       if (p.dead || p.sp.diet !== 'meat') continue;
+      // A grown sauropod or stegosaur pays no mind to raptors going by: they
+      // do not take anything its size (unless one is at it after all).
+      if (p.sp.scale < 1.5 && a.sp.scale >= 1.5 && p.prey !== a) continue;
       const d = Math.hypot(p.pos.x - a.pos.x, p.pos.z - a.pos.z);
       if (d < bestD) { bestD = d; best = p; }
     }
@@ -819,8 +853,17 @@ export class Wildlife {
 
     if (sp.diet === 'meat' && a.state !== 'feed') {
       if (!a.prey || a.prey.dead || a.timer <= 0) {
-        const found = this.findPrey(a, player, playerOnLand);
-        if (found) {
+        // Fed, or worn out with chasing, it lies up a while — though not
+        // with something walking right up to it.
+        const tired = a.tiredUntil > this.clock;
+        let found = this.findPrey(a, player, playerOnLand);
+        if (found && tired && found.dist > 15) found = null;
+        // Mid-chase, it keeps after the one it has, unless another is a good
+        // deal nearer.
+        const had = a.state === 'hunt' && a.prey && !a.prey.dead ? (a.prey === 'player' ? player.pos : a.prey.pos) : null;
+        const keep = found && had && found.dist > 0.6 * Math.hypot(had.x - a.pos.x, had.z - a.pos.z);
+        if (keep) { /* after the one it has */ }
+        else if (found) {
           a.prey = found.animal || found.who;
           a.state = 'hunt';
         } else if (a.state === 'hunt') {
@@ -838,12 +881,21 @@ export class Wildlife {
         // (giveUp, below): out in the open, a sprint alone is not a way out.
         if (tgt) {
           const d = Math.hypot(tgt.x - a.pos.x, tgt.z - a.pos.z);
-          if (a.nearest === undefined || d < a.nearest - 0.5) { a.nearest = d; a.nearestAt = this.clock; }
-          else if (this.clock - a.nearestAt > 4 && d > sp.reach && (d < sp.reach + 8 || a.speed < sp.walk)) {
+          // (Across deep water from it — the far bank of a river — is out of
+          // reach however near, and nearer there is no nearer at all.)
+          a.reachAt = (a.reachAt || 0) - dt;
+          if (a.reachAt <= 0) { a.reachAt = 1; a.across = !this.walkable(a.pos.x, a.pos.z, tgt.x, tgt.z); }
+          if (a.nearest === undefined || (d < a.nearest - 0.5 && !a.across)) { a.nearest = d; a.nearestAt = this.clock; }
+          // (Blocked counts too: running on the spot, its speed reads high while it goes nowhere.)
+          else if (this.clock - a.nearestAt > 4 && d > sp.reach && (d < sp.reach + 8 || a.speed < sp.walk || a.blocked || a.across)) {
             a.shun = { prey: a.prey === 'player' ? 'player' : a.prey?.remote ?? a.prey, until: this.clock + 12 };
             a.state = 'wander'; a.prey = null; a.nearest = undefined;
             a.timer = rnd(6, 12);
             this.roam(a);
+            // A breather before the next; after a few come to nothing, a rest.
+            a.fails = (a.fails || 0) + 1;
+            a.tiredUntil = this.clock + (a.fails >= 3 ? rnd(60, 150) : rnd(5, 12));
+            if (a.fails >= 3) { a.fails = 0; a.state = 'rest'; a.timer = a.tiredUntil - this.clock; }
           }
         }
       } else a.nearest = undefined;
@@ -866,7 +918,7 @@ export class Wildlife {
     } else {
       const threat = this.threatNear(a);
       if (threat && sp.defend && threat.dist < sp.defend.range) { a.state = 'defend'; a.threat = threat.pred; this.defend(a, threat); }
-      else if (threat) { a.state = 'flee'; a.threat = threat.pred; }
+      else if (threat) { if (a.state !== 'flee') a.fleeFrom = this.clock; a.state = 'flee'; a.threat = threat.pred; }
       else if (a.state === 'flee' || a.state === 'defend') { a.state = 'wander'; a.threat = null; }
     }
 
@@ -891,12 +943,16 @@ export class Wildlife {
     const bx = -Math.sin(a.heading), bz = -Math.cos(a.heading);      // the way the tail points
     const dx = (t.pos.x - a.pos.x) / threat.dist, dz = (t.pos.z - a.pos.z) / threat.dist;
     const behind = bx * dx + bz * dz > 0.55;
-    // (Only at one that is coming for it: a hunter already struck and
+    // (Only at one that is coming for it, or for one of its own: a hunter
+    // after something else going by is let be, and one already struck and
     // backing off is let go, not struck again and again as it turns away.)
-    if (behind && t.state === 'hunt' && threat.dist < a.len * sp.defend.reach + t.radius && a.bite <= 0) {
+    const coming = t.state === 'hunt' && (t.prey === a || t.prey?.key === a.key);
+    if (behind && coming && threat.dist < a.len * sp.defend.reach + t.radius && a.bite <= 0) {
       a.bite = sp.biteEvery;
       t.hp -= sp.defend.hit;
-      t.shun = { prey: a, kind: a.key, until: this.clock + 90 };   // (once struck, a hunter leaves that kind be a good while)
+      // (Once struck, a hunter leaves that kind be a good while — whatever
+      // else it gives up on meanwhile.)
+      t.wary = { kind: a.key, until: this.clock + 90 };
       t.state = 'wander'; t.prey = null; t.nearest = undefined;
       t.timer = rnd(4, 8);
       // And it backs off, well away from the tail.
@@ -913,6 +969,7 @@ export class Wildlife {
 
   wound(hunter, victim) {
     victim.hp -= hunter.sp.damage * 3.2;      // animals go down faster than the player
+    if (victim.state !== 'flee') victim.fleeFrom = this.clock;
     victim.state = 'flee';
     victim.threat = hunter;
     if (victim.hp <= 0) {
@@ -921,9 +978,11 @@ export class Wildlife {
       victim.corpse = CORPSE_TIME;
       victim.respawn = CORPSE_TIME + rnd(20, 80);
       if (victim.rig.model) playState(victim.rig, 'death', 0.2);
-      // The hunter stays to feed.
+      // The hunter stays to feed, and then, fed, lies up a good while.
       hunter.state = 'feed';
       hunter.timer = rnd(12, 22);
+      hunter.fails = 0;
+      hunter.tiredUntil = this.clock + hunter.timer + rnd(120, 300);
       hunter.feedAt = victim.pos;
       hunter.prey = null;
       this.kills.push({ hunter: hunter.sp.label, victim: victim.sp.label, pos: victim.pos.clone() });
@@ -941,12 +1000,18 @@ export class Wildlife {
         const dx = tgt.x - a.pos.x, dz = tgt.z - a.pos.z;
         const d = Math.hypot(dx, dz);
         want = Math.atan2(dx, dz);
-        // Close the last few metres at a walk, and stop to strike — never back off.
+        // Close the last few metres at a walk, and stop to strike — never back
+        // off. (A walk, that is, beside the prey: on a runner's heels it still
+        // gains on it.)
+        const running = a.prey === 'player' || a.prey?.remote ? 0 : Math.max(0, a.prey?.speed ?? 0);
         goal = d < sp.reach * 0.9 ? 0 : d < sp.reach * 3 ? THREE.MathUtils.lerp(walk, sp.speed, (d - sp.reach) / (sp.reach * 2)) : sp.speed;
+        if (d >= sp.reach * 0.9 && running > 0) goal = Math.min(sp.speed, Math.max(goal, running + 0.8));
       }
     } else if (a.state === 'flee' && a.threat) {
       want = Math.atan2(a.pos.x - a.threat.pos.x, a.pos.z - a.threat.pos.z);
-      goal = sp.speed;
+      // Flat out for a dozen seconds or so, and then it tires: a long chase
+      // goes to the hunter.
+      goal = sp.speed * (this.clock - (a.fleeFrom ?? this.clock) > 12 ? 0.8 : 1);
     } else if (a.state === 'defend' && a.threat) {
       // Pivot on the spot, the tail toward the threat (facing away from it).
       want = Math.atan2(a.pos.x - a.threat.pos.x, a.pos.z - a.threat.pos.z);
@@ -962,6 +1027,26 @@ export class Wildlife {
       goal = walk * THREE.MathUtils.smoothstep(d, 0, 6);
     }
 
+    // Out in water deeper than it would go now (the danger past), or on ground
+    // too steep for it, it makes for the nearest easier going — whatever it
+    // was about, prey and all.
+    const wadeTo = this.wade(a);
+    const worse = this.badness(a.pos.x, a.pos.z, wadeTo);
+    if (worse > 0) {
+      let best = Infinity;
+      const was = want, r = Math.max(4, a.radius * 2);
+      for (let k = 0; k < 12; k++) {
+        const ang = k / 12 * Math.PI * 2, sx = Math.sin(ang), sz = Math.cos(ang);
+        // The way there as well as where it ends: the worst of it, and how
+        // it ends. (Of ways out alike, the one nearest where it was going.)
+        let peak = 0;
+        for (let f = 0.25; f < 1; f += 0.25) peak = Math.max(peak, this.badness(a.pos.x + sx * r * f, a.pos.z + sz * r * f, wadeTo));
+        const cost = peak + this.badness(a.pos.x + sx * r, a.pos.z + sz * r, wadeTo) + Math.abs(wrap(ang - was)) * 0.01;
+        if (cost < best) { best = cost; want = ang; }
+      }
+      if (best < Infinity) goal = Math.max(goal, walk);
+    }
+
     // Look ahead every so often, and bend the course round what is in the way.
     a.steerAt -= dt;
     if (a.steerAt <= 0 && (goal > 0 || Math.abs(a.speed) > 0.1)) {
@@ -969,7 +1054,7 @@ export class Wildlife {
       this.steer(a, want);
       if (a.blocked && a.state === 'wander') this.roam(a);
     }
-    if (goal > 0) want += a.avoid;
+    if (goal > 0 && !(worse > 0)) want += a.avoid;
 
     // Turning has momentum: it builds and eases off, and the faster an animal
     // goes the wider it turns. A big animal does not spin on the spot; it
@@ -979,7 +1064,10 @@ export class Wildlife {
       if (Math.abs(delta) > 0.6 && goal < walk * 0.5 && a.state !== 'graze' && a.state !== 'rest') goal = walk * 0.5;
     }
     const moving = Math.min(1, Math.abs(a.speed) / Math.max(0.3, walk));
-    const maxTurn = sp.turn * (0.25 + 0.75 * moving) * (1 - 0.35 * Math.min(1, Math.abs(a.speed) / sp.speed));
+    // (Except with its way ahead refused — a bank, a drop, deep water — when
+    // it has to turn about where it stands, and does, if ponderously.)
+    a.stall = Math.max(0, (a.stall || 0) - dt);
+    const maxTurn = sp.turn * ((a.stall > 0 ? 0.8 : 0.25) + 0.75 * moving) * (1 - 0.35 * Math.min(1, Math.abs(a.speed) / sp.speed));
     const turnTo = THREE.MathUtils.clamp(delta * 1.8, -maxTurn, maxTurn);
     a.yawVel = approach(a.yawVel, turnTo, sp.turn * 1.6 * dt);
     a.heading = wrap(a.heading + a.yawVel * dt);
@@ -990,12 +1078,22 @@ export class Wildlife {
     if (a.speed > 0.01) {
       const nx = a.pos.x + Math.sin(a.heading) * a.speed * dt;
       const nz = a.pos.z + Math.cos(a.heading) * a.speed * dt;
-      // (A step no steeper than where it stands is always all right: on ground
-      // right at the limit, the test would flicker and hold it there for good.)
-      const ok = this.footing(nx, nz) ||
-        (this.steepness(nx, nz) <= this.steepness(a.pos.x, a.pos.z) + 0.01 && coastDistance(nx, nz) >= 8 && !(freshWaterAt(nx, nz)?.depth > 0.5));
-      if (ok && heightAt(nx, nz) < 105) { a.pos.x = nx; a.pos.z = nz; }
-      else { a.speed *= 0.5; a.steerAt = 0; if (a.state === 'wander') this.roam(a); }
+      // (Good ground, or no worse than where it stands: out in water deeper
+      // than it would go now, or on ground too steep, it may go on at that or
+      // better but never worse, so it cannot creep up a cliff or out into a
+      // lake a hair at a time. A hair worse is all right off good ground, or
+      // right at the limit the test would flicker and hold it there for good;
+      // and boxed in for a while — a steep-sided channel — it scrambles out.)
+      // (How bad it was where it got boxed in bounds the scramble, so that it
+      // cannot work its way worse and worse.)
+      const bad = this.badness(nx, nz, wadeTo);
+      if (!(a.trapped > 1.5)) a.boxedAt = worse;
+      const ok = bad <= (worse > 0 ? worse : 0.01) || (a.trapped > 1.5 && bad < Math.max(0.5, a.boxedAt + 0.2));
+      if (ok && heightAt(nx, nz) < 105) { a.pos.x = nx; a.pos.z = nz; a.trapped = Math.max(0, (a.trapped || 0) - dt * 0.25); }
+      else {
+        a.speed *= 0.5; a.steerAt = 0; a.stall = 1.5; a.trapped = Math.min(3, (a.trapped || 0) + dt);
+        if (a.state === 'wander') this.roam(a);
+      }
     }
     // Never inside a trunk or a rock, whatever the steering missed.
     if (this.terrain) {

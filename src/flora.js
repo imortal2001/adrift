@@ -1037,14 +1037,24 @@ function hangVine(b, r, top, len, tint) {
 
 /** Giant redwood: 55 m, a buttressed trunk three metres across, the crown
  *  only in the top half, sometimes hung with vines. */
-function redwood(lod, seed) {
+/**
+ * Giant redwood, by age (variant): 0 and 1 old growth, 2 and 3 young. The old
+ * tree (Sequoia; General Sherman's proportions, conifers.org, USDA silvics):
+ * a flared, buttressed base narrowing fast and then an almost untapered
+ * column, clear of limbs for the lower half; a few massive limbs, sweeping
+ * down and turning up at their ends, the foliage in clumps out there, not
+ * spread along them; a trunk or two re-grown from a limb up through the
+ * crown (reiteration); and a rounded top, or a dead, broken one. The young
+ * tree is a narrow, perfect cone, branched nearly to the ground.
+ */
+function redwood(lod, seed, v = 0) {
+  if (v >= 2) return youngRedwood(lod, seed);
   const r = rng(seed), b = new Builder();
   b.wind = [0.8, 0.6];            // the slowest sway of all: 55 m of trunk
-  const H = 55, R0 = 1.55;
+  const H = 55, R0 = 1.4;         // dbh ~3 m, an old coast redwood's (2–4 m on the flats)
   const lean = V3((r() - 0.5) * 0.02, 1, (r() - 0.5) * 0.02).normalize();
   const trunkAt = t => lean.clone().multiplyScalar(H * t).add(V3(Math.sin(t * 5 + seed) * 0.3, 0, Math.cos(t * 4) * 0.3));
   const path = [];
-  // Rings packed toward the ground, where the buttresses change fastest.
   const rings = lod ? 6 : 18;
   for (let i = 0; i <= rings; i++) path.push(trunkAt(-0.02 + Math.pow(i / rings, 1.7) * 0.99));
   const lobes = 4 + Math.floor(r() * 3), phase = r() * 6;
@@ -1052,57 +1062,122 @@ function redwood(lod, seed) {
   b.tube(path, {
     sides: lod ? 7 : 14, uTiles: lod ? 2 : 4, vMetres: 3.2, k: 0,
     radius: (t, a) => {
-      const taper = R0 * Math.pow(1 - t * 0.8, 1.15) + 0.12;
-      const flare = 1 + 1.1 * Math.exp(-t * 26);
+      const column = R0 * (1 - 0.62 * t) + 0.1;              // hardly tapering, after the butt
+      const flare = 1 + 1.3 * Math.exp(-t * 18);
       const buttress = 1 + 0.35 * Math.exp(-t * 16) * Math.pow(Math.abs(Math.sin(a * lobes * 0.5 + phase)), 3);
-      return taper * flare * buttress;
+      return column * flare * buttress;
     },
     color: (t) => barkTint.clone().multiplyScalar(0.8 + t * 0.25),
     sway: t => t * t * 0.5,
   });
-  // Branches, from half way up, shorter toward the top.
-  const nb = lod ? 0 : 30;
   const foliage = new THREE.Color(0x5d8343);
-  const crownTop = trunkAt(0.97);
+  const deadTop = seed % 3 === 0;
+  const crownTop = trunkAt(deadTop ? 0.9 : 0.96);
+  // A few great limbs from half way up — shorter toward the top — each out
+  // and down, then up at the end: the J of an old redwood's limb.
+  const nb = lod ? 0 : 15, limbs = [];
   for (let i = 0; i < nb; i++) {
-    const t = lerp(0.45, 0.95, i / nb) + (r() - 0.5) * 0.02;
+    const t = lerp(0.48, 0.92, i / nb) + (r() - 0.5) * 0.03;
     const base = trunkAt(t);
-    const yaw = i * 2.399 + r() * 0.4;
+    const yaw = i * 2.399 + r() * 0.5;
     const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
-    const len = lerp(9.5, 2.6, (t - 0.45) / 0.5) * (0.8 + r() * 0.4);
+    const len = lerp(10, 3.2, (t - 0.48) / 0.44) * (0.8 + r() * 0.4);
     const pts = [];
-    for (let k = 0; k <= 3; k++) {
-      const f = k / 3;
-      pts.push(base.clone().addScaledVector(dir, len * f).add(V3(0, len * (0.25 * f - 0.3 * f * f), 0)));
+    for (let k = 0; k <= 4; k++) {
+      const f = k / 4;
+      pts.push(base.clone().addScaledVector(dir, len * f).add(V3(0, len * (-0.26 * f + 0.46 * Math.pow(f, 2.6)), 0)));
     }
-    b.tube(pts, { sides: 5, k: 0, uTiles: 1, vMetres: 2, radius: f => lerp(0.32, 0.06, f), color: () => barkTint,
-                  sway: f => 0.15 + f * 0.25 + t * 0.2 });
+    b.tube(pts, { sides: 6, k: 0, uTiles: 1, vMetres: 2, radius: f => lerp(0.48, 0.1, f) * lerp(1, 0.55, (t - 0.48) / 0.44),
+                  color: () => barkTint, sway: f => 0.12 + f * 0.25 + t * 0.2 });
+    limbs.push({ t, base, dir, len, pts });
     const centre = trunkAt(t).add(V3(0, 1.5, 0));
-    for (let k = 0; k < 7; k++) {
-      const f = 0.25 + (k / 7) * 0.9;
-      const at = base.clone().addScaledVector(dir, len * f).add(V3(0, len * (0.25 * f - 0.3 * f * f) + 0.4, 0));
-      tuft(b, r, at, centre, lerp(5.4, 3.2, (t - 0.45) / 0.5), 3, CELL.needles, foliage, 0.35 + t * 0.35);
-    }
-    // Vines off the lower limbs of the vine-hung variant.
+    // The foliage: a clump on the upturned end, and one on a side spray.
+    const tip = pts[4];
+    tuft(b, r, tip.clone().add(V3(0, 0.6, 0)), centre, lerp(5.6, 3.6, (t - 0.48) / 0.44), 5, CELL.needles, foliage, 0.35 + t * 0.35);
+    tuft(b, r, pts[3].clone().add(V3(0, 0.4, 0)), centre, lerp(4.4, 3, (t - 0.48) / 0.44), 3, CELL.needles, foliage, 0.35 + t * 0.35);
+    const side = V3(-dir.z, 0, dir.x).multiplyScalar(r() < 0.5 ? -1 : 1);
+    const spray = pts[2].clone().addScaledVector(side, len * 0.3).add(V3(0, len * 0.08, 0));
+    b.tube([pts[2], spray], { sides: 4, k: 0, vMetres: 2, radius: f => lerp(0.14, 0.05, f), color: () => barkTint, sway: () => 0.3 + t * 0.2 });
+    tuft(b, r, spray.clone().add(V3(0, 0.5, 0)), centre, lerp(4.2, 2.8, (t - 0.48) / 0.44), 3, CELL.needles, foliage, 0.4 + t * 0.35);
     if (seed % 2 === 1 && t < 0.62 && r() < 0.55) {
       hangVine(b, r, base.clone().addScaledVector(dir, len * (0.4 + r() * 0.4)), 7 + r() * 16, 0x49683a);
     }
   }
+  // Re-grown trunks: two of the big limbs send up a leader of their own.
+  for (const L of limbs.filter(L => L.t < 0.7).slice(0, 2)) {
+    const from = L.pts[2], topAt = from.clone().add(V3(0, 7 + r() * 5, 0));
+    const mid = from.clone().lerp(topAt, 0.5).add(V3((r() - 0.5) * 0.6, 0, (r() - 0.5) * 0.6));
+    b.tube([from, mid, topAt], { sides: 6, k: 0, vMetres: 2, radius: f => lerp(0.34, 0.08, f), color: () => barkTint, sway: f => 0.3 + f * 0.3 });
+    for (const f of [0.45, 0.75]) tuft(b, r, from.clone().lerp(topAt, f), topAt, 3.4, 3, CELL.needles, foliage, 0.6);
+    tuft(b, r, topAt, from, 3.2, 3, CELL.needles, foliage, 0.7, { flat: 0.3 });
+  }
   if (lod) {
-    // The far tree: its crown as a few big cards in tiers.
+    // The far tree: clumps of crown in tiers — broad, not a cone.
     for (let tier = 0; tier < 5; tier++) {
-      const t = lerp(0.5, 0.93, tier / 4);
+      const t = lerp(0.52, 0.92, tier / 4);
       const centre = trunkAt(t);
-      tuft(b, r, centre, trunkAt(t - 0.05), lerp(17, 8, tier / 4), 6, CELL.needles, foliage, 0.3, { flat: 0.2 });
+      tuft(b, r, centre, trunkAt(t - 0.05), lerp(16, 10, tier / 4), 6, CELL.needles, foliage, 0.3, { flat: 0.2 });
     }
   }
-  tuft(b, r, crownTop, trunkAt(0.9), 4, lod ? 2 : 4, CELL.needles, foliage, 0.8);
+  if (deadTop) {
+    // A dead, broken spike above the living crown (fire, lightning).
+    b.tube([trunkAt(0.88), trunkAt(0.95), trunkAt(1.0).add(V3(0.4, 0, 0.2))], { sides: 5, k: 0, vMetres: 2,
+      radius: f => lerp(0.42, 0.06, f), color: () => new THREE.Color(0x8d8174), sway: f => 0.4 + f * 0.1 });
+  }
+  // A rounded top: a low dome of clumps, not a spire.
+  for (let k = 0; k < (lod ? 2 : 3); k++) {
+    const yaw = k * 2.1 + r();
+    tuft(b, r, crownTop.clone().add(V3(Math.cos(yaw) * 2.2, -1 - r(), Math.sin(yaw) * 2.2)), trunkAt(0.85), 4.6, lod ? 2 : 3, CELL.needles, foliage, 0.8, { flat: 0.25 });
+  }
   return b.geometry();
 }
 
-/** Araucaria, the monkey puzzle: a tall straight grey trunk and a flat-topped
- *  umbrella of upcurved branches, roped with scale-leaves. */
-function araucaria(lod, seed) {
+/** A young redwood (under a century): a narrow cone, the leader pointed. Grown in the forest's
+ *  shade, which it cannot bear, it has lost its lowest branches: the crown starts well up the trunk. */
+function youngRedwood(lod, seed) {
+  const r = rng(seed), b = new Builder();
+  b.wind = [1.0, 0.7];
+  const H = 30, R0 = 0.45;
+  const trunkAt = t => V3(Math.sin(t * 5 + seed) * 0.12, H * t, Math.cos(t * 4) * 0.12);
+  const path = [];
+  for (let i = 0; i <= (lod ? 5 : 10); i++) path.push(trunkAt(-0.02 + (i / (lod ? 5 : 10)) * 1.02));
+  const barkTint = new THREE.Color(0x9a5a3c), foliage = new THREE.Color(0x5f8746);
+  // Young and open-grown, it tapers markedly (silvics).
+  b.tube(path, { sides: lod ? 6 : 10, uTiles: 2, vMetres: 2.4, k: 0, radius: t => R0 * (1 - 0.9 * t) * (1 + 0.5 * Math.exp(-t * 25)) + 0.04,
+                 color: t => barkTint.clone().multiplyScalar(0.85 + t * 0.2), sway: t => t * t * 0.6 });
+  const nb = lod ? 0 : 22;
+  for (let i = 0; i < nb; i++) {
+    const t = lerp(0.3, 0.96, i / nb);
+    const base = trunkAt(t), yaw = i * 2.399 + r() * 0.3;
+    const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
+    const len = lerp(5.5, 0.9, (t - 0.3) / 0.66) * (0.85 + r() * 0.3);
+    // Down-swept low, level mid, a little up near the top; the tips turned up.
+    const drop = lerp(-0.35, 0.1, (t - 0.3) / 0.66);
+    const pts = [0, 0.5, 1].map(f => base.clone().addScaledVector(dir, len * f).add(V3(0, len * (drop * f + 0.12 * f * f), 0)));
+    b.tube(pts, { sides: 4, k: 0, vMetres: 2, radius: f => lerp(0.1, 0.03, f), color: () => barkTint, sway: f => 0.2 + f * 0.3 + t * 0.2 });
+    for (const f of [0.45, 0.85]) tuft(b, r, base.clone().lerp(pts[2], f).add(V3(0, 0.3, 0)), trunkAt(t), lerp(3.2, 1.6, (t - 0.3) / 0.66), 2, CELL.needles, foliage, 0.35 + t * 0.4);
+  }
+  if (lod) {
+    for (let tier = 0; tier < 4; tier++) {
+      const t = lerp(0.38, 0.88, tier / 3);
+      tuft(b, r, trunkAt(t), trunkAt(t - 0.1), lerp(9, 4, tier / 3), 5, CELL.needles, foliage, 0.3, { flat: 0.15 });
+    }
+  }
+  tuft(b, r, trunkAt(0.99), trunkAt(0.9), 2, 2, CELL.needles, foliage, 0.8, { flat: 0.9, steep: 1.4 });
+  return b.geometry();
+}
+
+/**
+ * Araucaria, by age (variant): 0 and 1 old, 2 young. Its branches come in
+ * whorls, level ones, tier over tier (Massart's model: HT 1978; A.
+ * heterophylla, A. araucana). The young tree is a tiered cone to the ground,
+ * the branches dead flat. Old, it has shed its lower tiers whole
+ * (cladoptosis), and the crown is an umbrella of long arms on a tall bare
+ * trunk, their tips turned up like a candelabra (A. angustifolia) and the
+ * foliage in dark tufts at their ends (A. bidwillii, A. cunninghamii).
+ */
+function araucaria(lod, seed, v = 0) {
+  if (v === 2) return youngAraucaria(lod, seed);
   const r = rng(seed), b = new Builder();
   const H = 36, R0 = 0.85;
   const path = [];
@@ -1117,21 +1192,14 @@ function araucaria(lod, seed) {
     radius: t => (R0 * (1 - t * 0.82) + 0.08) * (1 + 0.6 * Math.exp(-t * 30)),
     color: t => barkTint.clone().multiplyScalar(0.85 + t * 0.2), sway: t => t * t * 0.45,
   });
-  const foliage = new THREE.Color(0x547a3c);
-  // Tiers of level branches, whorl over whorl with daylight between (A.
-  // heterophylla, A. araucana: branches in horizontal whorls, level, turning
-  // up at the tips); the lower ones long gone from an old tree's bare trunk,
-  // so the crown sits on top as a dome (A. bidwillii). Stiff: the tiers move
-  // as wholes, the scale leaves do not flutter.
-  b.wind = [1.2, 0.2];
-  const whorls = lod ? 0 : 7;
-  const crown = V3(0, H * 0.9, 0);
+  const foliage = new THREE.Color(0x4e7338);
+  b.wind = [1.2, 0.2];            // stiff: the tiers move as wholes, the scale leaves do not flutter
+  const whorls = lod ? 0 : 6;
+  const crown = V3(0, H * 0.92, 0);
   for (let w = 0; w < whorls; w++) {
-    const t = lerp(0.66, 0.98, w / (whorls - 1));
+    const t = lerp(0.7, 0.98, w / (whorls - 1));
     const y = H * t;
-    const spokes = 6 + (w % 2);
-    // The umbrella: the lowest whorls reach furthest, so the crown is a
-    // broad flat-topped dome and not a ball.
+    const spokes = 5 + (w % 3 === 0 ? 1 : 0);
     const len = lerp(11, 3.5, Math.pow(w / (whorls - 1), 0.8)) * (0.9 + r() * 0.2);
     for (let s = 0; s < spokes; s++) {
       const yaw = (s / spokes) * Math.PI * 2 + w * 0.6 + r() * 0.3;
@@ -1139,24 +1207,57 @@ function araucaria(lod, seed) {
       const pts = [];
       for (let k = 0; k <= 4; k++) {
         const f = k / 4;
-        // Out level, then up at the end: the umbrella's rim.
-        pts.push(V3(0, y, 0).addScaledVector(dir, len * f).add(V3(0, -0.4 * f + 1.8 * f ** 3, 0)));
+        // Out level, then up at the end: the candelabra's arms.
+        pts.push(V3(0, y, 0).addScaledVector(dir, len * f).add(V3(0, -0.4 * f + 2.2 * f ** 3, 0)));
       }
       b.tube(pts, { sides: 5, k: 0, vMetres: 2, radius: f => lerp(0.22, 0.05, f), color: () => barkTint,
                     sway: f => 0.2 + f * 0.3 });
-      // Foliage in flat plates along the branch, not a ball round it.
-      for (let k = 1; k <= 4; k++) {
-        const at = pts[k].clone().add(V3(0, 0.35, 0));
-        tuft(b, r, at, crown, lerp(2.6, 3.8, k / 4), k === 4 ? 4 : 2, CELL.scales, foliage, 0.25, { flat: 0.05, steep: 0.45 });
-      }
+      // The foliage: a dense tuft at the upturned end, a thinner one before it.
+      tuft(b, r, pts[4].clone().add(V3(0, 0.5, 0)), crown, 4.2, 4, CELL.scales, foliage, 0.25, { flat: 0.1, steep: 0.7 });
+      tuft(b, r, pts[3].clone().add(V3(0, 0.3, 0)), crown, 3, 2, CELL.scales, foliage, 0.25, { flat: 0.05, steep: 0.45 });
     }
+  }
+  // Stubs where whole lower branches have fallen away, the trunk ringed by their scars.
+  for (let k = 0; k < (lod ? 0 : 4); k++) {
+    const y = H * lerp(0.42, 0.66, r()), yaw = r() * 6.28, dir = V3(Math.cos(yaw), -0.05, Math.sin(yaw));
+    b.tube([V3(0, y, 0), V3(0, y, 0).addScaledVector(dir, 0.9 + r() * 0.8)], { sides: 4, k: 0, vMetres: 1, radius: f => lerp(0.14, 0.08, f),
+      color: () => barkTint.clone().multiplyScalar(0.8), sway: () => 0.1 });
   }
   if (lod) {
     for (let tier = 0; tier < 3; tier++) {
-      const y = H * lerp(0.72, 0.95, tier / 2);
+      const y = H * lerp(0.76, 0.96, tier / 2);
       tuft(b, r, V3(0, y, 0), V3(0, y - 3, 0), lerp(19, 10, tier / 2), 6, CELL.scales, foliage, 0.3, { flat: 0.05 });
     }
   }
+  return b.geometry();
+}
+
+/** A young araucaria: a strict tiered cone, its lowest tiers shed in the shade, branches dead level in whorls of five or six, the foliage in flat plates along them. */
+function youngAraucaria(lod, seed) {
+  const r = rng(seed), b = new Builder();
+  b.wind = [1.4, 0.2];
+  const H = 20, R0 = 0.38;
+  const path = [];
+  for (let i = 0; i <= (lod ? 4 : 8); i++) { const t = -0.02 + i / (lod ? 4 : 8); path.push(V3(0, H * t, 0)); }
+  const barkTint = new THREE.Color(0x857a6e), foliage = new THREE.Color(0x537a3b);
+  b.tube(path, { sides: lod ? 5 : 8, uTiles: 2, vMetres: 2.4, k: 0, radius: t => R0 * (1 - t * 0.9) * (1 + 0.4 * Math.exp(-t * 30)) + 0.03,
+                 color: t => barkTint.clone().multiplyScalar(0.85 + t * 0.2), sway: t => t * t * 0.5 });
+  const whorls = lod ? 0 : 11;
+  for (let w = 0; w < whorls; w++) {
+    const t = lerp(0.25, 0.94, w / (whorls - 1));
+    const y = H * t, spokes = 5 + (w % 2);
+    const len = lerp(5.5, 0.9, (t - 0.25) / 0.69) * (0.9 + r() * 0.2);
+    for (let s = 0; s < spokes; s++) {
+      const yaw = (s / spokes) * Math.PI * 2 + w * 0.7 + r() * 0.2;
+      const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
+      // Level — the branch of a Massart tree never turns up to lead.
+      const pts = [0, 0.5, 1].map(f => V3(0, y, 0).addScaledVector(dir, len * f).add(V3(0, -0.08 * len * f * f, 0)));
+      b.tube(pts, { sides: 4, k: 0, vMetres: 2, radius: f => lerp(0.08, 0.03, f), color: () => barkTint, sway: f => 0.15 + f * 0.3 });
+      for (const f of [0.4, 0.8]) tuft(b, r, V3(0, y + 0.15, 0).addScaledVector(dir, len * f), V3(0, y + 2, 0), lerp(2.2, 1.1, (t - 0.25) / 0.69), 2, CELL.scales, foliage, 0.25, { flat: 0.0, steep: 0.25 });
+    }
+  }
+  if (lod) for (let tier = 0; tier < 4; tier++) { const y = H * lerp(0.32, 0.88, tier / 3); tuft(b, r, V3(0, y, 0), V3(0, y - 2, 0), lerp(9, 3, tier / 3), 5, CELL.scales, foliage, 0.3, { flat: 0.0, steep: 0.2 }); }
+  tuft(b, r, V3(0, H * 0.99, 0), V3(0, H * 0.9, 0), 1.2, 2, CELL.scales, foliage, 0.6, { flat: 1.0, steep: 1.4 });
   return b.geometry();
 }
 
@@ -1182,13 +1283,16 @@ function treefern(lod, seed) {
     const pts = [0, 0.5, 1].map(f => top.clone().addScaledVector(dir, 0.25 + f * 0.5).add(V3(0, -f * 2.2, 0)));
     b.strip(pts, side, 0.9, CELL.treefern, { color: () => col(0x7a5a38, r, 0.12), normals: () => dir, sway: t => 0.1 + t * 0.2 });
   }
-  const fronds = lod ? 8 : 15;
+  // Oldest first: the old fronds low and spread, the new ones nearly upright
+  // and shorter, still unrolling (Cyathea medullaris, Dicksonia antarctica).
+  const fronds = lod ? 8 : 16;
   for (let i = 0; i < fronds; i++) {
     const yaw = i * 2.399 + r() * 0.3;
     const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
     const side = V3(-Math.sin(yaw), 0, Math.cos(yaw));
-    const rise = lerp(0.5, 1.2, r());
-    const L = 3.2 + r() * 0.8;
+    const age = 1 - i / (fronds - 1);
+    const rise = lerp(1.35, 0.3, age) + (r() - 0.5) * 0.2;
+    const L = lerp(2.6, 3.9, age) + r() * 0.4;
     const pts = [], sides = [];
     for (let k = 0; k <= (lod ? 3 : 6); k++) {
       const f = k / (lod ? 3 : 6);
@@ -1204,6 +1308,16 @@ function treefern(lod, seed) {
       sway: t => 0.3 + t * 0.7,
     });
   }
+  // Fiddleheads in the middle: the newest fronds, still coiled.
+  for (let k = 0; k < (lod ? 0 : 3); k++) {
+    const yaw = k * 2.1 + r(), dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
+    const coil = [];
+    for (let q = 0; q <= 8; q++) {
+      const a = q / 8 * Math.PI * 1.6, rad = lerp(0.28, 0.07, q / 8);
+      coil.push(top.clone().add(V3(0, 0.1 + q * 0.06, 0)).addScaledVector(dir, 0.1 + Math.sin(a) * rad).add(V3(0, (1 - Math.cos(a)) * rad * 0.8, 0)));
+    }
+    b.tube(coil, { sides: 4, k: 0, vMetres: 0.4, radius: f => lerp(0.045, 0.03, f), color: () => new THREE.Color(0x7c8a4a), sway: f => 0.2 + f * 0.2 });
+  }
   return b.geometry();
 }
 
@@ -1213,10 +1327,14 @@ function treefern(lod, seed) {
  * a cone in the middle (Cycas revoluta, Flora of China; Encephalartos). Rigid:
  * the leaves bob a little as wholes; nothing flutters.
  */
-function cycad(lod, seed) {
+function cycad(lod, seed, v = 1) {
   const r = rng(seed), b = new Builder();
   b.wind = [3, 0.12];
-  const H = 0.8 + r() * 1.2;
+  // Variant 0 has no trunk to speak of — the stem underground, the leaves
+  // straight from the ground (Macrozamia communis; the Late Cretaceous Ctenis
+  // of Big Cedar Ridge, a small plant with a subterranean stem).
+  const ground = v === 0;
+  const H = ground ? 0.06 + r() * 0.12 : 0.8 + r() * 1.2;
   const path = [];
   const rows = lod ? 4 : 10;
   for (let i = 0; i <= rows; i++) path.push(V3(0, -0.1 + (H + 0.1) * i / rows, 0));
@@ -1226,14 +1344,14 @@ function cycad(lod, seed) {
                  radius: (t, a) => (0.42 - t * 0.1) * (1 + 0.09 * Math.abs(Math.sin(a * 5 + (Math.floor(t * rows) % 2) * 0.63))),
                  color: t => armour.clone().multiplyScalar(0.8 + 0.3 * (Math.floor(t * rows * 2) % 2)), sway: () => 0 });
   const top = V3(0, H, 0);
-  const n = lod ? 10 : 22;
+  const n = lod ? 10 : ground ? 28 : 22;
   for (let i = 0; i < n; i++) {
     const yaw = i * 2.399;
-    const old = i < n * 0.35;                        // the outer, older ring: lower and flatter
+    const old = i < n * (ground ? 0.5 : 0.35);       // the outer, older ring: lower and flatter
     const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
     const side = V3(-Math.sin(yaw), 0, Math.cos(yaw));
     const rise = old ? lerp(0.15, 0.45, r()) : lerp(0.65, 1.15, r());
-    const L = (old ? 1.5 : 1.2) + r() * 0.5;
+    const L = (old ? 1.5 : 1.2) * (ground ? 1.25 : 1) + r() * 0.5;
     const pts = [];
     for (let k = 0; k <= 3; k++) {
       const f = k / 3, a = rise - f * 0.3;           // stiff: hardly any droop
@@ -1556,21 +1674,24 @@ function branches(lod, seed) {
 function palm(lod, seed) {
   const r = rng(seed), b = new Builder();
   b.wind = [1.6, 1.5];            // one pole, one smooth sway, the fan segments fluttering
-  const H = 6 + r() * 4;
-  const lean = V3((r() - 0.5) * 1.6, 0, (r() - 0.5) * 1.6);
+  // Sabalites (Maastrichtian; Marmi et al.): a slender straight trunk to ~14 m,
+  // a few decimetres thick and tapering up, smooth; a globe of fans much
+  // smaller than a modern palmetto's, and the dead ones hanging on below.
+  const H = 5 + r() * 4;
+  const lean = V3((r() - 0.5) * 0.7, 0, (r() - 0.5) * 0.7);
   const at = t => V3(0, H * t, 0).addScaledVector(lean, t * t);
   const path = [];
   for (let i = 0; i <= (lod ? 4 : 9); i++) path.push(at(-0.02 + (i / (lod ? 4 : 9)) * 1.02));
   // Leaf scars ring the trunk: banded in the vertex colour.
   b.tube(path, { sides: lod ? 5 : 8, k: 0, uTiles: 2, vMetres: 1.2,
-                 radius: t => 0.24 - t * 0.07 + (t < 0.05 ? 0.1 * (1 - t / 0.05) : 0),
+                 radius: t => 0.2 - t * 0.07 + (t < 0.05 ? 0.12 * (1 - t / 0.05) : 0),
                  color: t => new THREE.Color(0x8c775c).multiplyScalar(0.85 + 0.2 * Math.abs(Math.sin(t * 40))),
                  sway: t => t * t * 0.4 });
   const top = at(1);
-  const leaves = lod ? 9 : 16;
+  const leaves = lod ? 10 : 22;
   const frond = (yaw, rise, tint, dead) => {
     const dir = V3(Math.cos(yaw) * Math.cos(rise), Math.sin(rise), Math.sin(yaw) * Math.cos(rise));
-    const stalkLen = 1.3 + r() * 0.5;
+    const stalkLen = 0.6 + r() * 0.35;
     const end = top.clone().addScaledVector(dir, stalkLen);
     b.tube([top, top.clone().addScaledVector(dir, stalkLen * 0.5), end], {
       sides: 3, k: 0, radius: f => lerp(0.05, 0.025, f), color: () => new THREE.Color(dead ? 0x7d6a4a : 0x7a7a42),
@@ -1579,13 +1700,14 @@ function palm(lod, seed) {
     // The fan: its base at the stalk's end, spreading on along it and across.
     const side = V3(-Math.sin(yaw), 0, Math.cos(yaw));
     const on = dir.clone().setY(dir.y * 0.4 - 0.25).normalize();
-    b.strip([end, end.clone().addScaledVector(on, 1.4), end.clone().addScaledVector(on, 2.6).add(V3(0, -0.3, 0))], side, 2.8,
+    // (The costa arches the blade down along its length.)
+    b.strip([end, end.clone().addScaledVector(on, 0.6), end.clone().addScaledVector(on, 1.15).add(V3(0, -0.28, 0))], side, 1.4,
       CELL.palmfan, { color: () => col(tint, r, 0.1), normals: () => UP.clone().addScaledVector(dir, 0.4).normalize(),
                       sway: t => 0.5 + t * 0.5 });
   };
   for (let i = 0; i < leaves; i++) frond(i * 2.399 + r() * 0.3, lerp(-0.1, 0.9, r()), 0x6f9048, false);
   // The dead skirt.
-  for (let i = 0; i < (lod ? 0 : 4); i++) frond(i * 1.57 + r(), -0.9 - r() * 0.4, 0x8a6f45, true);
+  for (let i = 0; i < (lod ? 0 : 8); i++) frond(i * 0.785 + r() * 0.4, -1.0 - r() * 0.4, 0x8a6f45, true);
   return b.geometry();
 }
 
@@ -1633,6 +1755,46 @@ function magnolia(lod, seed) {
       b.card(p, right, up, size, size, CELL.flower, { color: new THREE.Color(0xfff7ea), normal: face, sway: 0.5 });
     }
   }
+  return b.geometry();
+}
+
+/**
+ * Dawn redwood (Metasequoia; known from the Cenomanian on, the living tree
+ * "identical to its Late Cretaceous ancestors" — conifers.org): a narrow
+ * cone of long ascending branches over a broad, fluted, buttressed base, the
+ * foliage soft and feathery — opposite, comb-like needles on side shoots
+ * that hang — and lighter green than a redwood's. A tree of stream banks and
+ * levees, in stands.
+ */
+function metasequoia(lod, seed) {
+  const r = rng(seed), b = new Builder();
+  b.wind = [1.1, 0.9];
+  const H = 32, R0 = 0.62;
+  const trunkAt = t => V3(Math.sin(t * 4 + seed) * 0.15, H * t, Math.cos(t * 3 + seed) * 0.15);
+  const path = [];
+  const rings = lod ? 6 : 14;
+  for (let i = 0; i <= rings; i++) path.push(trunkAt(-0.02 + Math.pow(i / rings, 1.5) * 1.0));
+  const barkTint = new THREE.Color(0x8e5a3e), foliage = new THREE.Color(0x76a04d);
+  const flutes = 7 + Math.floor(r() * 3), phase = r() * 6;
+  b.tube(path, { sides: lod ? 7 : 14, uTiles: lod ? 2 : 3, vMetres: 2.6, k: 0,
+    radius: (t, a) => (R0 * (1 - 0.85 * t) + 0.05) * (1 + 0.9 * Math.exp(-t * 14)) *
+                      (1 + 0.28 * Math.exp(-t * 9) * Math.pow(Math.abs(Math.sin(a * flutes * 0.5 + phase)), 2)),
+    color: t => barkTint.clone().multiplyScalar(0.82 + t * 0.22), sway: t => t * t * 0.55 });
+  const nb = lod ? 0 : 24;
+  for (let i = 0; i < nb; i++) {
+    const t = lerp(0.24, 0.95, i / nb);
+    const base = trunkAt(t), yaw = i * 2.399 + r() * 0.3;
+    const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
+    const len = lerp(6.5, 1.2, (t - 0.24) / 0.71) * (0.85 + r() * 0.3);
+    // Ascending: 20–35° above level, more so near the top.
+    const up = lerp(0.35, 0.7, (t - 0.24) / 0.71);
+    const pts = [0, 0.5, 1].map(f => base.clone().addScaledVector(dir, len * f).add(V3(0, len * f * up - len * 0.12 * f * f, 0)));
+    b.tube(pts, { sides: 4, k: 0, vMetres: 2, radius: f => lerp(0.11, 0.03, f), color: () => barkTint, sway: f => 0.2 + f * 0.3 + t * 0.2 });
+    // The side shoots hang from it: foliage cards tipped down, feathery.
+    for (const f of [0.35, 0.65, 0.95]) tuft(b, r, base.clone().lerp(pts[2], f).add(V3(0, -0.2, 0)), trunkAt(t), lerp(2.8, 1.5, (t - 0.24) / 0.71), 2, CELL.needles, foliage, 0.45 + t * 0.4, { flat: 0.9, steep: 1.35 });
+  }
+  if (lod) for (let tier = 0; tier < 4; tier++) { const t = lerp(0.32, 0.88, tier / 3); tuft(b, r, trunkAt(t), trunkAt(t - 0.1), lerp(11, 4, tier / 3), 5, CELL.needles, foliage, 0.3, { flat: 0.5 }); }
+  tuft(b, r, trunkAt(0.99), trunkAt(0.9), 1.8, 2, CELL.needles, foliage, 0.8, { flat: 1.0, steep: 1.4 });
   return b.geometry();
 }
 
@@ -1810,27 +1972,41 @@ const smooth01 = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b -
 const band = (x, a, b, c, d) => (x <= a || x >= d) ? 0 : x < b ? (x - a) / (b - a) : x > c ? (d - x) / (d - c) : 1;
 
 export const SPECIES = [
-  { name: 'redwood', group: 'Canopy trees', habitat: 'moist forest, tallest and thickest on the raised flats along the rivers that the floods have built; thinning up the mountains, never on steep ground or in the water', label: 'Giant redwood', layer: 'canopy', make: redwood, variants: 3, material: 'tree',
+  { name: 'redwood', group: 'Canopy trees', habitat: 'moist forest, tallest and thickest on the raised flats along the rivers that the floods have built; thinning up the mountains, never on steep ground or in the water; old giants and young cones among them, about half and half', label: 'Giant redwood', layer: 'canopy', make: redwood, variants: 4, material: 'tree',
+    // (Variants 0–1 old growth, 2–3 young: a stand is old and young together.)
+    farVariant: v => v >= 2 ? 2 : 0, trunkOf: v => v >= 2 ? 0.8 : 2.6,
+    chopOf: v => v >= 2 ? 3 : 6, yieldOf: v => v >= 2 ? { wood: 4 } : { wood: 8 },
     rings: 3, farFrom: 2, scale: [0.72, 1.25], trunk: 2.6, reach: 5.5, regrow: 300, yield: { wood: 8 }, chop: 6, falls: true,
     // Deep, moist, well-drained alluvium: the river flats, a bank's height
     // above the water (the modern coast redwood's best ground is just that).
     where: s => (s.forest * s.wet * 1.1 + band(s.edge, 10, 25, 220, 380) * s.wet * smooth01(0.22, 0.06, s.slope) * 0.6) *
                 band(s.h, 5, 12, 110, TREE_H) * (s.slope < 0.42 ? 1 : 0) * (s.edge > 10 ? 1 : 0.15) },
-  { name: 'araucaria', group: 'Canopy trees', habitat: 'well-drained ground: the drier forest, rocky slopes and ridges, the rims of the escarpments and the cliff-top headlands; not by the water', label: 'Araucaria', layer: 'canopy', make: araucaria, variants: 2, material: 'tree', bark: 'scaly',
+  { name: 'araucaria', group: 'Canopy trees', habitat: 'well-drained ground: the drier forest, rocky slopes and ridges, the rims of the escarpments and the cliff-top headlands; open woodland on the dry hills; stunted and close-set in the cloud forest of the tops; not by the water', label: 'Araucaria', layer: 'canopy', make: araucaria, variants: 3, material: 'tree', bark: 'scaly',
+    // (Variants 0–1 old, the umbrella; 2 young, the tiered cone.)
+    farVariant: v => v === 2 ? 2 : 0, trunkOf: v => v === 2 ? 0.5 : 1.4,
+    chopOf: v => v === 2 ? 2 : 4, yieldOf: v => v === 2 ? { wood: 3 } : { wood: 5 },
+    // Cloud forest is short: its trees a fraction of the height below (Luquillo: 20–30 m, then 3–5 m on the tops).
+    size: s => 1 - 0.68 * smooth01(175, 270, s.h),
     rings: 3, farFrom: 2, scale: [0.75, 1.3], trunk: 1.4, reach: 3.6, regrow: 220, yield: { wood: 5 }, chop: 4, falls: true,
     // Drier ground than the redwoods; rocky slopes, ridges and escarpment
-    // rims; and the headlands over the sea, as the Norfolk and Cook pines.
+    // rims; the headlands over the sea, as the Norfolk and Cook pines; open
+    // araucarian woodland where it is too dry for closed forest (50–150
+    // trees/ha); and many more, small, up in the cloud forest.
     where: s => (s.forest * (1.05 - s.wet) * 0.8 + band(s.slope, 0.12, 0.25, 0.48, 0.58) * (1.1 - s.wet) * 0.35 +
-                 s.mountain * 0.3 + s.mesa * 0.25 + s.cliff * band(s.shore, 8, 18, 90, 160) * 0.45 + s.plain * 0.03) *
+                 s.mountain * 0.3 + s.mesa * 0.25 + s.cliff * band(s.shore, 8, 18, 90, 160) * 0.45 + s.plain * 0.03 +
+                 (1 - s.forest) * (1 - s.plain * 0.8) * smooth01(0.5, 0.3, s.wet) * smooth01(30, 60, s.shore) * 0.28 +
+                 smooth01(180, 230, s.h) * 0.85) *
                 band(s.h, 4, 12, 400, 450) * (s.slope < 0.58 ? 1 : 0) * (s.edge > 30 ? 1 : 0.3) },
   { name: 'treefern', group: 'Understorey', habitat: 'under the canopy where it is wet, the creeks and shaded gullies, and up into the mist of the high slopes', label: 'Tree fern', layer: 'under', make: treefern, variants: 3, material: 'tree', bark: 'fibre',
     rings: 2, farFrom: 2, scale: [0.7, 1.4], trunk: 0.35, reach: 2.8, regrow: 120, yield: { leaf: 4 },
-    // (Up into the cloud forest of the tops, where the mist keeps them wet.)
-    where: s => (s.forest * s.wet * 0.55 + band(s.edge, 1.5, 4, 25, 55) * s.forest * 0.45 + smooth01(150, 200, s.h) * s.forest * 0.6) *
+    // (Up into the cloud forest of the tops, where the mist keeps them wet.
+    // Thick in wet forest: a whole mid-layer, ~900/ha in Hawaii and Luquillo.)
+    where: s => (s.forest * s.wet * 1.1 + band(s.edge, 1.5, 4, 25, 55) * s.forest * 0.45 + smooth01(150, 200, s.h) * s.forest * 0.6) *
                 band(s.h, 3, 8, 380, 440) * (s.slope < 0.55 ? 1 : 0) },
-  { name: 'cycad', group: 'Understorey', habitat: 'dry, open, rocky or sandy ground: the dunes at the back of the beach, stony slopes and the escarpments, open plains', label: 'Cycad', layer: 'under', make: cycad, variants: 3, material: 'tree', bark: 'armour',
+  { name: 'cycad', group: 'Understorey', habitat: 'dry, open, rocky or sandy ground: the dunes at the back of the beach, stony slopes and the escarpments, open plains; many with no trunk at all, a rosette on the ground', label: 'Cycad', layer: 'under', make: cycad, variants: 3, material: 'tree', bark: 'armour',
+    farVariant: v => v, trunkOf: v => v === 0 ? 0 : 0.45,
     rings: 2, farFrom: 2, scale: [0.8, 1.6], trunk: 0.45, reach: 2.6, regrow: 90, yield: { leaf: 3 },
-    where: s => (s.forest * (1 - s.wet) * 0.25 + s.plain * (1 - s.wet) * 0.07 + band(s.shore, 12, 30, 90, 160) * 0.2 +
+    where: s => (s.forest * (1 - s.wet) * 0.25 + s.plain * (1 - s.wet) * 0.07 + (1 - s.forest) * smooth01(0.5, 0.3, s.wet) * 0.12 + band(s.shore, 12, 30, 90, 160) * 0.2 +
                  band(s.slope, 0.15, 0.28, 0.45, 0.55) * (1 - s.wet) * 0.15 + s.mesa * 0.1) *
                 band(s.h, 2.5, 5, 120, 150) * (s.slope < 0.55 ? 1 : 0) * (s.edge > 12 ? 1 : 0.2) },
   { name: 'bush', group: 'Understorey', habitat: 'everywhere below the treeline: thickest at the forest edge and behind the beach', label: 'Shrub', layer: 'under', make: bush, variants: 3, material: 'tree', bark: 'smooth',
@@ -1849,7 +2025,9 @@ export const SPECIES = [
     rings: 1, scale: [0.8, 1.4],
     where: s => band(s.edge, 0.5, 2, 12, 24) * 0.7 * (1 - s.forest * 0.5) * band(s.h, 2, 4, 120, 150) * (s.slope < 0.3 ? 1 : 0.3) },
   { name: 'fern', group: 'Ground cover', habitat: 'the forest floor, thickest where it is wettest, and the river banks', label: 'Fern', layer: 'ground', make: fern, variants: 3, material: 'tree', bark: 'smooth',
-    rings: 1, scale: [0.7, 1.5],
+    // (Big enough to cover a third to a half of the floor under the canopy, as
+    // sword fern and the like do: 30–80%.)
+    rings: 1, scale: [0.9, 1.8],
     where: s => (s.forest * (0.55 + s.wet * 0.6) + band(s.edge, 1, 3, 20, 40) * 0.4) * band(s.h, 3, 6, 400, 450) * (s.slope < 0.65 ? 1 : 0) },
   // Four that were grass, tall grass, reeds and bamboo, and are now what grew
   // in their places before any of those had evolved — grasslands are ~26 Ma,
@@ -1905,6 +2083,10 @@ export const SPECIES = [
     rings: 2, farFrom: 2, scale: [0.8, 1.25], trunk: 0.45, reach: 3.2, regrow: 180, yield: { bamboo: 4 }, chop: 2, falls: true,
     where: s => (band(s.edge, 1.5, 4, 16, 34) * 0.4 + band(s.shore, 8, 16, 50, 90) * s.wet * 0.12) *
                 band(s.h, 1.5, 3, 45, 70) * (s.slope < 0.4 ? 1 : 0) },
+  // After the bamboo, so adding it moved nothing else that grows.
+  { name: 'metasequoia', group: 'Canopy trees', habitat: 'the river banks, levees and lake shores, in stands: wet, fresh-built ground, open to the light — the dawn redwood, a Late Cretaceous tree unchanged today', label: 'Dawn redwood', layer: 'canopy', make: metasequoia, variants: 3, material: 'tree',
+    rings: 3, farFrom: 2, scale: [0.7, 1.25], trunk: 1.1, reach: 4, regrow: 260, yield: { wood: 6 }, chop: 5, falls: true,
+    where: s => band(s.edge, 1.5, 4, 60, 110) * s.wet * 0.8 * band(s.h, 2, 5, 120, 160) * (s.slope < 0.25 ? 1 : 0) },
 ];
 const TREE_H = 190;   // where the cloud forest of the tops begins (TREELINE in src/terrain.js)
 
@@ -1914,7 +2096,7 @@ export function speciesGeometry(sp, v = 0, lod = 0) {
   const key = `${sp.name}:${v}:${lod}`;
   let g = cache.get(key);
   if (!g) {
-    g = sp.make(lod, 1 + v * 7 + SPECIES.indexOf(sp) * 101);
+    g = sp.make(lod, 1 + v * 7 + SPECIES.indexOf(sp) * 101, v);
     cache.set(key, g);
   }
   return g;

@@ -599,7 +599,7 @@ export async function loadRegistry() {
               ...(sp.trunk || sp.solid ? [['Blocks you', 'yes']] : [])],
       async build(variant) {
         const far = variant === 'far';
-        const mesh = speciesMesh(sp, far ? 0 : Number(variant || 0), far ? 1 : 0);
+        const mesh = speciesMesh(sp, far ? (sp.farVariant ? sp.farVariant(0) : 0) : Number(variant || 0), far ? 1 : 0);
         return { object: shadows(mesh), update: (dt, time) => setFloraTime(time) };
       },
     });

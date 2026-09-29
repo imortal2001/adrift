@@ -298,12 +298,22 @@ nothing lines up in rows:
   rises straight out of the sea as cliffs, 25–50 m high, with sea stacks
   standing off them and cobble and shingle, not sand, at their feet (sand is
   for the bays). Cliffs are kept 300 m and more from the raft, so the first
-  landing is always sand.
+  landing is always sand. The beach is gentle, a foreshore of 3–5° (tanβ
+  ~0.06, medium sand) rising to the back of the beach, and the cliff's height
+  varies along the coast over a few hundred metres.
 - **Hills and plains** — rolling fbm hills behind the beach, flattened in
-  places into wide plains of fern thicket.
-- **Escarpments** — patches of harder rock stepped into flat benches and
-  cliff risers (terracing), in sandstone.
+  places into wide plains of fern thicket, the hills dying away onto them
+  over a long edge. The surf zone's swell stays at the surf zone; inland
+  only a gentle version of it and fine detail by landform — rough on the
+  rock, smooth on soil, barely any on the plains — so the plains are flat and
+  the ground is not a field of pits (measured: pits per km² down from
+  ~350–800 to ~25–270; plains' median slope 7°).
+- **Escarpments** — patches of harder rock stepped into benches, each a
+  near-level bench, then a talus slope at ~33° up to a cap cliff of hard
+  sandstone at ~70°: the profile of a scarp in horizontal beds.
 - **The range** — ridged multifractal noise deep inland, peaks near 400 m,
+  broad enough that its slopes average ~34°, the ~35° at which a warm, wet
+  range's slopes are held by landsliding (DiBiase et al. 2012),
   forested to the tops: above ~190 m the lowland forest gives way to a
   stunted, dripping cloud forest of araucarias, tree ferns and moss, with bare
   rock and scree only where it is too steep to hold soil. No snow and no bare
@@ -443,7 +453,7 @@ animals are:
 
 | | |
 |---|---|
-| Canopy | **giant redwoods** (~55 m, buttressed, crowns in the top half, some hung with vines) and **araucarias** (monkey puzzles: a tall grey trunk under a flat umbrella crown) |
+| Canopy | **giant redwoods**, old and young together: the old ~55 m, a flared buttressed base then an almost untapered column clear for half its height, a few massive limbs sweeping down and turning up at their ends with the foliage clumped out there, a trunk or two re-grown up through the crown, and a rounded or dead broken top; the young a narrow cone ~30 m. **Araucarias**: old, an umbrella of candelabra arms on a tall bare trunk ringed with the stubs of shed branches, the foliage in tufts at the arm ends; young, a strict tiered cone of dead-level whorls. **Dawn redwoods** (Metasequoia, Cenomanian onward) on the river banks and levees: a narrow cone of ascending branches over a fluted, buttressed base, the foliage soft, feathery and paler |
 | Understorey | **tree ferns** (their bases flared with roots, a skirt of dead fronds), **cycads** (stiff upturned leaves round a cone, the trunk armoured in old leaf bases), **shrubs**, clumps of **horsetail** and taller stands of **giant horsetail** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
 | Ground | **ferns** thick on the forest floor; **low ferns and spike-moss** in the open, **fern thickets** waist-high on the plains, **cattails** at the water |
 | Deadfall | **fallen logs** (mossy, snapped at one end, ferns growing out of them), **stumps** with their roots, **fallen branches** |
@@ -489,6 +499,17 @@ So the forest is dense where it is wet and sheltered, thins onto the beach,
 stunts into cloud forest on the tops, gives way to fern on the plains and to
 rock on the cliffs.
 
+**How many.** The scatter is set against measured stands. Old-growth coast
+redwood on alluvial flats carries 45–74 canopy trees per hectare of 118–183
+stems (Dagley & Berrill); closed forest here has ~50 giants and ~40 younger
+trees per hectare, the canopy's layers from both. Tree ferns are a whole
+mid-layer in wet forest (~900/ha in Hawaii and Luquillo): ~250/ha here, and
+the ground ferns big enough to cover a third to a half of the floor.
+Cloud forest is shorter and closer-set than the forest below it (Luquillo:
+20–30 m, then 3–5 m on the tops): the araucarias up there a third of their
+size. Dry country is open araucarian woodland with cycads, not bare.
+A young tree grown in the shade has shed its lowest branches.
+
 **Where each grows** is from where its fossils lie, and where its nearest
 living kin grows now. A Late Cretaceous coastal-plain flora caught in
 volcanic ash where it stood (Big Cedar Ridge, Wing et al. 2012) shows the
@@ -499,7 +520,8 @@ peaty ground, fern thickets on poor, organic soil.
 | Plant | Where it grows here, and why |
 |---|---|
 | Giant redwood | thickest on the raised flats along the rivers — deep, moist, well-drained alluvium a bank's height above the water, the modern coast redwood's best ground — and through the moist forest; thinning up the mountains; never in the water |
-| Araucaria | well-drained ground: the drier forest, rocky slopes and ridges, the escarpment rims, and the cliff-top headlands (as the Norfolk and Cook pines); away from the water; up to the tops |
+| Araucaria | well-drained ground: the drier forest, rocky slopes and ridges, the escarpment rims, and the cliff-top headlands (as the Norfolk and Cook pines); open woodland where it is too dry for closed forest (~40–50/ha); away from the water; up to the tops, stunted there |
+| Dawn redwood | the river banks, levees and lake shores, in stands — wet, fresh-built ground (Metasequoia's modern habitat, and the Cantwell floodplains) |
 | Tree fern | under the wet canopy, the creeks and shaded gullies, and the cloud forest of the high slopes (Mesozoic Dicksoniaceae and Cyatheaceae: riverbanks, swamps, understorey) |
 | Cycad | dry, open, rocky or sandy ground: the dunes behind the beach, stony slopes, the escarpments, the open plains |
 | Fan palm | the coastal lowlands only: behind the beaches, the lake shores, the wet flats back from the rivers — settled ground, not fresh sand |
@@ -1361,16 +1383,27 @@ for predators and bolt. A kill removes an animal and the population tops itself
 back up a minute or so later, so the island does not empty out.
 
 A raptor takes on nothing its own size or more — not a sauropod, and not a
-stegosaur's spiked tail — and a tyrannosaur goes for a grown sauropod only if
-it is right there, taking what it can bring down; size is checked before a
-chase starts. Now and then a hunter heads for where the herds are, stopping
-short of them, so hunter and hunted do meet; the hunt itself starts only when
-it sees one. A stegosaur struck at swings its tail at a hunter coming for it,
-and one struck backs off and leaves stegosaurs be for a minute and a half.
-Wounds mend over five minutes or so. Nothing follows you into the sea, which
+stegosaur's spiked tail — though a mob of them will run down a parasaur; a
+tyrannosaur goes for a grown sauropod only if it is right there, taking what
+it can bring down; size is checked before a chase starts. A grown sauropod or
+stegosaur pays no mind to raptors going by. Nor does anything hunt across a
+river: what is on the far bank of deep water is out of reach, you included.
+Now and then a hunter heads for where the herds are, stopping short of them,
+so hunter and hunted do meet; the hunt itself starts only when it sees one,
+and once after one it keeps after that one unless another is a good deal
+nearer. A stegosaur swings its tail at a hunter coming for it or for one of
+its group (not at one going by after something else), and one struck backs
+off and leaves stegosaurs be for a minute and a half. Wounds mend over five
+minutes or so. Prey runs flat out for a dozen seconds and then tires, so a
+long chase goes to the hunter; a hunter that gets no nearer gives up, takes a
+breather, and after three chases come to nothing lies up for a minute or two.
+Something fleeing a hunter will wade out into a river or lake to a third of
+its own height — a sauropod out of a tyrannosaur's reach — and comes back to
+the shallows when the danger is past. Nothing follows you into the sea, which
 makes the water a genuine escape.
 A kill falls where it was made and lies there for half a minute, the hunter
-feeding at it, before the carcass is gone.
+feeding at it, before the carcass is gone; fed, it lies up a few minutes
+before it hunts again.
 
 ### Where they live
 
@@ -1418,11 +1451,21 @@ The rest is in `wildlife.js`:
 - **Speed is eased**, by how heavy the animal is: a sauropod takes seconds to
   get going, a raptor a stride. Each animal has a pace of its own, so a herd
   does not march in step, and a hunter closes the last few metres at a walk
-  instead of backing off.
+  (a walk beside its prey: on a runner's heels it still gains) instead of
+  backing off.
 - **It looks ahead** a few times a second along the way it means to go and a
   few ways either side, and takes the best: clear of trunks and rocks, off
-  ground too steep to stand on, out of the sea. Anything the look-ahead misses,
-  it is pushed out of, as you are.
+  ground too steep to stand on, out of the sea; with everything ahead shut, it
+  turns right round. A big animal shoulders through ferns, cycads and palms,
+  and a sauropod through saplings too — only a real trunk turns it. Anything
+  the look-ahead misses, it is pushed out of, as you are.
+- **It never works its way onto a cliff.** A step onto ground too steep or too
+  deep for it is refused; one that finds itself there anyway (a bank, the
+  water it fled into) makes for the nearest easier going and may only step to
+  ground no worse than where it stands, so it cannot creep up a cliff or out
+  into a lake a hair at a time. Boxed in a while — a steep-sided channel — it
+  scrambles out up the bank; with its way refused, it turns about where it
+  stands.
 - **It stands on the ground as a body does**: pitched to the slope between its
   fore and hind feet, rolled a little across it, at their average height.
 - **It stops**: grazers to feed, everything now and then to stand and look.

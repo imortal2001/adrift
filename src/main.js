@@ -44,8 +44,9 @@ const SPIT_Y = 0.77;                 // the spit's cross-stick, above the campfi
 
 // What the admin "give" buttons hand over. Enough to build without grinding,
 // not so much that the numbers stop being readable.
-const ADMIN_MATERIALS = { wood: 50, plank: 50, rope: 50, leaf: 50, scrap: 50, bamboo: 50, coconut: 10 };
-const ADMIN_EQUIPMENT = ['hammer', 'hook', 'spear', 'rod'];
+const ADMIN_MATERIALS = { wood: 50, plank: 50, rope: 50, leaf: 50, scrap: 50, bamboo: 50, coconut: 10, flint: 10 };
+// (Every tool there is — the axe, the paddle, the fire kit too — so testing does not mean crafting.)
+const ADMIN_EQUIPMENT = ['hammer', 'hook', 'spear', 'rod', 'axe', 'paddle', 'bowdrill', 'torch', 'striker'];
 
 /**
  * Admin tools exist only when the page is served from a development machine:
@@ -1123,7 +1124,7 @@ class Game {
     const c = this.chops.get(plant.key) || { n: 0 };
     c.n++; c.at = this.time;
     this.chops.set(plant.key, c);
-    const last = c.n >= plant.sp.chop;
+    const last = c.n >= (plant.chop ?? plant.sp.chop);
     this.terrain.burst(bite, away, bamboo ? 'bamboo' : 'wood', last ? 26 : 12);
     sound.chop(bite, { bamboo, last });
     if (!last) { this.terrain.shake(plant, away); return; }
@@ -2096,7 +2097,7 @@ class Game {
         const name = plant.sp.label.toLowerCase();
         if (this.hotbar.held === 'axe' && this.inv.has('axe')) {
           const done = this.chops.get(plant.key)?.n ?? 0;
-          return { prompt: `<b>Click</b> or <b>E</b>: chop the ${name}${done ? ` — ${done} of ${plant.sp.chop}` : ''}`,
+          return { prompt: `<b>Click</b> or <b>E</b>: chop the ${name}${done ? ` — ${done} of ${plant.chop ?? plant.sp.chop}` : ''}`,
                    act: () => this.chop(plant, dir) };
         }
         return { prompt: this.inv.has('axe') ? `Take out the axe to chop the ${name}`

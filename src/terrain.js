@@ -265,8 +265,12 @@ export function landAt(x, z, out = _land) {
 
     // The coast: a beach and a low plain behind it, or a cliff straight up.
     const cliff = out.cliff = seaCliff(x, z);
-    const beach = smooth(0, 34, m) * 8;
-    const cliffTop = smooth(0, 7, m) * (24 + fbm(wx * 0.01, wz * 0.01, 2) * 26) + smooth(7, 60, m) * 6;
+    // A sand beach is gentle: a foreshore of 3–5° (tanβ ~0.06 for medium
+    // sand), then the back of the beach rising to the dunes and the land.
+    const beach = smooth(0, 60, m) * 3 + smooth(40, 120, m) * 5;
+    // (The cliff's height varies along the coast, over a few hundred metres —
+    // not in 100 m lumps, which on the land behind it were a field of 40° bumps.)
+    const cliffTop = smooth(0, 7, m) * (24 + fbm(wx * 0.0035, wz * 0.0035, 2) * 26) + smooth(7, 60, m) * 6;
     h = beach + (cliffTop - beach) * cliff;
 
     // Upland: the ground climbs gently the further in you go.
@@ -274,16 +278,22 @@ export function landAt(x, z, out = _land) {
 
     const mountain = out.mountain = smooth(280, 600, m) *
       smooth(0.3, 0.5, fbm(wx * 0.0011 + 3.7, wz * 0.0011 + 8.1, 2) + smooth(380, 760, m) * 0.5);
-    const plain = out.plain = smooth(0.5, 0.64, fbm(wx * 0.0017 + 33.1, wz * 0.0017 - 12.4, 3)) *
+    // (Its edge a long, gentle transition: the hills die away onto the plain
+    // rather than dropping onto it down a scarp.)
+    const plain = out.plain = smooth(0.44, 0.7, fbm(wx * 0.0017 + 33.1, wz * 0.0017 - 12.4, 3)) *
       smooth(70, 170, m) * (1 - mountain);
 
     // Rolling hills, flattened out on the plains to a gentle swell.
+    // A plain is flat — under a couple of degrees — with no more than a
+    // metre or so of swell across it.
     const hills = (fbm(wx * 0.0046, wz * 0.0046, 4) - 0.36) * 74 * smooth(12, 170, m);
-    h += hills * (1 - plain * 0.88) + plain * (fbm(wx * 0.011, wz * 0.011, 2) - 0.5) * 5;
+    h += hills * (1 - plain * 0.985) + plain * (fbm(wx * 0.011, wz * 0.011, 2) - 0.5) * 1.0;
 
     // The range: ridges and peaks, with foothills running down from them.
     if (mountain > 0.001) {
-      const r = ridged(wx * 0.0024, wz * 0.0024);
+      // (Broad enough that its slopes come out at the ~35° a warm, wet range
+      // wears to — landslides cap it there — not 40° and more.)
+      const r = ridged(wx * 0.0019, wz * 0.0019);
       h += mountain * (Math.pow(r, 1.35) * MOUNTAIN_HEIGHT + fbm(wx * 0.009, wz * 0.009, 3) * 30);
     }
 
@@ -293,9 +303,13 @@ export function landAt(x, z, out = _land) {
       smooth(90, 200, m) * (1 - mountain * 0.8) * (1 - plain);
     // Only above the first bench: stepping the low ground as well would
     // flatten it to the waterline and leave ponds behind the beach.
+    // Each step is a bench, nearly level, then a talus slope at ~33° up to
+    // a cap cliff of hard sandstone at ~70°: the profile of a scarp in
+    // horizontal beds, not a ramp with a sharp top edge.
     if (mesa > 0.001 && h > TERRACE) {
       const f = h / TERRACE, k = Math.floor(f), r = f - k;
-      const stepped = (k + Math.pow(r, 5)) * TERRACE;
+      const step = r < 0.8 ? r * 0.025 : r < 0.955 ? 0.02 + 0.44 * Math.pow((r - 0.8) / 0.155, 1.4) : 0.46 + 0.54 * (r - 0.955) / 0.045;
+      const stepped = (k + step) * TERRACE;
       h += (stepped - h) * mesa * smooth(TERRACE, TERRACE * 1.6, h);
     }
 
@@ -312,12 +326,16 @@ export function landAt(x, z, out = _land) {
   }
 
   // Surf-zone detail straddles the waterline, so beach and shallows are one
-  // continuous surface rather than two that meet at a seam.
-  // (Not on a river's valley floor: that is as the river laid it, and the
-  // swell of the country would lift its bed out of the water in places.)
-  h += smooth(-10, 18, m) * (1 - out.cliff) * (fbm(x * 0.027, z * 0.027, 3) - 0.5) * 8 * (1 - out.bank * 0.92);  // undulation
-  // (Less of it in a river's bed, or the bed's bumps come up through the water.)
-  h += smooth(-6, 12, m) * (fbm(x * 0.11, z * 0.11, 2) - 0.5) * 1.6 * (0.2 + 0.8 * smooth(0, 4, out.edge));  // surface detail
+  // continuous surface rather than two that meet at a seam. Only there:
+  // inland, a swell that size is a field of pits and makes the plains steep.
+  // (Not on a river's valley floor either: that is as the river laid it.)
+  const surf = smooth(-10, 18, m) * (1 - smooth(30, 90, m));
+  const soft = smooth(30, 90, m) * (0.3 - out.plain * 0.22);            // the gentle swell of the country inland
+  h += (surf + soft) * (1 - out.cliff) * (fbm(x * 0.027, z * 0.027, 3) - 0.5) * 8 * (1 - out.bank * 0.92);  // undulation
+  // Fine detail, by landform: rough on the rock, smooth on soil, barely any on
+  // the plains. (Less in a river's bed, or its bumps come up through the water.)
+  const fine = smooth(-6, 12, m) * (0.45 + out.mountain * 0.55 - out.plain * 0.35);
+  h += fine * (fbm(x * 0.11, z * 0.11, 2) - 0.5) * 1.6 * (0.2 + 0.8 * smooth(0, 4, out.edge));  // surface detail
   // Lakes last, after the detail, so how deep they are is exactly as dished.
   if (m >= 0 && LAKES.length) h = carveLakes(x, z, h, out);
   // And no river deeper than wading either — the detail above can dig a
@@ -611,7 +629,7 @@ function placeWater() {
         const d = lv[i] - lv[i + run];
         if (d < least) { least = d; bi = i; }
       }
-      if (bi >= 0 && least < 4.5) {
+      if (bi >= 0 && least < 7) {
         const e = bi + run, L = lv[e];
         for (let k = bi; k <= e; k++) lv[k] = L;
         cascadeInto(lv, bi, L);
@@ -1254,8 +1272,12 @@ export class Terrain {
 
           const r1 = hash(s, i * 3 + j * 5 + 1), r2 = hash(s + 9, j * 3 + i * 5 + 2), r3 = hash(s + 17, i + j * 11 + 3);
           const lod = band >= (sp.farFrom ?? 99) ? 1 : 0;
-          const v = lod ? 0 : Math.floor(r1 * sp.variants) % sp.variants;
-          const sc = THREE.MathUtils.lerp(sp.scale[0], sp.scale[1], Math.pow(r2, 1.4));
+          // (Far off, the cheap build of its own kind: a young tree stays young.)
+          const vAll = Math.floor(r1 * sp.variants) % sp.variants;
+          const v = lod ? (sp.farVariant ? sp.farVariant(vAll) : 0) : vAll;
+          // Its size, for the spot too: stunted up in the cloud forest.
+          const sc = THREE.MathUtils.lerp(sp.scale[0], sp.scale[1], Math.pow(r2, 1.4)) * (sp.size ? sp.size(site) : 1);
+          const trunk = sp.trunkOf ? sp.trunkOf(vAll) : sp.trunk;
           const yaw = r3 * Math.PI * 2;
           const fine = layer === 'grass' || layer === 'ground';
           let y = fine ? this.gridHeight(grid, x, z) : heightAt(x, z);
@@ -1277,14 +1299,14 @@ export class Terrain {
           let list = place.get(key);
           if (!list) place.set(key, list = { sp, v, lod, items: [] });
           const plantKey = `${i},${j},${li},${ci},${cj}`;
-          list.items.push({ x, y, z, sc, yaw, pitch, roll, plantKey, tint: hash(s + 29, i * 7 + j) });
+          list.items.push({ x, y, z, sc, yaw, pitch, roll, plantKey, trunk, form: vAll, tint: hash(s + 29, i * 7 + j) });
 
           // What it blocks: a trunk, a rock, a stump.
-          if (sp.trunk || sp.solid) {
+          if (trunk || sp.solid) {
             const geo = speciesGeometry(sp, v, lod);
             const bb = geo.boundingBox || (geo.computeBoundingBox(), geo.boundingBox);
-            const rad = sp.trunk ? sp.trunk * sc : Math.max(bb.max.x, -bb.min.x, bb.max.z, -bb.min.z) * sc * 0.75;
-            solids.push({ x, z, base: y - 1, top: sp.trunk ? y + 60 : y + bb.max.y * sc, rad: rad * 1.1, hit: rad, solid: true, plantKey });
+            const rad = trunk ? trunk * sc : Math.max(bb.max.x, -bb.min.x, bb.max.z, -bb.min.z) * sc * 0.75;
+            solids.push({ x, z, base: y - 1, top: trunk ? y + 60 : y + bb.max.y * sc, rad: rad * 1.1, hit: rad, solid: true, plantKey });
           }
         }
       }
@@ -1308,8 +1330,10 @@ export class Terrain {
           .multiplyScalar(0.88 + hash(k, t.tint * 1e6) * 0.22);
         inst.setColorAt(k, this._c);
         if (sp.yield && band <= 1) {
-          const p = { sp, inst, index: k, matrix: d.matrix.clone(), x: t.x, y: t.y, z: t.z, key: t.plantKey,
-                      reach: sp.reach + (sp.trunk ? sp.trunk * (t.sc - 1) : 0) };
+          // (How many strokes, and what it gives, for its form: a young tree less than an old one.)
+          const p = { sp, inst, index: k, matrix: d.matrix.clone(), x: t.x, y: t.y, z: t.z, key: t.plantKey, trunk: t.trunk,
+                      chop: sp.chopOf ? sp.chopOf(t.form) : sp.chop, yield: sp.yieldOf ? sp.yieldOf(t.form) : sp.yield,
+                      reach: sp.reach + (t.trunk ? t.trunk * (t.sc - 1) : 0) };
           plants.push(p);
           this.plantsByKey.set(t.plantKey, p);
         }
@@ -1898,7 +1922,7 @@ export class Terrain {
   bitePoint(p, dir, out = new THREE.Vector3()) {
     const scale = p.matrix.getMaxScaleOnAxis();
     if (p.sp.lying) return out.set(p.x, p.y + 0.35 * scale, p.z);
-    const r = Math.min(1.4, (p.sp.trunk ?? 0.3) * scale * 0.42);
+    const r = Math.min(1.4, (p.trunk ?? p.sp.trunk ?? 0.3) * scale * 0.42);
     return out.set(p.x - dir.x * r, p.y + (p.sp.name === 'stump' ? 0.5 : 1.1), p.z - dir.z * r);
   }
 
@@ -2046,7 +2070,7 @@ export class Terrain {
     p.inst.setMatrixAt(p.index, HIDDEN);
     p.inst.instanceMatrix.needsUpdate = true;
     this.setSolid(p.key, false);
-    return { label: p.sp.label, yield: p.sp.yield };
+    return { label: p.sp.label, yield: p.yield || p.sp.yield };
   }
 
   setSolid(key, on) {
