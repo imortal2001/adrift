@@ -98,9 +98,32 @@
     .slot .q{font-size:12px}
   }
 
+  /* A short window: the same compact slots, so the bottom of the screen does
+     not take a third of the view. */
+  @media (max-height:700px){
+    #bottom{gap:5px;bottom:12px}
+    #hotbar{gap:5px;padding:6px}
+    .hs{width:58px;padding:5px 3px 4px}
+    .hs .n{font-size:8.5px;margin-top:5px}
+    .hs .q{font-size:10.5px}
+    #inv{gap:4px;padding:5px}
+    .slot{min-width:48px;padding:3px 5px}
+    .slot .n{font-size:8px}
+    .slot .q{font-size:11.5px}
+    #vitals{bottom:12px;padding:8px 10px 6px}
+    #buildbar{gap:4px;padding:5px}
+    .bslot{padding:4px 7px;font-size:10.5px;min-width:0}
+    .bslot .k{font-size:8.5px}
+  }
+
   /* No room beside the side panels at all: sit above them instead. */
-  @media (max-width:620px){
-    #bottom{left:18px;right:18px;bottom:140px}
+  /* Narrow: the vitals go up under the clock, and the bottom of the screen is
+     the stack's, edge to edge — or the material strip, squeezed between the
+     side panels, wraps to three rows and takes half the view. */
+  @media (max-width:900px){
+    #vitals{left:auto;right:18px;bottom:auto;top:108px;width:180px}
+    #bottom{left:18px;right:18px}
+    #ui #crew, #ui #adminPanel{top:230px}
   }
   .slot{min-width:62px;padding:6px 8px;border-radius:7px;background:rgba(255,255,255,.055);
     border:1px solid rgba(255,255,255,.08);text-align:center}
@@ -135,6 +158,9 @@
   .msg.chat{border-color:rgba(143,227,255,.45);background:rgba(8,26,36,.8)}
   .msg.chat.mine{opacity:.85}
   #chat{position:absolute;left:18px;bottom:132px;width:360px;pointer-events:auto}
+  #chatHistory{margin-bottom:6px;padding:6px 10px;border-radius:8px;background:rgba(8,20,28,.72);
+    border:1px solid rgba(143,227,255,.3);font-size:12px;line-height:1.5;max-height:180px;overflow:hidden}
+  #chatHistory .mine{opacity:.75}
   #chat input{width:100%;box-sizing:border-box;font:inherit;font-size:13px;color:#f4efe2;padding:8px 11px;
     border-radius:8px;border:1px solid rgba(143,227,255,.55);background:rgba(8,20,28,.86);outline:none}
   @keyframes slide{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
@@ -171,6 +197,9 @@
   .packslot .ps b{display:block;font-size:9px;opacity:.45;font-weight:700}
   .packslot .ps em{font-style:italic;opacity:.35}
   .packslot .ps.out{opacity:.5}
+  /* Giving: the slot line and its hint are not what a click does now. */
+  #packPanel.giving .packslot, #packPanel.giving .hint{display:none}
+  #packPanel.giving{border-color:rgba(127,211,138,.5)}
   .packslot .ps i{display:block;font-size:8.5px;opacity:.7;letter-spacing:.3px}
 
   /* ---------- build bar ---------- */
@@ -297,6 +326,14 @@
   #together.in .out{display:none}
   #together.off .row{display:none}
   #mpStatus{opacity:.6;font-size:11px}
+  #mpStatus .roomcode{display:inline-block;margin:0 4px;padding:2px 9px;border-radius:6px;font-size:17px;
+    letter-spacing:4px;color:#fff;background:rgba(105,198,242,.2);border:1px solid rgba(105,198,242,.5);opacity:1}
+  #mpStatus:has(.roomcode){opacity:.9}
+  /* Who is in the game with you, on the start and pause screen (the HUD's crew list is hidden behind it). */
+  #mpCrew{font-size:11.5px;line-height:1.55;padding:6px 12px;border-radius:10px;
+    background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);min-width:180px}
+  #mpCrew[hidden]{display:none}
+  #mpCrew b{display:block;font-size:9.5px;letter-spacing:1.4px;opacity:.6;margin-bottom:2px;text-transform:uppercase}
   #crew{position:absolute;top:104px;right:18px;padding:8px 12px;border-radius:10px;font-size:11.5px;line-height:1.55;
     background:rgba(10,18,26,.55);border:1px solid rgba(255,255,255,.1);min-width:150px}
   #crew b{display:block;letter-spacing:2px;opacity:.7;font-size:10.5px;margin-bottom:2px}
@@ -331,7 +368,7 @@
     <div id="objective" class="panel" hidden></div>
     <div id="log"></div>
   </div>
-  <div id="chat" hidden><input id="chatBox" maxlength="140" autocomplete="off"
+  <div id="chat" hidden><div id="chatHistory" hidden></div><input id="chatBox" maxlength="140" autocomplete="off"
     placeholder="Say something — Enter to send, Esc to cancel" aria-label="Say something"></div>
 
   <div id="topright" class="panel">
@@ -420,6 +457,7 @@
       <button id="mpRejoin" hidden></button></div>
     <div class="row inn"><input id="mpInvite" readonly aria-label="Invite link"><button id="mpCopy">Copy invite link</button><button id="mpLeave">Leave</button></div>
     <div id="mpStatus"></div>
+    <div id="mpCrew" hidden></div>
   </div>
   <div id="keys">
     <span class="kh">Getting about</span>
@@ -428,7 +466,8 @@
     <span><b>F</b> slip in &nbsp; <b>Z</b> dive &nbsp; <b>Space</b> swim up &nbsp; <b>S</b> back-paddle &mdash; watch your breath</span>
     <span class="kh"><b>E</b> what you look at</span>
     <span>gather flotsam &middot; drink from a collector, river or spring &middot; pick plants &middot;
-      cook at a fire &middot; chip cave flint &middot; give to a crewmate</span>
+      cook at a fire (<b>R</b> adds wood; <b>hold E</b> with a bow drill lights it) &middot; chip cave flint &middot;
+      give to a crewmate</span>
     <span class="kh"><b>Click</b> what you hold</span>
     <span>eat &middot; chop with the axe &middot; fish &middot; light the torch &middot;
       <b>right-click</b> throw the hook or spear</span>
@@ -444,7 +483,7 @@
     <span>An <b>axe</b> fells trees &mdash; branches and fronds come by hand. A <b>torch</b>, lit at a fire,
       sees you through the caves. A <b>statue</b> is where you wake if you die</span>
     <span class="kh">And</span>
-    <span><b>V</b> change the view &nbsp; <b>H</b> / <b>Esc</b> pause &nbsp; <b>Enter</b> talk, playing together</span>
+    <span><b>V</b> change the view &nbsp; <b>H</b> / <b>Esc</b> pause (<b>Esc</b> closes a panel first) &nbsp; <b>Enter</b> talk, playing together</span>
     <span id="adminHint" hidden><b>`</b> admin panel &mdash; set the time of day
       (local development only)</span>
   </div>

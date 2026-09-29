@@ -8,19 +8,21 @@ export const ITEMS = {
   wood:    { name: 'Wood',    tool: false },
   plank:   { name: 'Plank',   tool: false },
   rope:    { name: 'Rope',    tool: false },
-  leaf:    { name: 'Palm',    tool: false },
+  leaf:    { name: 'Palm fibre', tool: false },
   // Hollow and sealed at every joint: it floats better than any timber.
   bamboo:  { name: 'Bamboo',  tool: false },
   scrap:   { name: 'Scrap',   tool: false },
-  // Chipped from the walls of the caves, deep in, where it is dark: nowhere else has it.
+  // Chipped from the walls of the caves — one face by each mouth, in the light, the
+  // rest deep in, where it is dark: nowhere else has it.
   flint:   { name: 'Flint',   tool: false },
   // A stick bound with palm fibre. Not a tool — you can carry several; each
   // burns for TORCH.burn seconds once it is lit.
   torch:   { name: 'Torch',   tool: false, action: 'torch',
              hint: 'Light it at a burning campfire (E) — or anywhere, click, with a fire striker in your pack. Water puts it out' },
   // Flint struck on scrap iron: sparks, and a fire at once.
-  striker: { name: 'Fire striker', short: 'Striker', tool: true, action: 'strike',
-             hint: 'At an unlit campfire, E to strike a spark into the tinder (1 Palm). With it in your pack, a torch lights anywhere' },
+  // `pack`: works from the pack, so it does not take one of the slots for itself.
+  striker: { name: 'Fire striker', short: 'Striker', tool: true, action: 'strike', pack: true,
+             hint: 'Works from your pack: E at an unlit campfire strikes a spark into the tinder (1 Palm fibre), and a torch lights anywhere' },
   coconut: { name: 'Coconut', tool: false, action: 'eat',
              hint: 'Click to eat' },
 
@@ -35,7 +37,7 @@ export const ITEMS = {
   spear:   { name: 'Spear',   tool: true, action: 'spear',
              hint: 'Right-click to throw it — then E to pull it back out' },
   rod:     { name: 'Rod',     tool: true, action: 'rod',
-             hint: 'Click to cast — click again the moment the float goes under. Right-click baits the hook with a fish' },
+             hint: 'Hold click to swing, let go to cast — click the moment the float goes under. Right-click baits the hook with a fish' },
   // Carved from driftwood, set up on land: where you wake if you die.
   statue:  { name: 'Statue',  tool: false, action: 'place',
              hint: 'Click to set it up on land — then E at it, and it is where you wake if you die' },
@@ -45,8 +47,8 @@ export const ITEMS = {
   // A bow with its cord round a spindle: sawing the bow spins the spindle in
   // a notch in a board, and the friction makes an ember. The oldest way to
   // make fire from what floats past a raft — wood and cord.
-  bowdrill: { name: 'Bow drill', tool: true, action: 'drill',
-             hint: 'Hold click at an unlit campfire to drill an ember — it takes 1 Palm for tinder' },
+  bowdrill: { name: 'Bow drill', tool: true, action: 'drill', pack: true,
+             hint: 'Works from your pack: hold E at an unlit campfire to drill an ember — it takes 1 Palm fibre for tinder' },
 };
 
 // A campfire, in seconds of burning. It is built with its first wood laid,

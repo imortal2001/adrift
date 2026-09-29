@@ -65,6 +65,7 @@ export class HUD {
     this.onAdminGive = () => {};      // 'materials' | 'equipment'
     this.onSelectSlot = () => {};     // hotbar slot clicked
     this.onAssign = () => {};         // (slot, itemId)
+    this.onGive = () => {};           // (itemId, how many): the pack opened to give to someone
     this._hotSig = '';
     this._packSig = '';
     this._scrubbing = false;          // don't fight the slider while it is dragged
@@ -79,12 +80,36 @@ export class HUD {
     node.className = `msg ${kind}`;
     node.textContent = text;
     this.el.log.appendChild(node);
-    const entry = { node, until: (this.pausedAt ?? performance.now()) + ms };
+    const chat = kind.includes('chat');
+    const entry = { node, chat, until: (this.pausedAt ?? performance.now()) + ms };
     this.msgs.push(entry);
-    while (this.msgs.length > 5) {
-      const old = this.msgs.shift();
-      old.node.remove();
+    // Five lines of what happens, and up to three of what was said on top —
+    // so a busy minute of gathering does not push someone's words off unread.
+    const trim = (isChat, cap) => {
+      const mine = this.msgs.filter(m => m.chat === isChat);
+      for (const old of mine.slice(0, Math.max(0, mine.length - cap))) {
+        old.node.remove();
+        this.msgs.splice(this.msgs.indexOf(old), 1);
+      }
+    };
+    trim(false, 5);
+    trim(true, 3);
+    if (chat) {
+      (this.chatLines ||= []).push({ text, mine: kind.includes('mine') });
+      if (this.chatLines.length > 30) this.chatLines.shift();
+      if (this.chatHistoryOpen) this.showChatHistory(true);
     }
+  }
+
+  /** While the line to say something is open: what has been said lately, above it. */
+  showChatHistory(on) {
+    const el = document.getElementById('chatHistory');
+    this.chatHistoryOpen = on;
+    if (!el) return;
+    const lines = (this.chatLines || []).slice(-8);
+    el.hidden = !on || !lines.length;
+    el.innerHTML = lines.map(() => '<div></div>').join('');
+    [...el.children].forEach((d, i) => { d.textContent = lines[i].text; d.className = lines[i].mine ? 'mine' : ''; });
   }
 
   // ── objective ──────────────────────────────────────────────────────────────
@@ -106,6 +131,14 @@ export class HUD {
     el.hidden = !ticking && !todo;
     el.innerHTML = ticking ? `<span class="k">Done</span>${o.tick}`
                            : `<span class="k">Next · ${n} of ${total} done</span>${todo ?? ''}`;
+  }
+
+  /** Empty the log — going into another world, what was said in the last is not so here. */
+  clearLog() {
+    for (const m of this.msgs) m.node.remove();
+    this.msgs = [];
+    this.chatLines = [];
+    this.el.log.textContent = '';
   }
 
   tickMessages(now) {
@@ -149,7 +182,8 @@ export class HUD {
 
   updateClock(sky, player, raft) {
     this.el.clock.textContent = sky.clock;
-    this.el.daynum.textContent = `Day ${sky.day} adrift · ${raft.size} deck${raft.size === 1 ? '' : 's'}`;
+    this.el.daynum.textContent = `Day ${sky.day} adrift · ` +
+      (raft.size ? `${raft.size} deck${raft.size === 1 ? '' : 's'}` : 'no raft yet');
     const tags = [];
     // Non-default world state should never be invisible: it is why the sun is
     // not moving.
@@ -278,19 +312,29 @@ export class HUD {
   // ── pack (slot registration) ───────────────────────────────────────────────
   get packOpen() { return this.el.pack.classList.contains('open'); }
 
-  togglePack(inv, hotbar) {
+  /**
+   * `giveTo` (a name) opens it to hand things to someone: a click gives one
+   * of what you clicked, Shift-click five — instead of putting it in a slot.
+   */
+  togglePack(inv, hotbar, giveTo = null) {
     const open = !this.packOpen;
+    this.giveTo = open ? giveTo : null;
     this.el.pack.classList.toggle('open', open);
+    this.el.pack.classList.toggle('giving', !!this.giveTo);
+    const h = this.el.pack.querySelector('h2'), sub = this.el.pack.querySelector('.sub');
+    if (h) h.textContent = this.giveTo ? `Give to ${this.giveTo}` : 'Pack';
+    if (sub) sub.textContent = this.giveTo ? 'Click to hand one over, Shift-click for five · I or Esc to close' : 'Press I to close';
+    this._packSig = '';
     if (open) this.refreshPack(inv, hotbar, true);
     return open;
   }
 
-  closePack() { this.el.pack.classList.remove('open'); }
+  closePack() { this.el.pack.classList.remove('open'); this.giveTo = null; }
 
   refreshPack(inv, hotbar, force = false) {
     if (!this.packOpen && !force) return;
     const carried = [...inv.slots.entries()].filter(([, n]) => n > 0);
-    const sig = `${hotbar.selected}|${hotbar.slots.join(',')}|` +
+    const sig = `${this.giveTo}|${hotbar.selected}|${hotbar.slots.join(',')}|` +
                 carried.map(e => e.join(':')).join(',');
     if (sig === this._packSig) return;
     this._packSig = sig;
@@ -322,7 +366,8 @@ export class HUD {
       el.onclick = () => this.onSelectSlot(Number(el.dataset.pslot));
     }
     for (const el of this.el.packGrid.querySelectorAll('[data-item]')) {
-      el.onclick = () => this.onAssign(hotbar.selected, el.dataset.item);
+      el.onclick = e => (this.giveTo ? this.onGive(el.dataset.item, e.shiftKey ? 5 : 1)
+                                     : this.onAssign(hotbar.selected, el.dataset.item));
     }
   }
 

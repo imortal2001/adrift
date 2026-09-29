@@ -62,7 +62,8 @@ export class Hotbar {
    * @returns the slot index it landed in, or -1
    */
   autoAssign(id) {
-    if (!isUsable(id) || this.has(id)) return -1;
+    // What works from the pack (the bow drill, the striker) leaves the slots for what does not.
+    if (!isUsable(id) || ITEMS[id].pack || this.has(id)) return -1;
     const free = this.slots.indexOf(null);
     if (free === -1) return -1;
     this.slots[free] = id;

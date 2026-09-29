@@ -122,10 +122,11 @@ export class Together {
         const g = this.game, p = g.player;
         const on = g.rafts.under(p.pos.x, p.pos.z);
         if (on) g.setRaft(on);
-        else if (p.state !== 'swim' && !p.onLand && g.raft.size) p.respawnOnRaft();
+        else if (p.state !== 'swim' && !p.onLand && g.raft.size) g.placeAmong(g.raft);
       }
     } else if (e.k === 'place' && e.t) {
       const ok = this.raftFor(e)?.place(e.id, e.t);
+      if (ok && from !== undefined && BUILDABLE_BY_ID[e.id]) this.noteBuilt(from, BUILDABLE_BY_ID[e.id].name);
       // Hosting, and it would not go — someone got there first: whoever sent
       // it has paid for nothing, so the host hands back what it cost.
       if (!ok && this.net.isHost && from !== undefined && BUILDABLE_BY_ID[e.id]) {
@@ -175,6 +176,29 @@ export class Together {
     }
   }
 
+  /**
+   * Someone else built something: gathered up and said once they stop for a
+   * moment — "Ben built 3 Foundations and a Wall" — rather than line by line.
+   */
+  noteBuilt(from, name) {
+    const who = this.net.remotes.get(from)?.name;
+    if (!who) return;
+    const b = (this.builds ||= new Map()).get(from) || { who, counts: new Map(), quiet: 0 };
+    b.counts.set(name, (b.counts.get(name) || 0) + 1);
+    b.quiet = 2.5;
+    this.builds.set(from, b);
+  }
+
+  flushBuilt(dt) {
+    for (const [from, b] of this.builds || []) {
+      if ((b.quiet -= dt) > 0) continue;
+      this.builds.delete(from);
+      const parts = [...b.counts].map(([n, k]) => (k === 1 ? `${/^[aeiou]/i.test(n) ? 'an' : 'a'} ${n}` : `${k} ${n}s`));
+      const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
+      this.game.hud.log(`${b.who} built ${list}.`);
+    }
+  }
+
   /** The raft changed under you: nothing may point at a piece that is gone. */
   afterChange() {
     const g = this.game;
@@ -195,6 +219,7 @@ export class Together {
   // ── each frame ─────────────────────────────────────────────────────────────
   update(dt) {
     this.world.update(dt);
+    this.flushBuilt(dt);
     if (!this.net.isHost || !this.net.remotes.size) return;
     this.every -= dt;
     if (this.settle !== null) this.settle -= dt;

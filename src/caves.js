@@ -195,12 +195,20 @@ function bound(samples) {
   return { x, z, r };
 }
 
-/** A few flint faces low on the walls, in the deeper half of the tunnel and round the chamber. */
-function flintFaces(samples, o, R, n) {
+/**
+ * A few flint faces low on the walls, in the deeper half of the tunnel and
+ * round the chamber — and, with `mouth`, one more a few metres in, where the
+ * daylight still reaches: enough for a fire striker, and so a torch, for
+ * someone who has come without one.
+ */
+function flintFaces(samples, o, R, n, mouth = false) {
   const out = [];
   const deep = samples.filter(p => p.s > o.tunnel * 0.55 && p.w > 1.2 && p.s < samples.at(-1).s - 2);
-  for (let k = 0; k < n && deep.length; k++) {
-    const p = deep[Math.floor(R() * deep.length)];
+  const lit = samples.filter(p => p.s > 2.5 && p.s < 5.5 && p.w > 1.2);
+  for (let k = 0; k < n + (mouth ? 1 : 0); k++) {
+    const pool = k < n ? deep : lit;
+    if (!pool.length) continue;
+    const p = pool[Math.floor(R() * pool.length)];
     // On the wall at its own height: out where the curve of the wall is there.
     // (In a sea cave, clear of the water: `above` is the height it must be over.)
     const up = (o.above !== undefined ? Math.max(0, o.above - p.y) : 0) + 0.12 + R() * 0.4, yl = Math.min(up, p.h * 0.6);
@@ -235,7 +243,7 @@ function fitLandCave(c) {
   const side = R() < 0.5 ? -1 : 1, lat = o.room * 0.38 * side;
   const spring = { x: mid.x + mid.fz * lat, z: mid.z - mid.fx * lat, r: o.room * 0.3, depth: 0.45, level: mid.y - 0.06 };
   return { kind: 'land', samples, mouth: { x: sx, z: sz, y: floor0 }, spring,
-           flint: flintFaces(samples, o, R, 5), bound: bound(samples), o };
+           flint: flintFaces(samples, o, R, 5, true), bound: bound(samples), o };
 }
 
 /** A sea cave in the sea cliff at `p`: its mouth at the waterline, a shingle beach at the back. */

@@ -86,14 +86,15 @@ code and models, runs on this machine only, and has its own
 | `Backspace` | (in the pack) empty the selected slot |
 | `C` / `B` | crafting / take out the hammer |
 | `Shift`-click | (in crafting) make five of a recipe at once |
-| wheel, `[` `]` | with the hammer out: pick a build piece |
+| wheel, `[` `]` | with the hammer out: pick a build piece — it skips what you cannot afford yet |
 | Right-click | throw what is in hand — the spear, or the hook |
 | Hold left / right click | with the paddle, on the deck: paddle forward / back-paddle |
 | `Q` | eat — a coconut if you have one, otherwise a fish (the one in hand, else the one you have most of) |
+| `R` | at a lit campfire, feed it wood — whatever `E` is doing there |
 | `X` | salvage the piece under the crosshair — materials come back (from a campfire, only the wood it has not burned) |
 | `F` | step off into the water |
 | `Z` / `Space` | swim down / swim up — `Space` climbs out when the deck is in reach |
-| `H` | pause and show the help |
+| `H` / `Esc` | pause and show the help — `Esc` closes the crafting or pack panel first, if one is open |
 
 ### The hotbar
 
@@ -106,11 +107,11 @@ instead of a key per tool:
 | Hammer | build mode is on; click places the piece (wheel or `[` `]` picks it). `E` still works on what you look at — feed the fire, drink, gather |
 | Hook | throw it at debris and reel the debris in |
 | Coconut, any fish | eat it (raw or cooked) |
-| Bow drill | **hold** at an unlit campfire to saw up an ember — it takes 1 Palm for tinder |
+| Bow drill | **hold** at an unlit campfire to saw up an ember — it takes 1 Palm fibre for tinder. It works from the pack too (hold `E`), so it takes no slot of its own |
 | Spear | a thrust that skewers the fish on the crosshair; **right-click throws it** — pull it back out with `E` |
 | Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
 | Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes. Put away, it smoulders for 45 seconds and flares up again if you take it out in that time; after that it needs lighting again, keeping what it had left. The water puts it straight out |
-| Fire striker | nothing in hand — `E` at an unlit campfire strikes a spark into it (1 Palm for tinder), at once |
+| Fire striker | nothing in hand — it works from the pack: `E` at an unlit campfire strikes a spark into it (1 Palm fibre for tinder), at once, and a torch lights anywhere |
 | Axe | a stroke at the tree, log, stump or bamboo on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
 | Material, or nothing | nothing |
 
@@ -130,21 +131,30 @@ pack marks it *none left*).
 In the pack, a material says what it goes into — the recipes and building
 pieces that take it.
 
+The bow drill and the fire striker work from the pack, so they never claim a
+slot for themselves (they can still be put in one by hand).
+
 ### What to do next
 
 There is no tutorial, but there is always one thing on screen to do next: the
 **objective line**, top left, over the message log. It runs through what a
-castaway needs, in order — driftwood, planks, a hammer, a bigger raft, a
-collector, a hook, a fire lit and a fish cooked, a roof; then land (it says
-how far, and which way from where you are looking), a statue, an axe, a torch,
-a cave and its flint, and a fire striker. Each counts as done once it has
-happened, whatever order you got there in, and says so for a moment before
-the next. It is `GOALS` in `main.js`.
+castaway needs, in order — driftwood, planks, a hammer, getting aboard, a
+bigger raft, a collector, a hook, a fire lit and a fish cooked, a roof; then
+land (it says how far, and which way from where you are looking), a statue
+(one of those standing on the land will do), an axe, a torch, the nearest
+cave (how far and which way, again) and its flint, and a fire striker. Each
+counts as done once it has happened, whatever order you got there in, and
+says so for a moment before the next. It prefers what can be done where you
+are: ashore, the island's goals come first, afloat the raft's. It is `GOALS`
+in `main.js`.
 
 The rest of the guidance is said when it matters: thirst or hunger under 25
 (the bar pulses red too) and again at empty, with what would help; a
-dinosaur coming for you — there is no fighting one, so it says to make for the
-water or a cave; and dying, which blacks the screen out with where you have
+campfire burning low; the raft running aground — once for a place, and as a
+landing when it is by the shore; a dinosaur coming for you — there is no
+fighting one, and a sprint alone only just outruns it — it keeps after you
+until you are out of its sight, forty-odd metres off — so it says to make
+for the water or a cave; and dying, which blacks the screen out with where you have
 woken. Nothing said on the start screen is lost: the log's clock stops while
 it is up.
 
@@ -328,7 +338,9 @@ nothing lines up in rows:
     first few metres it is black: the daylight — sun, moon and sky — falls
     away with how far in you are, and only a **torch** lights it. Low on the
     walls, deep in, is **flint** (**E** chips it out; it comes back in a
-    while), and nowhere else has it. The mouths are too narrow for a
+    while) — and one face of it a few metres in from the mouth, still in the
+    daylight, so that someone who came without a torch can make a fire
+    striker and light one. Nowhere else has it. The mouths are too narrow for a
     dinosaur: nothing that is hunting you will follow you in.
   - **Sea caves** (3), at the waterline under the sea cliffs: swim in under
     the arch of the mouth, and at the back is a shingle beach to climb out
@@ -917,12 +929,16 @@ all follow the raft wherever it has got to, and it is saved where you left it.
 ### Playing together
 
 Co-op by invite link. On the splash screen, under *Play together*, give a
-name and **Host a game**: you get a five-letter room code and an invite link
-to send. Whoever opens the link (or types the code and **Join**s) is in your
-game — up to six of you. The crew is listed under the clock.
+name and **Host a game**: you get a five-letter room code — shown large, to
+read out — and an invite link to send. Whoever opens the link (or types the
+code and **Join**s) is in your game — up to six of you; someone new to the
+game, with no name yet, is asked for one before the link takes them in. The
+crew is listed under the clock, and on the start and pause screen.
 
 **Enter** opens a line to say something: it goes in everyone's log and in a
-speech bubble over your head; Enter sends it, Esc thinks better of it. If
+speech bubble over your head; Enter sends it, Esc thinks better of it. What
+is said keeps three lines of the log to itself, so the bustle of gathering
+does not push it off, and the line shows the last few things said above it. If
 your connection drops, the game reconnects on its own — you stay on the
 shared raft, in the shared world, and the others see that you lost the
 connection and then that you are back; after 45 seconds of trying, you are
@@ -930,11 +946,16 @@ back on your own raft. Closing the page or pressing **Leave** is leaving, and
 the others see you have gone. A game you were in lately has a **Rejoin**
 button on the splash screen.
 
-Look at someone close by and **E** hands them one of what you are holding.
-Nothing tells you where anyone is. The crew list gives each of the others'
-distance from you — how far, never which way — a name fades beyond
-forty-odd metres, and behind a hill there is no telling
-anyone is there — finding each other is looking for each other. You see the others' lines out too — the
+Look at someone close by and **E** hands them one of what you are holding
+(**Shift+E**, five). Empty-handed, **E** opens your pack to give them
+anything in it — a click hands over one, Shift-click five. With the hammer
+out, E is left for the fire and the flotsam, so it cannot hand your hammer
+to whoever is in the way. The crew list gives each of the others' distance
+from you and an arrow for which way (↑ ahead, ↓ behind); a name over
+someone's head fades beyond sixty-odd metres, and behind a hill there is no
+telling anyone is there. You are told when someone climbs aboard the raft
+you are on, and what the others build (gathered up: "Ben built 3
+Foundations and a Wall"). You see the others' lines out too — the
 rod's float, the hook on its rope — a fish on the spear they thrust with, the
 spears they threw before you joined, and the dinosaurs' kills wherever you are.
 
@@ -957,9 +978,11 @@ keeps it when everyone has gone — its rafts, its statues, the time of day —
 and keeps each player's record in it: what you carry, how you are, your start
 and your statue, and where you were. Hosting a new room starts a fresh world.
 Joining one, you come back as you left: aboard your raft, wherever it has
-sailed since, or ashore or in the sea where you were. New to it, you come to
-somewhere on its edge like any castaway — apart from everyone else, to find
-them. Your own game waits at home, untouched, and is yours again when you
+sailed since, or ashore or in the sea where you were. A new world starts the
+host on the crew's raft — four lashed pallets — and someone new to it comes
+to aboard the biggest raft there is, with the others rather than a long swim
+from them (only a world with no raft at all puts a newcomer on its edge, like
+any castaway). The log starts clean in each world. Your own game waits at home, untouched, and is yours again when you
 leave.
 
 **Rafts, any number.** Anyone can build a raft — lay a first foundation on
@@ -1007,8 +1030,23 @@ someone gathers is gone for everyone too. A thrown spear flies on every
 screen and lands in the same place; what it skewers, the thrower's game
 says. Your own time of day waits with your raft.
 
+Paused (the start screen, `H`, `Esc`) while playing together, you stand
+still — hunger and thirst wait, and nothing hunts you — but the world goes
+on: fires burn and cook, collectors fill, the flotsam drifts, and a host's
+sky and dinosaurs keep going for everyone else. Several of you come to on a
+raft (joining, or after dying) each on a square of your own; when someone
+blacks out, the others are told; and "the fish is done" is said to whoever
+is by the fire.
+
+A tab in the background is still in the game: browsers stop drawing a
+hidden tab, and with it the frames a game runs on, which would stop the
+world for everyone if it was the host's. While hidden and in a game, a
+worker's timer keeps it going, four times a second, drawing nothing.
+
 On this machine, run the relay with `node server/dev-relay.mjs` and the game
-finds it. For the published game, deploy the relay to Cloudflare (free) and
+finds it. To try several players in one browser, give each tab a player of
+its own — `sessionStorage.setItem('adrift.pid', 'ben')` in its console, then
+reload — and it keeps its own name, its own game and its own Rejoin, too. For the published game, deploy the relay to Cloudflare (free) and
 put its address in `src/net.js` — `server/README.md` has the steps.
 
 ### Seeing yourself
@@ -1054,18 +1092,21 @@ mannequin built in code. The characters are **CC BY-NC-SA** — non-commercial
 A campfire is built with the hammer (3 Wood, 1 Scrap) and comes **unlit**,
 with its first wood laid. Fire has to be made: craft a **bow drill** (1 Plank,
 1 Rope — a bow with its cord round a spindle), hold it at the fire and hold
-the button. The bow saws back and forth, the spindle spins, and after five
+the button — or, with it in the pack, hold `E` at the fire. The bow saws back and forth, the spindle spins, and after five
 seconds of it an ember drops into a pinch of palm fibre — 1 **Palm**, the
-tinder — and the fire is lit. Stop sawing and the ember cools again.
+tinder — and the fire is lit. Stop sawing and the ember cools again. With a
+**fire striker** in the pack, `E` strikes a spark into it at once instead.
 
 It burns its wood. What it was built with lasts five minutes; each Wood fed
-to it (`E`) adds two, up to ten; as it runs low it shrinks to embers, and
+to it (`R`, or `E` when there is nothing else to do there) adds two, up to ten;
+under a minute from out, it says so, once; as it runs low it shrinks to embers, and
 when it is out the wood is ash and it needs wood laying and lighting again.
 Friction fire is the oldest method you could manage on a raft — wood and
-cord, both off the flotsam. Striking a spark takes flint and pyrite, which
-only the land has; that is left for later.
+cord, both off the flotsam. Striking a spark takes cave flint and scrap iron:
+the fire striker.
 
-**Cooking.** Hold a raw fish at a lit fire and press `E`: it is hung by the
+**Cooking.** At a lit fire, `E` cooks the raw fish in hand — or, with none
+in hand, one from the pack: it is hung by the
 tail from a spit over the flames, three at a time, and browns as it cooks.
 After fourteen seconds it is done — `E` takes it off as a **cooked** fish of
 the same species ("Cooked red snapper"), into the fish slot. Cooked fish fills

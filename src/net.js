@@ -63,6 +63,9 @@ const PLAYER = (() => {
 
 export { PLAYER };
 
+// The game you were in last (for Rejoin): a test tab's own, like its player.
+const LAST_KEY = (() => { try { const t = sessionStorage.getItem('adrift.pid'); return t ? `adrift.last:${t}` : 'adrift.last'; } catch { return 'adrift.last'; } })();
+
 // Who you are to the others: a tag made from PLAYER that cannot be turned
 // back into it (PLAYER is what a room keeps your record under, so it is not
 // handed round). Pieces you build, fish you hang and the statue you wake at
@@ -149,7 +152,7 @@ const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) 
 
 // A name is read at a conversational distance, not across the island:
 // finding each other is looking for each other.
-const NAME_CLEAR = 25, NAME_GONE = 45;
+const NAME_CLEAR = 40, NAME_GONE = 80;
 
 // What is on the end of someone's line: a float (the rod) or the hook.
 const LINE_SEGS = 10;
@@ -433,7 +436,7 @@ export class Net {
 
   /** A game you were in lately and are not in now: its code, to rejoin. */
   get lastRoom() {
-    const l = store.get('adrift.last');
+    const l = store.get(LAST_KEY);
     if (!l?.code || Date.now() - l.at > LAST_ROOM || (l.code === this.code && this.ws)) return null;
     return l.code;
   }
@@ -445,7 +448,7 @@ export class Net {
     this.code = cleanCode(code);
     this.name = name;
     this.who = who;
-    store.set('adrift.last', { code: this.code, at: Date.now() });
+    store.set(LAST_KEY, { code: this.code, at: Date.now() });
     this.connect(false);
   }
 
@@ -553,7 +556,7 @@ export class Net {
       this.event({ k: 'pub', pub: PUB });               // who you are, to everyone here
       if (this.retrying) this.log(`Back in ${this.code}.`, 'good');
       else this.log(this.remotes.size ? `You join ${this.code}: ${names} ${this.remotes.size === 1 ? 'is' : 'are'} here.`
-                                      : `You are hosting ${this.code}. Share the invite link.`, 'good');
+                                      : `You are hosting ${this.code} — tell your friends the code, or send the invite link (H shows it).`, 'good');
       this.retrying = null;
       this.onChange();
     } else if (m.t === 'join') {
@@ -678,10 +681,18 @@ export class Net {
    * Names in the game, you first, and how far off each of the others is —
    * how far only, never which way: where they are is for finding out.
    */
-  crew() {
+  /**
+   * Who is here, you first: each with how far off they are and — `way`, given
+   * where they are, returns an arrow — which way. Two of the same name are
+   * told apart by their number in the room.
+   */
+  crew(way = null) {
     if (!this.connected) return [];
-    const mark = id => (id === this.host ? ' (host)' : '');
-    const far = r => (this.me && r.body.visible ? ` — ${Math.round(this.me.distanceTo(r.pose.pos))} m` : '');
-    return [`${this.name}${mark(this.id)} — you`, ...[...this.remotes.values()].map(r => `${r.name}${mark(r.id)}${far(r)}`)];
+    const all = [[this.id, this.name], ...[...this.remotes.values()].map(r => [r.id, r.name])];
+    const twice = new Set(all.map(([, n]) => n).filter((n, i, a) => a.indexOf(n) !== i));
+    const label = (id, name) => `${name}${twice.has(name) ? ` #${id}` : ''}${id === this.host ? ' (host)' : ''}`;
+    const far = r => (this.me && r.body.visible && r.snaps.length      // not before where they are has come
+      ? ` — ${Math.round(this.me.distanceTo(r.pose.pos))} m${way?.(r.pose.pos) ? ` ${way(r.pose.pos)}` : ''}` : '');
+    return [`${label(this.id, this.name)} — you`, ...[...this.remotes.values()].map(r => `${label(r.id, r.name)}${far(r)}`)];
   }
 }

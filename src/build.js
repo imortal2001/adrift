@@ -4,7 +4,7 @@
 // rides the waves with the deck.
 
 import * as THREE from 'three';
-import { BUILDABLES, BUILDABLE_BY_ID } from './items.js';
+import { BUILDABLES, BUILDABLE_BY_ID, ITEMS } from './items.js';
 import { ROOF_Y, DECK_Y } from './raft.js';
 import { heightAt } from './terrain.js';
 
@@ -47,12 +47,28 @@ export class BuildMode {
     this.hud.setBuildBar(this.active, this.index, this.inv);
   }
 
+  /**
+   * The next piece along, skipping what you cannot afford (still in the bar,
+   * greyed) — and, with no raft yet, anything that is not a foundation — so
+   * the piece you want is a press or two away rather than seven. With nothing
+   * affordable at all, simply the next one.
+   */
+  step(d) {
+    const n = BUILDABLES.length;
+    const ok = b => this.inv.canAfford(b.cost) && (this.raft.size || b.kind === 'cell');
+    for (let k = 1; k < n; k++) {
+      const i = (this.index + d * k + n * n) % n;
+      if (ok(BUILDABLES[i])) { this.select(i); return; }
+    }
+    if (!ok(this.piece)) this.select(this.index + d);      // the only one you can afford: stay on it
+  }
+
   /** Called every frame while build mode is on. Returns a prompt string. */
   update(origin, dir, input) {
     // The number keys belong to the hotbar now.
-    if (input.wheel) this.select(this.index + input.wheel);
-    if (input.pressed('BracketLeft')) this.select(this.index - 1);
-    if (input.pressed('BracketRight')) this.select(this.index + 1);
+    if (input.wheel) this.step(Math.sign(input.wheel));
+    if (input.pressed('BracketLeft')) this.step(-1);
+    if (input.pressed('BracketRight')) this.step(1);
     this.hud.setBuildBar(true, this.index, this.inv);
 
     const id = this.piece.id;
@@ -101,7 +117,7 @@ export class BuildMode {
     }
 
     if (!fits) return `${this.piece.name} won't fit there`;
-    if (!afford) return `Need ${this.inv.costText(this.piece.cost).replace(/<\/?s>/g, '')}`;
+    if (!afford) return this.needText(this.piece.cost);
     return `<b>Click</b> place ${this.piece.name}`;
   }
 
@@ -136,8 +152,15 @@ export class BuildMode {
     }
     this.ghost.userData.ghostMat.color.setHex(this.valid ? 0x8fe3ff : 0xff6a5c);
     this.ghost.userData.ghostMat.opacity = this.valid ? 0.42 : 0.3;
-    if (!afford) return `Need ${this.inv.costText(this.piece.cost).replace(/<\/?s>/g, '')}`;
+    if (!afford) return this.needText(this.piece.cost);
     return r === this.raft ? '<b>Click</b> lay the first foundation of your raft' : '<b>Click</b> lay the first foundation of a new raft';
+  }
+
+  /** What is short for `cost`, and what you have of it: "Need 2 Plank (you have 0)". */
+  needText(cost) {
+    const short = Object.entries(cost).filter(([k, n]) => this.inv.count(k) < n)
+      .map(([k, n]) => `${n} ${ITEMS[k].name} (you have ${this.inv.count(k)})`);
+    return `Need ${short.join(' and ')}`;
   }
 
   place() {
