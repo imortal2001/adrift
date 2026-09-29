@@ -29,7 +29,18 @@ export function lakeGeometry(L, segments = 96) {
     // A tarn's outlet, at the top of a fall: no further than its shore.
     if (L.outlet) r -= TUCK * THREE.MathUtils.smoothstep(Math.cos(th), 0.72, 0.95);
     const c = Math.cos(th), s = Math.sin(th);
-    const x = L.x + (c * L.cos - s * L.sin) * r, z = L.z + (c * L.sin + s * L.cos) * r;
+    let x = L.x + (c * L.cos - s * L.sin) * r, z = L.z + (c * L.sin + s * L.cos) * r;
+    // And nowhere past the line of the lip: beside the notch the banks fall
+    // away, and its edge would hang out over the cliff.
+    // Only where the curtain is does it come right to the lip; to either
+    // side it stops its tuck short of it.
+    if (L.outlet && L.cut) {
+      const F = L.fall;
+      const lat = F ? Math.abs((x - F.x) * -F.dz + (z - F.z) * F.dx) : 0;
+      const keep = 0.3 + (F ? TUCK * THREE.MathUtils.smoothstep(lat, F.width / 2, F.width / 2 + 1.5) : 0);
+      const past = (x - L.cut.x) * L.cut.dx + (z - L.cut.z) * L.cut.dz + keep;
+      if (past > 0) { x -= L.cut.dx * past; z -= L.cut.dz * past; }
+    }
     pos.push(x, L.level, z);
     uv.push(x / 7, z / 7);
     if (i) idx.push(0, i + 1, i);                  // wound to face up

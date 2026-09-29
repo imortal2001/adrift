@@ -326,8 +326,12 @@ const _dq = new THREE.Quaternion(), _axis = new THREE.Vector3();
  *
  * @param speed  ground speed, m/s
  * @param alert  1 when it is hunting or fleeing: it runs sooner
+ * @param run    false for an animal that could only walk (an adult T. rex, a
+ *               stegosaur, a sauropod): the walk is quickened instead
+ * @param maxRate, maxStride  how far the walk may be quickened and lengthened
  */
-export function driveGait(rig, speed, dt, { alert = 0, attack = false, idle = 'idle' } = {}) {
+export function driveGait(rig, speed, dt, { alert = 0, attack = false, idle = 'idle',
+                                          run = true, maxRate = 2.3, maxStride = null } = {}) {
   const g = rig.gait;
   if (!g || !g.walk) {
     playState(rig, attack ? 'attack' : speed > 0.15 ? 'walk' : idle);
@@ -338,7 +342,7 @@ export function driveGait(rig, speed, dt, { alert = 0, attack = false, idle = 'i
   // Hysteresis, so an animal at the boundary does not flicker between gaits.
   const toRun = g.walk * (alert ? 1.5 : 2.1), toWalk = toRun * 0.8;
   let kind = attack ? 'attack' : s < 0.12 ? idle : rig.gaitKind === 'run' ? (s > toWalk ? 'run' : 'walk') : (s > toRun ? 'run' : 'walk');
-  if (kind === 'run' && !rig.actions.run) kind = 'walk';
+  if (kind === 'run' && (!rig.actions.run || !run)) kind = 'walk';
   rig.gaitKind = kind;
   playState(rig, kind, kind === 'attack' ? 0.15 : 0.35);
 
@@ -347,9 +351,9 @@ export function driveGait(rig, speed, dt, { alert = 0, attack = false, idle = 'i
     const natural = g[kind];
     const ratio = s / natural;
     // Split the difference between cadence and stride length.
-    const maxStride = kind === 'run' ? 1.3 : 1.12;
-    stride = THREE.MathUtils.clamp(Math.sqrt(ratio), 1, maxStride);
-    const rate = THREE.MathUtils.clamp(ratio / stride, 0.45, 2.3);
+    const longest = maxStride ?? (kind === 'run' ? 1.3 : 1.12);
+    stride = THREE.MathUtils.clamp(Math.sqrt(ratio), 1, longest);
+    const rate = THREE.MathUtils.clamp(ratio / stride, 0.45, maxRate);
     rig.actions[kind].setEffectiveTimeScale(rate);
   }
   rig.mixer.update(dt);

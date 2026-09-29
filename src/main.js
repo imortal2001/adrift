@@ -2114,7 +2114,9 @@ class Game {
       return {
         prompt: beast.sp.diet === 'meat'
           ? `${beast.sp.label} — ${hunting ? (beast.prey === 'player' ? 'it has your scent. Get to the water, or into a cave!' : 'on the hunt') : 'prowling'}`
-          : `${beast.sp.label} — ${fleeing ? 'it is running from something' : 'grazing'}`,
+          : `${beast.sp.label} — ${fleeing ? 'it is running from something'
+                                 : beast.state === 'defend' ? 'standing its ground, tail to a hunter'
+                                 : beast.state === 'rest' ? 'resting' : beast.speed > 0.2 ? 'on the move' : 'grazing'}`,
         act: null,
       };
     }

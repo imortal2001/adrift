@@ -8,9 +8,10 @@
 // drawn and posed.
 
 import * as THREE from 'three';
-import { heightAt, isLand, coastDistance, freshWaterAt } from './terrain.js';
+import { heightAt, isLand, coastDistance, freshWaterAt, landAt, slopeAt, moistureAt, forestAt, TREELINE } from './terrain.js';
 import { caveAt } from './caves.js';
 import { ModelLibrary, playState, driveGait } from './models.js';
+import { MOTION, prepareDino, poseDino } from './dinopose.js';
 
 const TAU = Math.PI * 2;
 const DRAW_RANGE = 240;
@@ -18,7 +19,7 @@ const CORPSE_TIME = 35;        // seconds a kill lies where it fell
 const STEER_EVERY = 0.2;       // seconds between an animal's look-aheads
 const MAX_SLOPE = 0.5;         // steeper than this is a cliff to an animal
 const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
-const STATES = ['wander', 'graze', 'rest', 'hunt', 'flee', 'feed'];
+const STATES = ['wander', 'graze', 'rest', 'hunt', 'flee', 'feed', 'defend'];
 const approach = (v, goal, step) => v < goal ? Math.min(goal, v + step) : Math.max(goal, v - step);
 
 // How high each body stands is measured from the finished model at build time
@@ -31,38 +32,116 @@ const liftOf = a => (a.rig.model ? a.rig.stand : a.rig.stand * a.sp.scale);
 
 export const SPECIES = {
   sauropod: {
-    label: 'Sauropod', count: 5, diet: 'plants', scale: 3.0,
-    speed: 2.2, walk: 1.1, accel: 0.35, turn: 0.32, sight: 40, hp: 400, flee: 26,
+    label: 'Sauropod', habitat: 'the araucaria woods and their edges, the river corridors and lakeshores, the gentle hills; a herd round a leader', count: 5, diet: 'plants', scale: 3.0,
+    speed: 2.0, walk: 1.1, accel: 0.35, turn: 0.32, sight: 40, hp: 400, flee: 26,
     body: 0x6b7a58, belly: 0x93a279,
     build: { legs: 4, neck: 3.4, tail: 3.6, head: 0.55, plates: false, crest: false, arms: null },
   },
   stegosaur: {
-    label: 'Stegosaur', count: 5, diet: 'plants', scale: 1.5,
-    speed: 1.9, walk: 0.6, accel: 0.8, turn: 0.7, sight: 34, hp: 200, flee: 22,
+    label: 'Stegosaur', habitat: 'open fern plain and river flats near water, the forest edges; small groups', count: 5, diet: 'plants', scale: 1.5,
+    speed: 1.5, walk: 0.8, accel: 0.8, turn: 0.7, sight: 34, hp: 200, flee: 22,
+    // Too slow to get away: it turns its tail on a hunter and swings the
+    // spikes sideways (an Allosaurus vertebra holds a healed thagomizer wound —
+    // Carpenter et al. 2005), rather than run.
+    defend: { range: 12, reach: 1.0, hit: 45 }, biteEvery: 2.2,
     body: 0x6d5f3c, belly: 0x9a8a5e,
     build: { legs: 4, neck: 0.7, tail: 2.4, head: 0.5, plates: true, crest: false, arms: null },
   },
   parasaur: {
-    label: 'Parasaur', count: 8, diet: 'plants', scale: 1.25, herd: true,
+    label: 'Parasaur', habitat: 'the river banks and lakes, the wet forest by them, the coastal lowland; herds round a leader', count: 8, diet: 'plants', scale: 1.25, herd: true,
     speed: 4.6, walk: 1.0, accel: 2.6, turn: 1.4, sight: 44, hp: 90, flee: 34,
     body: 0x8a7b52, belly: 0xc0ae7d,
     build: { legs: 4, neck: 1.2, tail: 2.2, head: 0.55, plates: false, crest: true, arms: null },
   },
   raptor: {
-    label: 'Raptor', count: 6, diet: 'meat', scale: 0.95, pack: true,
+    label: 'Raptor', habitat: 'the forest edge, drier araucaria woodland, the edges of the fern plains, broken ground; loose mobs', count: 6, diet: 'meat', scale: 0.95, pack: true,
     speed: 4.6, walk: 0.8, accel: 4.5, turn: 2.4, sight: 40, hp: 70,
     damage: 6, reach: 2.4, biteEvery: 1.7, giveUp: 60,
     body: 0x8a5a33, belly: 0xc2a071,
     build: { legs: 2, neck: 0.9, tail: 2.0, head: 0.7, plates: false, crest: false, arms: 'raptor', sickle: true },
   },
   tyrannosaur: {
-    label: 'Tyrannosaur', count: 2, diet: 'meat', scale: 2.1,
+    label: 'Tyrannosaur', habitat: 'the river margins, the forest edges and the open plain; alone, or a pair', count: 2, diet: 'meat', scale: 2.1,
     speed: 4.4, walk: 1.3, accel: 1.8, turn: 0.9, sight: 52, hp: 320,
     damage: 26, reach: 4.2, biteEvery: 2.6, giveUp: 90,
     body: 0x55483a, belly: 0x8a7a63,
     build: { legs: 2, neck: 1.1, tail: 2.8, head: 1.25, plates: false, crest: false, arms: 'tiny' },
   },
 };
+
+// ── where each lives ─────────────────────────────────────────────────────────
+// Where on the continent each one is at home, from where its fossils lie and
+// what it ate (a research summary, with sources, is in the README):
+//
+//   tyrannosaur  everywhere its prey is — no preference between river-channel
+//                and floodplain beds (Lyson & Longrich 2011) — so the river
+//                margins, the forest edges and the open plain; never the
+//                mountains; alone, or a pair.
+//   raptor       dromaeosaurs came from dune margins, deltas and forested
+//                plains alike: at home on the forest edge, in drier araucaria
+//                woodland and the edges of the fern plains, and the one that
+//                will go up onto broken ground; loose mobs, not packs (Roach &
+//                Brinkman 2007).
+//   parasaur     hadrosaurs keep to the coasts and the river channels (15:1 in
+//                channel sands, Lyson & Longrich; Butler & Barrett 2008): the
+//                river banks and lakes, the wet riparian forest, the coastal
+//                lowland; water-bound; herds of mixed ages.
+//   stegosaur    the Morrison's seasonally green floodplain: open fern plain
+//                and river floodplain near water, the forest edges; low
+//                feeder; small groups (the only stegosaur herd trackways,
+//                Cobos et al. 2024).
+//   sauropod     high browsers of the conifers, ranging far from the rivers
+//                and back (Engelmann et al. 2004): dry araucaria forest and
+//                its edges, the river corridors and lakeshores, the gentle
+//                hills; herds (Purgatoire trackways).
+//
+// A site's score is how much the species likes it; where it is placed, and
+// where it wanders to next, is weighted by it. Nothing lives on cliffs, up on the
+// cloud-forest tops of the range, or in caves.
+const near = (d, r) => Math.exp(-Math.max(0, d) / r);
+const peak = (x, at, w) => Math.max(0, 1 - Math.abs(x - at) / w);
+const HABITAT = {
+  tyrannosaur: s => 0.3 + near(s.edge, 90) * 1.3 + s.edgeForest * 0.8 + s.open * 0.5 + s.beach * 0.3 - s.closed * 0.6,
+  raptor:      s => 0.3 + s.edgeForest * 1.0 + s.dryForest * 0.8 + s.open * (1 - s.wet) * 0.5 + near(s.edge, 40) * 0.4 +
+                    s.mesa * 0.3 - s.beach * 0.5,
+  parasaur:    s => 0.1 + near(s.edge, 25) * 1.6 + s.wetForest * 0.9 + s.beach * 0.5 + s.open * near(s.edge, 80) * 0.4 -
+                    s.upland * 0.8,
+  stegosaur:   s => 0.2 + s.open * 0.8 + near(s.edge, 90) * 1.5 + s.edgeForest * 0.6 + s.beach * 0.3 - s.closed * 0.8 -
+                    s.upland * 0.6,
+  sauropod:    s => 0.2 + s.dryForest * 1.1 + s.edgeForest * 0.8 + near(s.edge, 80) * 0.7 + s.open * 0.4 +
+                    peak(s.h, 60, 50) * 0.4 - s.closed * s.wet * 0.6,
+};
+/** How steep a species will go: the raptor alone takes to broken ground. */
+const SURE = { raptor: 0.42, tyrannosaur: 0.25, parasaur: 0.25, stegosaur: 0.22, sauropod: 0.24 };
+/** How many keep together: tyrannosaurs alone; raptor mobs; herds. */
+const GROUP = { tyrannosaur: 1, raptor: 3, parasaur: 8, stegosaur: 3, sauropod: 5 };
+
+/** What kind of country (x, z) is, for the habitat scores. */
+function siteAt(x, z) {
+  const L = landAt(x, z);
+  const slope = slopeAt(x, z);
+  const wet = Math.min(1, moistureAt(x, z) + 0.35 * Math.max(0, Math.min(1, (90 - L.river) / 80)));
+  const forest = forestAt(x, z, L, wet, slope);
+  return {
+    h: L.h, slope, wet, forest, edge: L.edge, mesa: L.mesa,
+    open: Math.max(L.plain, 1 - forest * 1.4),
+    closed: Math.max(0, (forest - 0.6) / 0.4),
+    edgeForest: peak(forest, 0.4, 0.35),
+    dryForest: forest * (1 - wet),
+    wetForest: forest * wet,
+    beach: L.m < 45 && L.h < 5 ? 1 : 0,
+    upland: Math.max(0, Math.min(1, (L.h - 60) / 60)),
+    cliff: L.cliff, mountain: L.mountain,
+  };
+}
+
+/** How much a species likes (x, z): 0 where it will not go at all. */
+function habitat(key, x, z) {
+  const s = siteAt(x, z);
+  if (s.h < 1.5 || s.h > TREELINE - 15 || s.mountain > 0.5 || s.cliff > 0.3 || s.slope > (SURE[key] ?? 0.3)) return 0;
+  if (s.edge < 0.5) return 0;                                    // not in the water itself
+  return Math.max(0.02, (HABITAT[key]?.(s) ?? 0.5) * (1 - s.slope / (SURE[key] ?? 0.3) * 0.5));
+}
 
 // ── body ─────────────────────────────────────────────────────────────────────
 function buildBody(sp) {
@@ -335,6 +414,7 @@ export class Wildlife {
           if (a.key !== key) continue;
           try {
             const rig = this.library.instantiate(entry, a.rig.length * a.sp.scale);
+            prepareDino(rig);
             this.scene.remove(a.rig.group);
             this.scene.add(rig.group);
             rig.group.visible = a.rig.group.visible;
@@ -355,6 +435,10 @@ export class Wildlife {
   spawn(key, sp) {
     const rig = buildBody(sp);
     this.scene.add(rig.group);
+    // Every GROUP[key]-th of a kind leads; the rest keep with it.
+    const same = this.all.filter(o => o.key === key);
+    const size = GROUP[key] || 1;
+    const leader = same.length % size === 0 ? null : same[same.length - (same.length % size)];
     const a = {
       key, sp, rig,
       pos: new THREE.Vector3(),
@@ -367,6 +451,7 @@ export class Wildlife {
       // its own so a herd does not walk in lockstep.
       yawVel: 0, pitch: 0, roll: 0, y: 0, pace: rnd(0.85, 1.15),
       steerAt: Math.random() * STEER_EVERY, avoid: 0, corpse: 0,
+      leader, thirst: rnd(60, 300), drinkAt: null,
     };
     this.measure(a);
     this.place(a);
@@ -375,18 +460,58 @@ export class Wildlife {
     return a;
   }
 
-  /** Put an animal somewhere inland and walkable. */
+  /**
+   * Put an animal where its kind lives: with its group, if it keeps one, and
+   * otherwise at a spot drawn by how well it suits the species (habitat()),
+   * so they are commonest where they belong and still turn up elsewhere.
+   */
   place(a) {
-    for (let i = 0; i < 200; i++) {
-      const ang = Math.random() * TAU;
-      const r = rnd(20, 330);
-      const x = this.home.x + Math.cos(ang) * r;
-      const z = this.home.z + Math.sin(ang) * r;
-      if (coastDistance(x, z) < 12) continue;
-      const h = heightAt(x, z);
-      if (h > 2.5 && h < 95) { a.pos.set(x, h, z); return; }
+    const lead = a.leader && !a.leader.dead ? a.leader : null;
+    if (lead) {
+      for (let i = 0; i < 40; i++) {
+        const ang = Math.random() * TAU, r = rnd(4, 16);
+        const x = lead.pos.x + Math.cos(ang) * r, z = lead.pos.z + Math.sin(ang) * r;
+        if (this.footing(x, z)) { a.pos.set(x, heightAt(x, z), z); return; }
+      }
+    }
+    const picks = [];
+    let total = 0;
+    for (let i = 0; i < 90; i++) {
+      const ang = Math.random() * TAU, r = rnd(20, 380);
+      const x = this.home.x + Math.cos(ang) * r, z = this.home.z + Math.sin(ang) * r;
+      if (!this.footing(x, z)) continue;
+      const w = habitat(a.key, x, z) ** 2;
+      if (w > 0) { picks.push([x, z, w]); total += w; }
+    }
+    let pick = Math.random() * total;
+    for (const [x, z, w] of picks) {
+      if ((pick -= w) <= 0) { a.pos.set(x, heightAt(x, z), z); return; }
     }
     a.pos.set(this.home.x, heightAt(this.home.x, this.home.z), this.home.z);
+  }
+
+  /** Somewhere to drink from: a river bank or a lake shore, the nearest it can walk to, up to half a kilometre off. */
+  waterNear(a) {
+    for (let d = 15; d <= 480; d += d < 240 ? 15 : 30) {
+      const off = Math.random() * TAU;
+      for (let k = 0; k < 16; k++) {
+        const ang = off + (k / 16) * TAU;
+        const x = a.pos.x + Math.cos(ang) * d, z = a.pos.z + Math.sin(ang) * d;
+        const L = landAt(x, z);
+        if (L.edge > 0.5 && L.edge < 3 && this.footing(x, z) && this.walkable(a.pos.x, a.pos.z, x, z)) return { x, z };
+      }
+    }
+    return null;
+  }
+
+  /** Can it get from one spot to the other in a straight line without wading anything deep — not across the river to the far bank? */
+  walkable(x0, z0, x1, z1) {
+    const d = Math.hypot(x1 - x0, z1 - z0), n = Math.ceil(d / 3);
+    for (let i = 1; i < n; i++) {
+      const w = freshWaterAt(x0 + (x1 - x0) * i / n, z0 + (z1 - z0) * i / n);
+      if (w && w.depth > 0.5) return false;
+    }
+    return true;
   }
 
   /** Body length, width and radius, from whichever body it has now. */
@@ -406,9 +531,12 @@ export class Wildlife {
     // Not out into a lake or a river past their knees.
     const w = freshWaterAt(x, z);
     if (w && w.depth > 0.5) return false;
+    return this.steepness(x, z) < MAX_SLOPE * 1.1;
+  }
+
+  steepness(x, z) {
     const e = 2;
-    const slope = Math.hypot(heightAt(x + e, z) - heightAt(x - e, z), heightAt(x, z + e) - heightAt(x, z - e)) / (2 * e);
-    return slope < MAX_SLOPE * 1.1;
+    return Math.hypot(heightAt(x + e, z) - heightAt(x - e, z), heightAt(x, z + e) - heightAt(x, z - e)) / (2 * e);
   }
 
   /**
@@ -421,7 +549,11 @@ export class Wildlife {
     const reach = a.radius + 2.5 + Math.abs(a.speed) * 1.8;
     const solids = this.terrain ? this.terrain.solidsNear(a.pos.x, a.pos.z, reach + 4, this._near) : [];
     let best = 0, bestCost = Infinity;
-    for (const off of [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6]) {
+    // (Fleeing, and cornered — the water, a drop — it will bolt along the
+    // bank rather than stand there; never back toward the hunter.)
+    const offs = a.state === 'flee' ? [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6, 1.9, -1.9, 2.2, -2.2]
+                                    : [0, 0.35, -0.35, 0.7, -0.7, 1.1, -1.1, 1.6, -1.6];
+    for (const off of offs) {
       const dir = want + off;
       const dx = Math.sin(dir), dz = Math.cos(dir);
       let cost = Math.abs(off) * 1.2 + (Math.sign(off) !== Math.sign(a.avoid) && off ? 0.4 : 0);
@@ -443,27 +575,89 @@ export class Wildlife {
     a.blocked = bestCost >= 20;
   }
 
+  /**
+   * Where to wander next. Down to the water every few minutes, to drink; with
+   * the group, for those that keep one; otherwise the best of a few spots
+   * round about for its kind, with a little chance in it so it does not
+   * march to one spot and stay.
+   */
   roam(a) {
-    const ang = Math.random() * TAU;
-    const r = rnd(12, 55);
-    let x = a.pos.x + Math.cos(ang) * r;
-    let z = a.pos.z + Math.sin(ang) * r;
-    if (!this.footing(x, z) || heightAt(x, z) > 100) {
-      x = a.pos.x + (this.home.x - a.pos.x) * 0.4;
-      z = a.pos.z + (this.home.z - a.pos.z) * 0.4;
+    // Thirsty: to the water's edge, and stand there a while with the head down.
+    if (a.thirst <= 0 && !a.drinkAt) {
+      a.drinkAt = this.waterNear(a);
+      if (!a.drinkAt) a.thirst = rnd(60, 120);
+      // (Time enough to walk there, with the stops on the way; then it gives up for now.)
+      else a.drinkLimit = 60 + Math.hypot(a.drinkAt.x - a.pos.x, a.drinkAt.z - a.pos.z) / a.sp.walk * 1.8;
     }
-    a.target.set(x, 0, z);
+    if (a.drinkAt && a.drinkFor > (a.drinkLimit || 180)) { a.drinkAt = null; a.drinkFor = 0; a.thirst = rnd(40, 100); }
+    if (a.drinkAt) {
+      // There, or at the water's edge anywhere on the way: that will do.
+      const edge = landAt(a.pos.x, a.pos.z).edge;
+      if ((edge > -0.5 && edge < 3.5) || Math.hypot(a.pos.x - a.drinkAt.x, a.pos.z - a.drinkAt.z) < 1.5) {
+        a.drinkAt = null;
+        a.drinkFor = 0;
+        a.thirst = rnd(180, 420);
+        a.state = 'graze';
+        a.drinking = true;             // head down to the water (dinopose.js), even a sauropod's
+        a.timer = rnd(8, 14);
+        a.drinkUntil = this.clock + a.timer;   // (its own clock: a hunter's timer is its prey-scan's too)
+        a.target.set(a.pos.x, 0, a.pos.z);
+      } else a.target.set(a.drinkAt.x, 0, a.drinkAt.z);
+      return;
+    }
+    const lead = a.leader && !a.leader.dead ? a.leader : null;
+    if (lead) {
+      // Keep with the group: somewhere near where the leader is going.
+      const c = lead.target && lead.state !== 'rest' ? lead.target : lead.pos;
+      for (let i = 0; i < 6; i++) {
+        const ang = Math.random() * TAU, r = rnd(3, 16);
+        const x = c.x + Math.cos(ang) * r, z = c.z + Math.sin(ang) * r;
+        if (this.footing(x, z) && this.walkable(a.pos.x, a.pos.z, x, z)) { a.target.set(x, 0, z); return; }
+      }
+    }
+    // A hunter goes where the herds are, now and then: toward one it could
+    // walk to, stopping short of it — the hunt itself is sight's to start.
+    if (a.sp.diet === 'meat' && Math.random() < 0.35) {
+      const herds = this.all.filter(q => !q.dead && q.sp.diet === 'plants' && !(a.sp.scale < 1.5 && q.sp.scale >= 1.5) &&
+                                         Math.hypot(q.pos.x - a.pos.x, q.pos.z - a.pos.z) < 400);
+      const fits = herds.filter(q => q.sp.scale <= a.sp.scale), pool = fits.length ? fits : herds;
+      const q = pool[Math.floor(Math.random() * pool.length)];
+      if (q) {
+        const d = Math.hypot(q.pos.x - a.pos.x, q.pos.z - a.pos.z), stop = rnd(20, 40);
+        const k = Math.max(0, (d - stop) / d), x = a.pos.x + (q.pos.x - a.pos.x) * k, z = a.pos.z + (q.pos.z - a.pos.z) * k;
+        if (this.footing(x, z) && this.walkable(a.pos.x, a.pos.z, x, z)) { a.target.set(x, 0, z); return; }
+      }
+    }
+    const far = a.key === 'sauropod' ? 90 : 55;
+    let best = null, bestScore = -1;
+    for (let i = 0; i < 6; i++) {
+      const ang = Math.random() * TAU, r = rnd(12, far);
+      const x = a.pos.x + Math.cos(ang) * r, z = a.pos.z + Math.sin(ang) * r;
+      // (Somewhere on its own side of the water: it does not wade a river.)
+      if (!this.footing(x, z) || !this.walkable(a.pos.x, a.pos.z, x, z)) continue;
+      // Drawn back toward the home range if it has strayed far out of it.
+      const out = Math.max(0, Math.hypot(x - this.home.x, z - this.home.z) - 420) / 200;
+      const score = habitat(a.key, x, z) - out + Math.random() * 0.35;
+      if (score > bestScore) { bestScore = score; best = [x, z]; }
+    }
+    if (!best) best = [a.pos.x + (this.home.x - a.pos.x) * 0.4, a.pos.z + (this.home.z - a.pos.z) * 0.4];
+    a.target.set(best[0], 0, best[1]);
   }
 
   /** Nearest thing a predator would eat: any herbivore, or the player. */
   findPrey(hunter, player, playerHuntable) {
     let best = null, bestD = hunter.sp.sight;
     for (const a of this.all) {
-      if (a.dead || a === hunter || a.sp.diet !== 'plants' || (hunter.shun?.prey === a && this.clock < hunter.shun.until)) continue;
+      if (a.dead || a === hunter || a.sp.diet !== 'plants' ||
+          ((hunter.shun?.prey === a || hunter.shun?.kind === a.key) && this.clock < hunter.shun.until)) continue;
       const d = Math.hypot(a.pos.x - hunter.pos.x, a.pos.z - hunter.pos.z);
-      // Big game is worth chasing further, but a raptor will not take on a sauropod.
-      if (hunter.sp.scale < 1.5 && a.sp.scale > 2.2) continue;
-      if (d < bestD) { bestD = d; best = a; }
+      // Big game is worth chasing further, but a raptor takes on nothing its
+      // size or more: not a sauropod, and not an armoured stegosaur's tail.
+      if (hunter.sp.scale < 1.5 && a.sp.scale >= 1.5) continue;
+      // And anything bigger than itself — a grown sauropod, to a tyrannosaur —
+      // only if it is right there: a hunter takes what it can bring down.
+      const cost = d * (a.sp.scale > hunter.sp.scale ? 2.5 : 1);
+      if (cost < bestD) { bestD = cost; best = a; }
     }
     // A person is prey too, if they are on land — you, or any of the others.
     let who = null, whoD = bestD * 0.85;
@@ -530,12 +724,12 @@ export class Wildlife {
   }
 
   // ── playing together ───────────────────────────────────────────────────────
-  /** Every animal: [x, z, heading, speed, state, dead, striking], in the same order everywhere. */
+  /** Every animal: [x, z, heading, speed, state, dead, striking, drinking], in the same order everywhere. */
   snapshot() {
     const r = (v, k = 10) => Math.round(v * k) / k;
     return this.all.map(a => [r(a.pos.x), r(a.pos.z), r(a.heading, 100), r(a.speed),
                               STATES.indexOf(a.state), a.dead ? 1 : 0,
-                              a.bite > a.sp.biteEvery - 0.5 ? 1 : 0]);
+                              a.bite > a.sp.biteEvery - 0.5 ? 1 : 0, a.drinking ? 1 : 0]);
   }
 
   /** The host's animals, as they were a moment ago; shadow() carries them on from there. */
@@ -544,9 +738,10 @@ export class Wildlife {
     list.forEach((st, i) => {
       const a = this.all[i];
       if (!a || !Array.isArray(st)) return;
-      const [x, z, h, speed, state, dead, strike] = st;
+      const [x, z, h, speed, state, dead, strike, drink] = st;
       a.net = { x, z, h, speed, strike, at: now };
       a.state = STATES[state] || 'wander';
+      a.drinking = !!drink;               // (the head down to the water, and a sauropod's neck with it)
       if (dead && !a.dead) {
         a.dead = true;
         a.speed = 0;
@@ -601,6 +796,25 @@ export class Wildlife {
   think(a, dt, player, playerOnLand) {
     const sp = a.sp;
     a.timer -= dt;
+    a.thirst -= dt;
+    // Wounds mend, over five minutes or so, between one fight and the next.
+    if (a.hp < a.sp.hp) a.hp = Math.min(a.sp.hp, a.hp + a.sp.hp * dt / 300);
+    if (a.drinkAt) {
+      a.drinkFor = (a.drinkFor || 0) + dt;
+      // On its way down to drink, it stops at the first water it comes to.
+      if (a.state === 'wander' && (a.drinkLook = (a.drinkLook || 0) - dt) <= 0) {
+        a.drinkLook = 1;
+        const e = landAt(a.pos.x, a.pos.z).edge;
+        if (e > -0.5 && e < 3.5) this.roam(a);
+      }
+    }
+    if (a.drinking && a.state !== 'graze') a.drinking = false;
+    if (a.drinking && this.clock > a.drinkUntil) {
+      a.drinking = false;
+      a.state = 'wander';
+      a.timer = rnd(6, 14);
+      this.roam(a);
+    }
     if (a.bite > 0) a.bite -= dt;
 
     if (sp.diet === 'meat' && a.state !== 'feed') {
@@ -651,19 +865,50 @@ export class Wildlife {
       }
     } else {
       const threat = this.threatNear(a);
-      if (threat) { a.state = 'flee'; a.threat = threat.pred; }
-      else if (a.state === 'flee') { a.state = 'wander'; a.threat = null; }
+      if (threat && sp.defend && threat.dist < sp.defend.range) { a.state = 'defend'; a.threat = threat.pred; this.defend(a, threat); }
+      else if (threat) { a.state = 'flee'; a.threat = threat.pred; }
+      else if (a.state === 'flee' || a.state === 'defend') { a.state = 'wander'; a.threat = null; }
     }
 
     if (a.state === 'feed' && a.timer <= 0) { a.state = 'wander'; a.timer = rnd(3, 8); this.roam(a); }
     if (a.state === 'wander' && a.timer <= 0) {
       // Grazers stop to feed; everything stops now and then to stand and look.
-      const r = Math.random();
+      // (Not on its way down to drink: it goes straight there.)
+      const r = a.drinkAt ? 1 : Math.random();
       a.state = sp.diet === 'plants' && r < 0.45 ? 'graze' : r < 0.6 ? 'rest' : 'wander';
       a.timer = a.state === 'wander' ? rnd(6, 14) : rnd(4, 10);
       this.roam(a);
     }
     if ((a.state === 'graze' || a.state === 'rest') && a.timer <= 0) { a.state = 'wander'; a.timer = rnd(6, 14); this.roam(a); }
+  }
+
+  /**
+   * Standing its ground: the tail to the hunter, and — once it is behind, and
+   * within the tail's reach — a swing. A hit hurts, and sends it off for a while.
+   */
+  defend(a, threat) {
+    const t = threat.pred, sp = a.sp;
+    const bx = -Math.sin(a.heading), bz = -Math.cos(a.heading);      // the way the tail points
+    const dx = (t.pos.x - a.pos.x) / threat.dist, dz = (t.pos.z - a.pos.z) / threat.dist;
+    const behind = bx * dx + bz * dz > 0.55;
+    // (Only at one that is coming for it: a hunter already struck and
+    // backing off is let go, not struck again and again as it turns away.)
+    if (behind && t.state === 'hunt' && threat.dist < a.len * sp.defend.reach + t.radius && a.bite <= 0) {
+      a.bite = sp.biteEvery;
+      t.hp -= sp.defend.hit;
+      t.shun = { prey: a, kind: a.key, until: this.clock + 90 };   // (once struck, a hunter leaves that kind be a good while)
+      t.state = 'wander'; t.prey = null; t.nearest = undefined;
+      t.timer = rnd(4, 8);
+      // And it backs off, well away from the tail.
+      const ax = t.pos.x + dx * 30, az = t.pos.z + dz * 30;
+      if (this.footing(ax, az)) t.target.set(ax, 0, az); else this.roam(t);
+      if (t.hp <= 0) {
+        t.dead = true; t.speed = 0;
+        t.corpse = CORPSE_TIME; t.respawn = CORPSE_TIME + rnd(20, 80);
+        if (t.rig.model) playState(t.rig, 'death', 0.2);
+        this.kills.push({ hunter: sp.label, victim: t.sp.label, pos: t.pos.clone() });
+      }
+    }
   }
 
   wound(hunter, victim) {
@@ -702,6 +947,10 @@ export class Wildlife {
     } else if (a.state === 'flee' && a.threat) {
       want = Math.atan2(a.pos.x - a.threat.pos.x, a.pos.z - a.threat.pos.z);
       goal = sp.speed;
+    } else if (a.state === 'defend' && a.threat) {
+      // Pivot on the spot, the tail toward the threat (facing away from it).
+      want = Math.atan2(a.pos.x - a.threat.pos.x, a.pos.z - a.threat.pos.z);
+      goal = Math.abs(wrap(want - a.heading)) > 0.5 ? sp.walk * 0.35 : 0;
     } else if (a.state === 'feed' && a.feedAt) {
       const dx = a.feedAt.x - a.pos.x, dz = a.feedAt.z - a.pos.z, d = Math.hypot(dx, dz);
       want = Math.atan2(dx, dz);
@@ -741,7 +990,11 @@ export class Wildlife {
     if (a.speed > 0.01) {
       const nx = a.pos.x + Math.sin(a.heading) * a.speed * dt;
       const nz = a.pos.z + Math.cos(a.heading) * a.speed * dt;
-      if (this.footing(nx, nz) && heightAt(nx, nz) < 105) { a.pos.x = nx; a.pos.z = nz; }
+      // (A step no steeper than where it stands is always all right: on ground
+      // right at the limit, the test would flicker and hold it there for good.)
+      const ok = this.footing(nx, nz) ||
+        (this.steepness(nx, nz) <= this.steepness(a.pos.x, a.pos.z) + 0.01 && coastDistance(nx, nz) >= 8 && !(freshWaterAt(nx, nz)?.depth > 0.5));
+      if (ok && heightAt(nx, nz) < 105) { a.pos.x = nx; a.pos.z = nz; }
       else { a.speed *= 0.5; a.steerAt = 0; if (a.state === 'wander') this.roam(a); }
     }
     // Never inside a trunk or a rock, whatever the steering missed.
@@ -794,9 +1047,13 @@ export class Wildlife {
         return;
       }
       const alert = a.state === 'hunt' || a.state === 'flee' ? 1 : 0;
+      const m = MOTION[a.key] || {};
       driveGait(rig, a.speed, dt, {
         alert, attack: !!rig.actions.attack && a.bite > sp.biteEvery - 0.5,
+        run: m.run !== false, maxRate: m.maxRate, maxStride: m.maxStride,
       });
+      // What the clips get wrong about the animal, put right (dinopose.js).
+      poseDino(a, dt, time);
       return;
     }
     if (a.dead) return;

@@ -24,12 +24,13 @@ And roughly **80 metres off the bow there is land** — a continent, not an
 island, two and a half kilometres across. Swim for it and you come ashore on a
 beach under a wall of giant redwoods, fifty metres tall and three across at
 the foot, hung with vines, with tree ferns, cycads and ferns under them. Past
-the forest are open plains of waist-high grass, rivers cutting down to the
-sea over waterfalls and through lakes, stepped sandstone escarpments, sea cliffs with stacks standing off them,
-and in the middle a range of jagged peaks, snow on the tops, that you can see
-from the raft. It is inhabited: sauropods and stegosaurs
-browse the slopes, parasaur herds bolt at the first sign of trouble, raptors
-hunt in the treeline and a pair of tyrannosaurs work the high ground. They hunt
+the forest are open plains of waist-high fern, mountain streams stepping down to the
+sea over waterfalls and through lakes, stepped sandstone escarpments, sea cliffs with arches and stacks off their headlands,
+and in the middle a range of jagged peaks, cloud forest to the tops, that you can see
+from the raft. It is inhabited: sauropod herds browse the araucaria woods and
+the river corridors, stegosaurs graze the open ground near water, parasaur herds
+keep to the river banks and bolt at the first sign of trouble, raptors
+hunt the forest edges and a pair of tyrannosaurs work the rivers and clearings. They hunt
 *each other*, not just you — stand still long enough and you will hear a kill
 somewhere in the trees.
 
@@ -112,7 +113,7 @@ instead of a key per tool:
 | Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
 | Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes. Put away, it smoulders for 45 seconds and flares up again if you take it out in that time; after that it needs lighting again, keeping what it had left. The water puts it straight out |
 | Fire striker | nothing in hand — it works from the pack: `E` at an unlit campfire strikes a spark into it (1 Palm fibre for tinder), at once, and a torch lights anywhere |
-| Axe | a stroke at the tree, log, stump or bamboo on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
+| Axe | a stroke at the tree, log, stump or giant horsetail on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
 | Material, or nothing | nothing |
 
 Build mode is no longer a toggle: it is simply *holding the hammer*. Take out
@@ -254,6 +255,7 @@ pause screen starts over.
 | `src/waterfall.js` | The lakes' still water, cut to their shores, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
 | `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks. |
+| `src/dinopose.js` | How the dinosaurs move on top of their clips, put right from the palaeontology: gaits (no running T. rex or stegosaur), mouths shut, heads down to graze and feed, level tails, the sauropod's neck. |
 | `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
 | `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
 | `tools/build_fish.py` | Builds all fifteen sea-life bodies in Blender — each species' own face, textured skin (via `tools/fish_textures.py`), fins with rays, gills, eyes, every vertex tagged with its part for the swim shader — and exports them as one `.glb`. |
@@ -294,14 +296,21 @@ nothing lines up in rows:
 - **The coast** — a radial mask with headlands and bays swung round it by
   bearing. The sheltered side, where the raft is, is beach; the exposed side
   rises straight out of the sea as cliffs, 25–50 m high, with sea stacks
-  standing off them. Cliffs are kept 300 m and more from the raft, so the first
+  standing off them and cobble and shingle, not sand, at their feet (sand is
+  for the bays). Cliffs are kept 300 m and more from the raft, so the first
   landing is always sand.
 - **Hills and plains** — rolling fbm hills behind the beach, flattened in
-  places into wide plains of tall grass.
+  places into wide plains of fern thicket.
 - **Escarpments** — patches of harder rock stepped into flat benches and
   cliff risers (terracing), in sandstone.
 - **The range** — ridged multifractal noise deep inland, peaks near 400 m,
-  snow above ~250 m, bare rock above the treeline at ~190 m.
+  forested to the tops: above ~190 m the lowland forest gives way to a
+  stunted, dripping cloud forest of araucarias, tree ferns and moss, with bare
+  rock and scree only where it is too steep to hold soil. No snow and no bare
+  treeline: in the Late Cretaceous greenhouse, frostless in the lowlands, the
+  treeline stood somewhere around 2.5–4 km (from a ~6 °C growing-season
+  treeline, Körner & Paulsen, and Maastrichtian lowland temperatures, Wolfe &
+  Upchurch 1987) — ten times these peaks.
 - **Rivers** — two, each a curve in polar coordinates from a spring in the
   range to a mouth on the coast. Their water level is surveyed once from the
   land they cross (always a little under it, never rising downstream), and
@@ -309,6 +318,18 @@ nothing lines up in rows:
   banked into a flood plain across hollows. The first reaches the sea about
   200 m up the coast from the landing beach. The water is a ribbon at the
   surveyed level, flowing, reflecting the sky; you wade it, about a metre deep.
+  They are sized as rivers are: a channel widens downstream as the land it
+  drains, to the ~0.4 power of the area (Leopold & Maddock 1953; Hack's law
+  for the area), so from ~3 m at the spring to 11–12 m at the mouth — about
+  what a few square kilometres of wet catchment makes — and deepens more
+  slowly. And they are mountain streams: coming ~90 m down in ~550 m, they
+  fall ~20% most of the way, so they do not meander (that takes under ~1.5%,
+  Leopold & Wolman 1957) but run straight in their valleys as a **staircase
+  of pools** — each held up by a step at its lip, the water dropping a metre
+  or three over it into the next, the steps one to two channel widths apart
+  (step-pool and cascade reaches, Montgomery & Buffington 1997). The pools are
+  sunk into the valley floor, so the banks you walk along keep the smooth
+  fall of the valley.
 - **Waterfalls and lakes** (`placeWater` in `terrain.js`, drawn by
   `src/waterfall.js`) — where each river comes off the range fastest, it goes
   over a lip and drops, sheer, up to 22 m: a notch cut through the rock across
@@ -320,11 +341,24 @@ nothing lines up in rows:
   layers of foam turning against each other, a trail of it carried off
   downstream — droplets are flung up out of the impact, and spray boils off
   it all and drifts away. Above each fall the river is
-  flattened into a **tarn** that spills over the lip; below it is the
-  **plunge pool** it has dug. Lower down, where the first river falls least,
-  it widens into a **lake** on the plain, with a wobbled, sandy shore. All of
-  it is wading water — chest deep at most — so the reeds, horsetails and
-  bamboo of the river banks grow round the shores too, and dinosaurs keep
+  flattened into a **lake held back by the rock of the lip**, spilling over it
+  (the code calls it a tarn; a true tarn is a glacier's, and there were
+  none), the stream coming down into it over a cascade of short steps, not
+  off a ledge — and the river's water runs right to the lip across the whole
+  curtain, which is as wide as the channel where it crosses the cliff; beside
+  it the banks stand at the water's height to the brink, a ledge of rock
+  either side, before the valley sides fall away at a talus slope's ~36°;
+  below it is the
+  **plunge pool** it has dug, as wide as about half the drop (Scheingross &
+  Lamb 2016), its back straight along the foot of the cliff and wider than
+  the curtain, so the fall lands in water all the way across. Lower down, where the first river falls least,
+  it widens into a **lake** on the plain, with a wobbled, sandy shore. Where a
+  river comes into a lake it drops what it carries: a **delta**, a
+  shallow flat out into the water at the inflow. Every lake is on its river,
+  so each has an outlet at its lowest point — in a climate this wet none
+  would be closed. All of
+  it is wading water — chest deep at most — so the cattails, horsetails and
+  giant horsetails of the river banks grow round the shores too, and dinosaurs keep
   out of it past their knees; wading slows you, the deeper the more (the
   badge says how deep). The top of a fall is a walk round, up the valley
   side; step off the lip and you fall into the pool — walking off any edge
@@ -335,11 +369,15 @@ nothing lines up in rows:
 - **Caves and overhangs** (`src/caves.js`) — what a heightfield cannot be.
   Found once, from the land itself, the same on every machine:
   - **Caves** (8), at the foot of the cliffs inland — none by the landing
-    beach. A mouth under a hood of rock, a tunnel three metres wide winding
-    twenty-odd metres back into the hill, and a chamber at the end with
-    stalactites, and a **spring pool** in it to drink from (**E**). Past the
-    first few metres it is black: the daylight — sun, moon and sky — falls
-    away with how far in you are, and only a **torch** lights it. Low on the
+    beach. A mouth under a hood of rock — an **alcove**, wider and higher
+    than the passage, where the seep that made the cave has sapped the cliff
+    foot back — then a tunnel three metres wide that doglegs and winds
+    twenty-odd metres back into the hill, to a chamber with a **spring pool** in
+    it to drink from (**E**). The floor is sand, with blocks fallen from the
+    roof heaped against the walls: a cave in sandstone widens by its roof
+    coming down, and grows no stalactites — those are limestone's. Round the
+    dogleg it is black: the daylight — sun, moon and sky — falls away with how
+    far in you are, and only a **torch** lights it. Low on the
     walls, deep in, is **flint** (**E** chips it out; it comes back in a
     while) — and one face of it a few metres in from the mouth, still in the
     daylight, so that someone who came without a torch can make a fire
@@ -349,8 +387,13 @@ nothing lines up in rows:
     the arch of the mouth, and at the back is a shingle beach to climb out
     on, flint in the walls. The sea inside is as dark as the rock — and it
     puts a torch out.
-  - **Sea arches** (3), in the shallows off the cliffs, to swim or sail
-    under; their legs are solid to you and to the raft.
+  - **Sea arches** (4), off the headlands: one foot in the cliff, one out in
+    the sea, the way under them along the shore. That is how a sea arch
+    comes to be — the waves working into a headland from both sides cut a
+    cave through it, and what is left over the cave is the arch (its seaward
+    foot, when it falls, a stack) — so they stand only where the coast juts
+    out and the cliff behind is as high as they are. Swim or sail under; their
+    legs are solid to you and to the raft.
   - **Rock shelves** (11), ledges out from the lips of the cliffs, to walk
     out onto or under.
 
@@ -376,7 +419,8 @@ the raft.
 
 The ground's colour comes from what the land is — sand, straw on the plains,
 leaf litter and moss under the canopy, mud and pebbles on the river banks,
-sandstone on the escarpments, rock, scree and snow up high — and `detail.js`
+sandstone on the escarpments, cobbles under the sea cliffs, moss on the misty
+tops with rock and scree where they are steep — and `detail.js`
 adds grain, blotches and relief in world space on top, triplanar on the
 steep faces.
 
@@ -385,20 +429,54 @@ steep faces.
 Everything that grows is in `flora.js`, built the way a real plant is: a
 trunk that flares into buttresses at the ground, branches, and foliage on the
 branches — not geometry but **painted cards**, cut-outs from one leaf atlas
-painted at load time (needle sprays, araucaria ropes, fern and cycad fronds,
-grass, reeds, vine strands). The species are the Mesozoic's, since the
+painted at load time (needle sprays, araucaria ropes shingled in pointed
+scales, glossy leathery broad leaves with their midribs, fern and cycad
+fronds, forked Gleichenia fronds, spike-moss, cattails, magnolia flowers —
+cream cups round a cone of carpels —, palm fans, vine strands). Bark is
+painted too, one kind per kind of trunk, each a relief for the light and the
+normal map: the redwood's deep fibrous furrows, the araucaria's grey flaking
+plates ringed by old branch scars, the palm's leaf-scar rings, the tree
+fern's matted root mantle, the cycad's diamond-set leaf bases, and smooth,
+lenticelled bark for the magnolias, shrubs and horsetail canes (`bark` on
+each species). The species are the Mesozoic's, since the
 animals are:
 
 | | |
 |---|---|
 | Canopy | **giant redwoods** (~55 m, buttressed, crowns in the top half, some hung with vines) and **araucarias** (monkey puzzles: a tall grey trunk under a flat umbrella crown) |
-| Understorey | **tree ferns**, **cycads**, **shrubs**, stands of **giant horsetail** and groves of **bamboo** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
-| Ground | **ferns** thick on the forest floor; **grass** in the open, **tall grass** on the plains, **reeds** at the water |
+| Understorey | **tree ferns** (their bases flared with roots, a skirt of dead fronds), **cycads** (stiff upturned leaves round a cone, the trunk armoured in old leaf bases), **shrubs**, clumps of **horsetail** and taller stands of **giant horsetail** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
+| Ground | **ferns** thick on the forest floor; **low ferns and spike-moss** in the open, **fern thickets** waist-high on the plains, **cattails** at the water |
 | Deadfall | **fallen logs** (mossy, snapped at one end, ferns growing out of them), **stumps** with their roots, **fallen branches** |
-| Rock | **boulders**, **crags** heaped on the slopes and escarpments, and **spires** — sea stacks and lone pillars on the plains |
+| Rock | **boulders**, **crags** heaped on the slopes and escarpments, and **spires** — sea stacks off the cliff coasts, and buttes out in front of the escarpments |
 
 Vines also hang down the steep faces — cliffs and escarpment risers — draped
 strand by strand down the rock.
+
+**Nothing that had not evolved yet.** There is no grass: grass was rare in
+the latest Cretaceous (a few phytoliths in titanosaur dung, Prasad et al.
+2005) and grasslands are ~26 million years younger; reeds are Eocene, bamboo
+Oligocene. So open ground is what it was then — ferns and spike-moss, about
+half the cover in a Late Cretaceous flora caught in ash (Wing et al. 1993) —
+the plains are Gleichenia-type fern thickets, the shallows cattails (their
+seeds are known from the Maastrichtian), and where bamboo would stand, giant
+horsetail, up to ~6 m (not the 20 m tree-horsetails of the Carboniferous).
+The ground is coloured to match: fern and moss green over dark soil, russet
+where the fronds die back on the dry plains, never a lawn. The flora as a
+whole is the Late Cretaceous's — the tyrannosaurs' — so the Jurassic
+stegosaurs and sauropods are its visitors. The coconuts adrift are the one
+stretch: the oldest *Cocos* fruit is from the very end of the Cretaceous, on a
+coast (Cocos binoriensis, Maastrichtian–Danian), which is when and where this
+is.
+
+**Each sways as it would.** A tree's sway is slower the taller it is — 0.1 to
+0.3 Hz for a big one (Moore & Maguire 2004) — and a shrub or a fern's much
+quicker, so the redwoods lean slowest of all and the ferns shiver; and leaves
+flutter as their kind does — broad leaves, palm fans and fern pinnae a lot, a
+cycad's rigid leaflets, an araucaria's scales and a horsetail's silica-stiff
+stems hardly at all (`aWind` in `flora.js`). The araucarias grow in tiers of
+level branches with daylight between them, their foliage in flat plates; the
+magnolias fork from two or three stems into a rounded crown, their flowers
+the size of a hand.
 
 Each species has a rule, `where(site)`, from what the land says the spot is:
 how wooded (moisture, shelter, the treeline, clearings), how wet, how steep,
@@ -408,10 +486,41 @@ landmarks) is a jittered grid at its own spacing, and each cell holds a
 weighted lottery among the layer's species — always over every species, so
 walking closer never changes what grows where, only how finely it is drawn.
 So the forest is dense where it is wet and sheltered, thins onto the beach,
-stops at the treeline, gives way to grass on the plains and to rock on the
-cliffs.
+stunts into cloud forest on the tops, gives way to fern on the plains and to
+rock on the cliffs.
 
-Detail falls off with distance: grass and ferns within ~100 m (fading out
+**Where each grows** is from where its fossils lie, and where its nearest
+living kin grows now. A Late Cretaceous coastal-plain flora caught in
+volcanic ash where it stood (Big Cedar Ridge, Wing et al. 2012) shows the
+plants sorting by ground over a few metres: the first flowering plants on
+wet, freshly disturbed sand and silt, the fan palm on moist, settled,
+peaty ground, fern thickets on poor, organic soil.
+
+| Plant | Where it grows here, and why |
+|---|---|
+| Giant redwood | thickest on the raised flats along the rivers — deep, moist, well-drained alluvium a bank's height above the water, the modern coast redwood's best ground — and through the moist forest; thinning up the mountains; never in the water |
+| Araucaria | well-drained ground: the drier forest, rocky slopes and ridges, the escarpment rims, and the cliff-top headlands (as the Norfolk and Cook pines); away from the water; up to the tops |
+| Tree fern | under the wet canopy, the creeks and shaded gullies, and the cloud forest of the high slopes (Mesozoic Dicksoniaceae and Cyatheaceae: riverbanks, swamps, understorey) |
+| Cycad | dry, open, rocky or sandy ground: the dunes behind the beach, stony slopes, the escarpments, the open plains |
+| Fan palm | the coastal lowlands only: behind the beaches, the lake shores, the wet flats back from the rivers — settled ground, not fresh sand |
+| Magnolia | fresh, wet, sunny ground: river banks and bars, forest edges and clearings — the first flowering plants were weeds of disturbed ground (Wing & Boucher 1998) |
+| Horsetail | the wet sand of banks and lake shores, in the sun |
+| Fern thicket | the open plains, and the scars of slips on steep wet slopes (Gleicheniaceae pioneer landslides and hold them open) |
+| Cattails | still water under ~0.6 m (it drowns them) at the lake edges and slow lowland reaches, not the mountain streams |
+
+And the rocks: bedrock stays under soil on slopes below ~30° and shows fast
+above it (DiBiase et al. 2012), so **boulders** are on the steep ground and at
+its foot, in the mountains, along the mountain streams (a river's bed goes
+from gravel to sand abruptly on the way down: lowland rivers carry sand, not
+stones, Lamb & Venditti 2016), and on the beaches under the cliffs — and next
+to none out on the wet, flat lowlands, with no ice age to have left them
+there. **Crags** crown the steep slopes, the escarpment rims and the high
+drier crests; **sea stacks** stand close off the cliffed headlands, never a
+sandy shore; and the lone pillars that stood on the plains are **buttes** in
+front of the escarpments now, since hoodoos need a dry, frosty badland, not a
+wet forested plain.
+
+Detail falls off with distance: ground cover and ferns within ~100 m (fading out
 rather than stopping), full trees within ~100 m and a cheap build of each out
 to ~220 m, the far canopy beyond; landmarks — crags and spires — to the edge
 of the chunks. Foliage sways in the wind in the vertex shader. Trunks, stumps
@@ -425,14 +534,14 @@ crosshair picks is the plant you are looking at anywhere up its height —
 fallen branches at your feet, a stump at its top — so the fern growing
 beside a log does not get in the way of the log. What does not
 — a standing **redwood** or **araucaria**, a **fallen log**, a **stump**,
-**bamboo** — takes an **axe** (an iron blade on a haft: 1 Plank,
+**giant horsetail** — takes an **axe** (an iron blade on a haft: 1 Plank,
 1 Rope, 1 Scrap — a third-party model, CREDITS.md). Hold it and click (or E) at the tree: each stroke is
 a woodcutter's swing — drawn up and back over your shoulder, driven across
 and down into the trunk, a jolt as the blade bites, pulled out — and the blow
 lands when the blade does, not on the click: the tree shudders and chips fly
-from the cut (pale wood and bark; green-gold off bamboo). A few strokes on —
+from the cut (pale wood and bark; green-gold off horsetail). A few strokes on —
 six for a redwood, four for an araucaria, three for a log or a stump, two
-for bamboo — it is down. A standing tree creaks and leans, slowly, then
+for a horsetail stand — it is down. A standing tree creaks and leans, slowly, then
 falls away from you ever faster, meets the ground where the ground is (on a
 slope uphill, it stops short), bounces, and throws up leaves and dust where
 it lands — the ground shakes if you are close — and the wood is yours as it
@@ -441,7 +550,7 @@ chopped up where it lies, in a burst of chips. Leave one half-chopped a
 minute and you start again.
 
 And you hear it (`src/sound.js`): the swish of the swing and the thunk and
-crack of the bite — a hollow tock off bamboo — then, the last stroke, the
+crack of the bite — a hollow tock off the horsetail's hollow canes — then, the last stroke, the
 creak of the tree giving way, the rush of the air and its leaves as it comes
 down, and the crash: a thump, branches snapping, the leaves settling. None of
 it is recorded: each sound is made on the spot from noise and oscillators
@@ -883,15 +992,15 @@ raft can mix them square by square (`src/raft.js`, `src/items.js`):
 | Foundation | Cost | What it is |
 |---|---|---|
 | **Plank** | 2 planks | planks over three float logs — the raft you may start on |
-| **Bamboo** | 4 bamboo, 1 rope | fifteen poles lashed side by side, two cross-poles on top, four thick canes under it |
+| **Cane** | 4 horsetail cane, 1 rope | fifteen giant-horsetail canes lashed side by side, two cross-canes on top, four thick canes under it — hollow and braced at every joint, they float |
 | **Log** | 4 wood, 1 rope | driftwood and palm trunks side by side, two bars lashed across them |
 | **Barrel** | 2 scrap, 1 plank | a deck of seven boards on two stringers, lashed down onto two barrels |
 
 They look like what they are made of and handle the same. Poles and logs
 run the length of a square, and where one square's meet the next is set per
 row by the boundary between them, so both sides agree: the joints are
-staggered like a real raft's and the ends at its edges are ragged. Bamboo
-comes from the **bamboo groves** along the river banks (the axe cuts 4) and from
+staggered like a real raft's and the ends at its edges are ragged. Cane
+comes from the **giant horsetail** stands along the river banks (the axe cuts 4) and from
 **bundles of it adrift** (2).
 
 **Statues are respawn points, nothing more.** Two dozen stand here and there
@@ -1167,7 +1276,7 @@ And away from the sea:
   stopping to graze with their heads down. Come within 3 m and one stops
   where it is and draws in its head and legs, and stays that way until you
   have been gone a while.
-- **Pond turtles** (4) live in the lakes, tarns and plunge pools when one is
+- **Pond turtles** (4) live in the lakes and plunge pools when one is
   near you. They paddle about at the surface, shells just awash, and now and
   then haul out onto the bank to bask. Come near one there and it slides
   back into the water and dives, and stays down a while.
@@ -1251,10 +1360,40 @@ entry on that table, and often not the most convenient one. Herbivores watch
 for predators and bolt. A kill removes an animal and the population tops itself
 back up a minute or so later, so the island does not empty out.
 
-Raptors will not take on a sauropod — size is checked before a chase starts —
-and nothing follows you into the sea, which makes the water a genuine escape.
+A raptor takes on nothing its own size or more — not a sauropod, and not a
+stegosaur's spiked tail — and a tyrannosaur goes for a grown sauropod only if
+it is right there, taking what it can bring down; size is checked before a
+chase starts. Now and then a hunter heads for where the herds are, stopping
+short of them, so hunter and hunted do meet; the hunt itself starts only when
+it sees one. A stegosaur struck at swings its tail at a hunter coming for it,
+and one struck backs off and leaves stegosaurs be for a minute and a half.
+Wounds mend over five minutes or so. Nothing follows you into the sea, which
+makes the water a genuine escape.
 A kill falls where it was made and lies there for half a minute, the hunter
 feeding at it, before the carcass is gone.
+
+### Where they live
+
+Each species has a habitat rule (`HABITAT` in `wildlife.js`), from where its
+fossils lie and what it ate, and where each animal is placed and where it
+wanders next are weighted by it. Nothing lives on the cliffs, up on the
+cloud-forest tops, or in the caves. Each herd keeps to a home range round
+where it was placed, the others following a leader. Every few minutes each
+animal walks down to the water to drink — to the nearest bank or shore it can
+get to on its own side (nothing wades a river past its knees, so it does not
+pick the far bank), straight there without stopping to graze, and it drinks
+with its head at the water's edge. If it cannot get there in time enough for
+the distance, it gives up for a while and tries again. Nothing picks
+somewhere to wander on the far side of a river either, and an animal fleeing
+and cornered against the water bolts along the bank rather than freezing.
+
+| | Where, and why |
+|---|---|
+| Tyrannosaur | wherever its prey is — its bones turn up as often in floodplain beds as in river channels (Lyson & Longrich 2011) — so the river margins, forest edges and open plain; alone, or a pair |
+| Raptor | dromaeosaurs come from dune margins, deltas and forested plains alike: the forest edge, drier araucaria woodland, the edges of the fern plains; the one that goes up onto broken ground; loose mobs, not packs (Roach & Brinkman 2007) |
+| Parasaur | hadrosaurs keep to the coasts and river channels — 15:1 in channel sands (Lyson & Longrich; Butler & Barrett 2008): the river banks and lakes, the wet forest by them, the coastal lowland; herds of eight |
+| Stegosaur | the Morrison's seasonally green floodplain: open fern plain and river flats near water, the forest edges; a low feeder in small groups (the one stegosaur herd trackway, Cobos et al. 2024); it stands its ground, tail to a hunter |
+| Sauropod | high browsers of the conifers, ranging far from the rivers and back (Engelmann et al. 2004): the araucaria woods and their edges, the river corridors and lakeshores, the gentle hills; herds of five (the Purgatoire trackways) |
 
 ### How they move
 
@@ -1287,6 +1426,27 @@ The rest is in `wildlife.js`:
 - **It stands on the ground as a body does**: pitched to the slope between its
   fore and hind feet, rolled a little across it, at their average height.
 - **It stops**: grazers to feed, everything now and then to stand and look.
+
+**As the animals were, not as the films have them.** The five models share
+one set of clips — idle, walk, run, attack, death — made in the Jurassic Park
+mould. `src/dinopose.js` puts right, on top of the clip each frame, what the
+palaeontology says they did differently (its header cites the papers):
+
+| | What changed |
+|---|---|
+| Tyrannosaur | An adult could not run — no moment with both feet off the ground (Hutchinson & Garcia 2002; Sellers et al. 2017) — so it never plays the run: the walk is quickened to its 4.4 m/s instead. It ambles at 1.3 m/s, the measured preferred walk (van Bijlert et al. 2021). At a kill, puncture and pull: the head down, then yanked up and aside. |
+| Raptor | The mouth shut at rest (the clips leave it hanging open). At a kill it stands over the prey and tears at it in quick jerks, the arms flapping for balance (raptor prey restraint, Fowler et al. 2011). The sickle claw is carried off the ground already, as the two-toed trackways show. |
+| Parasaur | The tail held level off the ground, as ossified tendons held it (the model's droops to the dirt); it leans in to graze with the head down to the plants, and chews, grinding. |
+| Stegosaur | Never runs: a walk of ~0.8 m/s at ease, 1.5 at most (the trackways; a graviportal build). Grazes low and snips. Too slow to get away, it **stands its ground**: turns its tail on a hunter and swings — a hit hurts it and sends it off (the thagomizer wound in an Allosaurus vertebra, Carpenter et al. 2005). |
+| Sauropod | A walk only, 2 m/s at most (Sellers et al. 2013). The neck raised but not upright — ~65° at rest, ~45° on the move, up to ~75° to browse (Christian & Dzemski 2007) — where the model holds it near-vertical. Nips, and swallows: no chewing. |
+
+Not done, because it is the models' own shape rather than how they move: the
+theropods' hands (palms should face inward, not down), the raptor's feathers
+and size (Velociraptor was turkey-sized), a hadrosaur walking on all fours
+(this model's arms are 40% of its legs; the code for it is written and off),
+and the birdlike resting crouch (the rigs' leg bones do not sit at the joints,
+so they cannot be folded by IK). Speeds for the hunters stay below the
+literature's — a raptor could do ~10 m/s — so that you can still get away.
 
 Three ideas do most of the work:
 

@@ -9,8 +9,9 @@ export const ITEMS = {
   plank:   { name: 'Plank',   tool: false },
   rope:    { name: 'Rope',    tool: false },
   leaf:    { name: 'Palm fibre', tool: false },
-  // Hollow and sealed at every joint: it floats better than any timber.
-  bamboo:  { name: 'Bamboo',  tool: false },
+  // Giant-horsetail cane (the id is from when it was bamboo, which had not
+  // evolved yet): hollow and braced at every joint, it floats better than any timber.
+  bamboo:  { name: 'Horsetail cane', short: 'Cane', tool: false },
   scrap:   { name: 'Scrap',   tool: false },
   // Chipped from the walls of the caves — one face by each mouth, in the light, the
   // rest deep in, where it is dark: nowhere else has it.
@@ -29,9 +30,9 @@ export const ITEMS = {
   hammer:  { name: 'Hammer',  tool: true, action: 'build',
              hint: 'Held out to build — wheel or [ ] picks the piece' },
   // A blade of scrap iron ground to an edge, lashed to a haft. Trees, logs,
-  // stumps and bamboo need it; branches and fronds come away in your hands.
+  // stumps and giant horsetail need it; branches and fronds come away in your hands.
   axe:     { name: 'Axe',     tool: true, action: 'chop',
-             hint: 'Click (or E) at a tree, a fallen log, a stump or bamboo to chop it — a few strokes and it is down' },
+             hint: 'Click (or E) at a tree, a fallen log, a stump or giant horsetail to chop it — a few strokes and it is down' },
   hook:    { name: 'Hook',    tool: true, action: 'hook',
              hint: 'Click to throw it at debris out of reach' },
   spear:   { name: 'Spear',   tool: true, action: 'spear',
@@ -136,7 +137,7 @@ export const RECIPES = [
   { id: 'hammer', out: ['hammer', 1], cost: { plank: 2, rope: 1 },
     desc: 'Needed for every piece of construction.' },
   { id: 'axe',    out: ['axe', 1],    cost: { plank: 1, rope: 1, scrap: 1 },
-    desc: 'Scrap iron ground to an edge and lashed to a haft. Fells trees and cuts logs and bamboo — branches and fronds you take by hand.' },
+    desc: 'Scrap iron ground to an edge and lashed to a haft. Fells trees and cuts logs and giant horsetail — branches and fronds you take by hand.' },
   { id: 'hook',   out: ['hook', 1],   cost: { plank: 1, rope: 2, scrap: 1 },
     desc: 'Right-click to throw and reel in distant debris.' },
   { id: 'spear',  out: ['spear', 1],  cost: { plank: 2, rope: 1, scrap: 1 },
@@ -165,8 +166,8 @@ export const BUILDABLES = [
   // look like what they are made of; they float and handle the same.
   { id: 'foundation', name: 'Foundation', kind: 'cell',   cost: { plank: 2 },
     desc: 'Extend the deck by one 2m square: planks over three float logs.' },
-  { id: 'bamboo_floor', name: 'Bamboo foundation', kind: 'cell', cost: { bamboo: 4, rope: 1 },
-    desc: 'A 2m square of bamboo poles lashed side by side, cross-poles on top.' },
+  { id: 'bamboo_floor', name: 'Cane foundation', kind: 'cell', cost: { bamboo: 4, rope: 1 },
+    desc: 'A 2m square of giant-horsetail canes lashed side by side, cross-canes on top: hollow, and buoyant.' },
   { id: 'log_floor',  name: 'Log foundation', kind: 'cell', cost: { wood: 4, rope: 1 },
     desc: 'A 2m square of driftwood and palm trunks, lashed together.' },
   { id: 'barrel_floor', name: 'Barrel foundation', kind: 'cell', cost: { scrap: 2, plank: 1 },
@@ -197,7 +198,7 @@ export const DEBRIS_KINDS = {
   flotsam: { label: 'Flotsam',   yield: { plank: 1, wood: 1 },  weight: 14 },
   palm:    { label: 'Palm frond',yield: { leaf: 2 },            weight: 24 },
   barrel:  { label: 'Barrel',    yield: { scrap: 2 },           weight: 13 },
-  bamboo:  { label: 'Bamboo',    yield: { bamboo: 2 },          weight: 12 },
+  bamboo:  { label: 'Horsetail canes', yield: { bamboo: 2 },     weight: 12 },
   crate:   { label: 'Crate',     yield: { plank: 2, scrap: 1 }, weight: 9  },
   coconut: { label: 'Coconut',   yield: { coconut: 1 },         weight: 10 },
 };

@@ -236,6 +236,7 @@ export async function loadRegistry() {
       source: hasModel ? `assets/models/${key}.glb · src/wildlife.js` : 'src/wildlife.js · buildBody()',
       facts: [
         ['Diet', sp.diet === 'meat' ? 'carnivore' : 'herbivore'],
+        ['Lives', `${sp.habitat}; every few minutes down to the water to drink — never on the cliffs, the misty tops or in the caves`],
         ['In the world', `${sp.count}${sp.pack ? ', hunts in packs' : ''}`],
         ['Top speed', `${sp.speed} m/s`], ['Sight', `${sp.sight} m`], ['Health', sp.hp],
         ...(sp.damage ? [['Bite', `${sp.damage} damage every ${sp.biteEvery} s`]] : []),
@@ -678,7 +679,7 @@ export async function loadRegistry() {
       facts: c ? [
         ['In the world', `${n}, ${kind === 'land' ? 'at the foot of the cliffs inland — none near the landing beach' : 'at the waterline under the sea cliffs'}`],
         ['This one', `at ${Math.round(c.mouth.x)}, ${Math.round(c.mouth.z)}: ${Math.round(c.o.tunnel)} m of tunnel, ${(c.o.width * 2).toFixed(1)} m wide, to a chamber ${Math.round(c.o.room * 2)} m across`],
-        ['Inside', kind === 'land' ? 'a spring pool in the chamber to drink from, flint in the walls, stalactites — and dark past the first few metres'
+        ['Inside', kind === 'land' ? 'an alcove at the mouth, then a dog-leg, and dark round it; a spring pool in the chamber to drink from, flint in the walls, a sand floor and blocks fallen from the roof (sandstone grows no stalactites)'
                                    : 'you swim in; at the back a shingle beach to climb out on, flint in the walls, dark'],
         ['In play', 'a torch lights it; dinosaurs will not follow you in; your torch goes out in the water'],
         ['How it is made', 'a tube of rock set into the hill, the terrain cut away where it comes out of the cliff face; its floor and walls are what you walk on inside'],
@@ -716,7 +717,7 @@ export async function loadRegistry() {
   add({
     id: 'sea-arch', name: 'Sea arch', category: 'terrain', group: 'Caves & overhangs',
     kind: 'built in code', backdrop: 'studio', source: 'src/caves.js · archGeometry() · survey()',
-    facts: [['In the world', `${ARCH_LIST.length}, in the shallows off the sea cliffs`],
+    facts: [['In the world', `${ARCH_LIST.length}, off the headlands: one foot in the cliff, one in the sea — what is left of a cave the waves cut through the headland`],
             ['Size', ARCH_LIST[0] ? `${Math.round(Math.hypot(ARCH_LIST[0].b.x - ARCH_LIST[0].a.x, ARCH_LIST[0].b.z - ARCH_LIST[0].a.z))} m foot to foot, ${Math.round(ARCH_LIST[0].top)} m over the sea` : '—'],
             ['In play', 'swim or sail under it; its legs are solid to you and to the raft']],
     async build() {
@@ -788,9 +789,10 @@ export async function loadRegistry() {
             Math.abs(x - i * CHUNK) < CHUNK / 2 + pad && Math.abs(z - j * CHUNK) < CHUNK / 2 + pad);
           for (const rv of RIVERS) {
             const geo = riverGeometry(rv, inside);
-            if (geo) c.group.add(new THREE.Mesh(geo, t.rivers.material));
+            if (geo) { const m = new THREE.Mesh(geo, t.rivers.material); m.renderOrder = 2; c.group.add(m); }
           }
-          for (const L of LAKES) if (inside(L.x, L.z, L.a)) c.group.add(new THREE.Mesh(lakeGeometry(L), t.rivers.still));
+          // (Lakes first, as the game draws them: the rivers tuck under them.)
+          for (const L of LAKES) if (inside(L.x, L.z, L.a)) { const m = new THREE.Mesh(lakeGeometry(L), t.rivers.still); m.renderOrder = 1; c.group.add(m); }
           for (const f of FALLS) {
             if (!inside(f.x, f.z, 8)) continue;
             const w = new Waterfall(f);
@@ -824,7 +826,8 @@ export async function loadRegistry() {
             ['Detail', 'as the game draws the land a couple of chunks from you: ground at 4 m, trees at their far detail; finer (2 m, every plant) along the rivers and round the lakes'],
             ['Rivers', `${RIVERS.length}, from springs in the range to the sea`],
             ['Waterfalls', FALLS.map((f, k) => `${Math.round(f.height)} m on river ${f.river + 1}`).join('; ')],
-            ['Lakes', `${LAKES.filter(L => L.kind === 'tarn').length} tarns above the falls, ${LAKES.filter(L => L.kind === 'pool').length} plunge pools below them, ${LAKES.filter(L => L.kind === 'lake').length} lake on the plain`],
+            ['Rivers are', 'mountain streams: ~20% most of the way, so a staircase of pools, not meanders; ~3 m wide at the spring, 11–12 m at the mouth'],
+            ['Lakes', `${LAKES.filter(L => L.kind === 'tarn').length} above the falls, held back by the rock of the lip, ${LAKES.filter(L => L.kind === 'pool').length} plunge pools below them, ${LAKES.filter(L => L.kind === 'lake').length} lake on the plain`],
             ['Sea', 'a stand-in, see-through over the shallows: the game’s ocean only reaches 450 m from the camera'],
             ['Takes', 'a few seconds to build: some 800 chunks']],
     async build() {
@@ -1123,7 +1126,7 @@ async function terrainSamples() {
     pick('forest', 'Forest hills', 'terrain', 'Land', 'about 100 m inland',
          'redwood and araucaria forest, tree ferns, ferns, shrubs, fallen logs and stumps, vines', at(100)),
     pick('ridge', 'Mountain ridge', 'terrain', 'Land', 'the high spine of the continent',
-         'rock, scree, snow above ~250 m', chunkOf(...peak)),
+         'cloud forest to the tops — araucarias, tree ferns, moss; bare rock and scree only where it is steep (no snow: the Cretaceous greenhouse)', chunkOf(...peak)),
     pick('shelf', 'Sea bed — sand shelf', 'terrain', 'Sea bed', 'the open sand between reef colonies, near the raft',
          'sand at ~18 m, seagrass, the odd boulder', sandIJ),
     pick('dropoff', 'The drop-off', 'terrain', 'Sea bed', 'where the shelf ends and the basin begins, past the raft',
@@ -1147,15 +1150,15 @@ async function terrainSamples() {
   };
   const near = (x, z) => Math.hypot(x, z) / 4000;       // prefer what is closest to the raft
   samples.push(
-    pick('plains', 'Open plains', 'terrain', 'Land', 'the grassland between the forests',
-         'tall seeding grass, shrubs, cycads, the odd araucaria and rock tor', best((L, x, z) => (L.h > 8 ? L.plain : 0) - near(x, z))),
+    pick('plains', 'Open plains', 'terrain', 'Land', 'the open fern country between the forests (no grass yet: that is ~26 million years on)',
+         'waist-high fern thicket, low ferns and spike-moss, shrubs, cycads, the odd araucaria', best((L, x, z) => (L.h > 8 ? L.plain : 0) - near(x, z))),
     pick('escarpment', 'Escarpment', 'terrain', 'Land', 'where harder rock weathers into benches',
          'sandstone benches and cliff risers, crags, vines down the faces', best((L, x, z) => (L.h > 20 ? L.mesa : 0) - near(x, z))),
     pick('seacliff', 'Sea cliff', 'terrain', 'Coast', 'the exposed coast, well away from the raft',
-         'a cliff straight out of the sea, forest along its top, sea stacks offshore',
+         'a cliff straight out of the sea, araucarias along its top, cobbles at its foot, sea stacks off the headlands',
          best((L, x, z) => (L.m > 0 && L.m < 25 ? L.cliff : 0) - near(x, z))),
     pick('river', 'River valley', 'water', 'Rivers', 'a river on its way down to the sea',
-         'the river, mud and pebble banks, reeds, horsetails, tree ferns',
+         'a mountain stream stepping down in a staircase of pools, mud and pebble banks, horsetails, magnolias, tree ferns, redwoods on the flats',
          best((L, x, z) => (L.h > 6 && L.river < 4 ? 1 : 0) - near(x, z)), { river: true }),
   );
   // The falls and the lakes: where terrain.js put them, on the rivers.
@@ -1163,7 +1166,7 @@ async function terrainSamples() {
   FALLS.forEach((f, k) => {
     const tarn = LAKES.find(L => L.kind === 'tarn' && Math.hypot(L.x - f.x, L.z - f.z) < 80);
     samples.push(pick(`fall-${k}`, `Waterfall ${k + 1}`, 'water', 'Lakes & falls', `where river ${f.river + 1} comes off the range, ${Math.round(f.x)}, ${Math.round(f.z)}`,
-      'the fall, the tarn it spills from, the plunge pool, spray, the rock of the lip', chunkOf(f.x + f.dx * 8, f.z + f.dz * 8), {
+      'the fall, the lake held back by the rock of its lip, the plunge pool, spray', chunkOf(f.x + f.dx * 8, f.z + f.dz * 8), {
         river: true,
         // Framed on the fall, not the middle of its chunk.
         frame: { center: V(f.x + f.dx * 3, (f.top + f.bottom) / 2, f.z + f.dz * 3), size: V(f.width + 4, f.height + 2, f.width + 4) },
@@ -1180,14 +1183,14 @@ async function terrainSamples() {
           return out;
         })(),
         facts: [['Drop', `${r1(f.height)} m, from ${r1(f.top)} m to ${r1(f.bottom)} m`], ['Width', `${r1(f.width)} m across the lip`],
-                ['Above it', tarn ? `a tarn, ${Math.round(tarn.a * 2)} × ${Math.round(tarn.b * 2)} m, spilling over the lip` : 'the river'],
-                ['Below it', 'a plunge pool, wading deep'],
+                ['Above it', tarn ? `a lake, ${Math.round(tarn.a * 2)} × ${Math.round(tarn.b * 2)} m, held back by the rock of the lip and spilling over it` : 'the river'],
+                ['Below it', 'a plunge pool dug by the drop, about half as wide as the fall is high; wading deep'],
                 ['The water', 'three curtains that shudder and speed up as they fall, clumps tumbling, churning foam, a foam trail, droplets, spray']],
       }));
   });
   LAKES.filter(L => L.kind === 'lake').forEach((L, k) => samples.push(
     pick(`lake-${k}`, 'Lake', 'water', 'Lakes & falls', `where the first river idles across the plain, ${Math.round(L.x)}, ${Math.round(L.z)}`,
-         'still water, a sandy shore, reeds and bamboo, the river in and out', chunkOf(L.x, L.z), {
+         'still water, a sandy shore, cattails, horsetails and giant horsetail, a delta where the river comes in, the river out at its lowest point', chunkOf(L.x, L.z), {
            river: true,
            facts: [['Size', `about ${Math.round(L.a * 2)} × ${Math.round(L.b * 2)} m`], ['Level', `${r1(L.level)} m above the sea`],
                    ['Depth', 'wading: 1.3 m at the deepest'], ['Drink', 'E at the water: +30 thirst — it is fresh']],
