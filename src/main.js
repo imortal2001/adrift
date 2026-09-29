@@ -352,6 +352,7 @@ class Game {
       if (b.to !== undefined) this.net.event({ k: 'bite', damage: b.damage, label: b.label }, b.to);
     }
     for (const k of this.wildlife.kills.splice(0)) this.together.world.killed(k);
+    this.tellHunted();
     this.debris.update(dt, this.time, pl.pos);
     this.fish.update(dt, this.time, this.eye.position);
     this.whale.update(dt, this.time);
@@ -490,7 +491,12 @@ class Game {
       else $('mpStatus').textContent = c ? 'That code is too short — a game code is 4 to 8 letters.' : 'Type the code of the game to join — the host has it.';
     };
     $('mpCode').addEventListener('keydown', e => { if (e.code === 'Enter' || e.code === 'NumpadEnter') $('mpJoin').click(); });
-    $('mpLeave').onclick = () => this.net.leave();
+    // Left is left: the invite link in the address bar must not take you back in on a reload.
+    const unlink = () => {
+      const u = new URL(location.href);
+      if (u.searchParams.has('room')) { u.searchParams.delete('room'); history.replaceState(null, '', u); }
+    };
+    $('mpLeave').onclick = () => { this.net.leave(); unlink(); };
     $('mpRejoin').onclick = () => { const c = this.net.lastRoom; if (c) go(c); };
     $('mpCopy').onclick = () => {
       navigator.clipboard?.writeText(this.net.invite).then(() => { $('mpCopy').textContent = 'Copied'; },
@@ -1843,6 +1849,27 @@ class Game {
     }
   }
 
+  /** Warned that something is hunting you — the first time, and again if it has been a while. */
+  sayHunted(label) {
+    if (this.time - (this.huntedSaid ?? -1e9) <= 180) return;
+    this.huntedSaid = this.time;
+    this.hud.log(`A ${label.toLowerCase()} is coming for you. You cannot fight it: sprint (Shift) for the water, or into a cave — it will not follow.`, 'bad', 9000);
+  }
+
+  /**
+   * Hosting: the dinosaurs are yours to run, so what they hunt only you know.
+   * Someone else they have turned on is told — once a hunt — so they get the
+   * same warning you would.
+   */
+  tellHunted() {
+    if (!this.net.connected || !this.net.isHost) return;
+    for (const a of this.wildlife.all) {
+      const who = a.state === 'hunt' && !a.dead ? a.prey?.remote : undefined;
+      if (who !== undefined && a.told !== who) this.net.event({ k: 'hunted', label: a.sp.label }, who);
+      a.told = who;
+    }
+  }
+
   /** The pack, open to hand things to `mate` (E at them, empty-handed). */
   openGive(mate) {
     this.giveMate = { id: mate.id, name: mate.name };
@@ -1869,6 +1896,10 @@ class Game {
 
   /** Something the others did that is yours to deal with (net.js onEvent). */
   fromCrew(e, r) {
+    if (e.k === 'hunted' && typeof e.label === 'string') {
+      this.sayHunted(e.label.slice(0, 24));
+      return true;
+    }
     if (e.k === 'died') {
       this.hud.log(`${r.name} blacks out — and comes round again, where they wake.`, 'bad');
       return true;
@@ -2520,10 +2551,8 @@ class Game {
     // Hunted: there is no fighting one off, so say what does work — the first
     // time, and again if it has been a while.
     const hunter = this.wildlife.all.find(a => a.state === 'hunt' && a.prey === 'player' && !a.dead);
-    if (hunter && this.time - (this.huntedSaid ?? -1e9) > 180) {
-      this.huntedSaid = this.time;
-      this.hud.log(`A ${hunter.sp.label.toLowerCase()} is coming for you. You cannot fight it: sprint (Shift) for the water, or into a cave — it will not follow.`, 'bad', 9000);
-    }
+    if (hunter) this.sayHunted(hunter.sp.label);
+    this.tellHunted();
     if (bites.length && this.time > this.lastBite + 0.8) {
       this.lastBite = this.time;
       const worst = bites.reduce((a, b) => (b.damage > a.damage ? b : a));
@@ -2533,7 +2562,7 @@ class Game {
 
     this.hud.updateVitals(this.player);
     this.warnLow();
-    this.hud.updateClock(this.sky, this.player, this.raft);
+    this.hud.updateClock(this.sky, this.player, this.raft, this.raftWay());
     this.hud.refreshInventory(this.inv);
     this.hud.refreshHotbar(this.hotbar, this.inv);
     this.hud.refreshPack(this.inv, this.hotbar);
@@ -2644,6 +2673,22 @@ class Game {
       if (!best || d < best.d) best = { x: c.mouth.x, z: c.mouth.z, d };
     }
     return best;
+  }
+
+  /**
+   * Off your raft — ashore, or swimming — how far it is and which way, for the
+   * tags under the clock: "Raft 87 m ↓". Null aboard, close by, or with no raft.
+   */
+  raftWay() {
+    const r = this.raft;
+    if (!r?.size || this.onDeck()) return null;
+    let near = null;
+    for (const c of r.cells.values()) {
+      const w = r.cellWorld(c.cx, c.cz), d = Math.hypot(w.x - this.player.pos.x, w.z - this.player.pos.z);
+      if (!near || d < near.d) near = { x: w.x, z: w.z, d };
+    }
+    if (!near || near.d < 12) return null;
+    return `Raft ${near.d < 100 ? Math.round(near.d) : Math.round(near.d / 10) * 10} m ${this.arrowTo(near)}`;
   }
 
   /** Which way a place is from where you are looking, as an arrow: ↑ ahead, ↓ behind. */

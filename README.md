@@ -128,6 +128,9 @@ A registration is independent of whether you still own the item. Eat your last
 coconut and the slot stays bound and greyed out, ready for the next one (the
 pack marks it *none left*).
 
+Off your raft — ashore, or swimming — a tag under the clock says where it
+is: "Raft 87 m ↓".
+
 In the pack, a material says what it goes into — the recipes and building
 pieces that take it.
 
@@ -1022,7 +1025,8 @@ the dinosaurs. The host's game runs them as it would alone and tells the
 others how they stand three times a second; the others' games take that on
 and carry it forward. The dinosaurs are the host's alone — a guest's are
 drawn where the host says — so they hunt whichever of you is on land, and a
-bite on a guest is sent to that guest. The flotsam, the whale and the
+bite on a guest is sent to that guest — as is the warning that one has
+turned on them, so a guest is told to run just as the host would be. The flotsam, the whale and the
 schools go on moving everywhere and are eased back onto the host's; each
 school's fish are every machine's own, swimming round it and shying from
 whoever is nearest, and a fish someone catches is gone for everyone. What
@@ -1037,6 +1041,9 @@ sky and dinosaurs keep going for everyone else. Several of you come to on a
 raft (joining, or after dying) each on a square of your own; when someone
 blacks out, the others are told; and "the fish is done" is said to whoever
 is by the fire.
+
+**Leave** is leaving: the room comes off the address bar, so a reload does
+not take you back in.
 
 A tab in the background is still in the game: browsers stop drawing a
 hidden tab, and with it the frames a game runs on, which would stop the

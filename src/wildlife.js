@@ -617,14 +617,15 @@ export class Wildlife {
       }
       if (a.state === 'hunt') {
         const tgt = a.prey === 'player' ? player.pos : a.prey && a.prey.pos;
-        // Getting no nearer, close by — the prey is right there, somewhere it
-        // cannot get to — it gives up, and leaves that one be for a while.
-        // Prey that is simply outrunning it is chased until it is too far
+        // Getting no nearer — close by, or not moving for being unable to go
+        // on (the prey is somewhere it cannot get to: the waterline, a ledge)
+        // — it gives up, and leaves that one be for a while. Prey that is
+        // simply outrunning it, it keeps after at full tilt until too far
         // (giveUp, below): out in the open, a sprint alone is not a way out.
         if (tgt) {
           const d = Math.hypot(tgt.x - a.pos.x, tgt.z - a.pos.z);
           if (a.nearest === undefined || d < a.nearest - 0.5) { a.nearest = d; a.nearestAt = this.clock; }
-          else if (this.clock - a.nearestAt > 4 && d > sp.reach && d < sp.reach + 8) {
+          else if (this.clock - a.nearestAt > 4 && d > sp.reach && (d < sp.reach + 8 || a.speed < sp.walk)) {
             a.shun = { prey: a.prey === 'player' ? 'player' : a.prey?.remote ?? a.prey, until: this.clock + 12 };
             a.state = 'wander'; a.prey = null; a.nearest = undefined;
             a.timer = rnd(6, 12);

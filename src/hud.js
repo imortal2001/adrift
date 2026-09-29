@@ -180,7 +180,7 @@ export class HUD {
     if (showBreath) set(this.el.ox, p.breath);
   }
 
-  updateClock(sky, player, raft) {
+  updateClock(sky, player, raft, raftWay = null) {
     this.el.clock.textContent = sky.clock;
     this.el.daynum.textContent = `Day ${sky.day} adrift · ` +
       (raft.size ? `${raft.size} deck${raft.size === 1 ? '' : 's'}` : 'no raft yet');
@@ -192,6 +192,7 @@ export class HUD {
     if (player.cave) tags.push([player.cave.kind === 'sea' ? 'In a sea cave' : 'In a cave', 'warn']);
     else if (player.onLand) tags.push(player.wading > 0.5 ? [`Wading · ${player.wading.toFixed(1)} m`, 'cold'] : ['Ashore', 'ok']);
     if (player.sheltered) tags.push(['Sheltered', 'ok']);
+    if (raftWay) tags.push([raftWay, '']);
     if (sky.isNight) tags.push(['Night', 'cold']);
     if (player.state === 'swim') {
       tags.push([player.depth > 0.3 ? `Diving · ${player.depth.toFixed(1)} m` : 'In the water', 'cold']);
