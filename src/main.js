@@ -1843,7 +1843,9 @@ class Game {
   watchCrew() {
     if (!this.onDeck()) { for (const r of this.net.remotes.values()) r.aboard = false; return; }
     for (const r of this.net.remotes.values()) {
-      const p = r.pose, on = !!(r.body.visible && p && p.state === 'deck' && !p.onLand && this.raft.solidAtWorld(p.pos.x, p.pos.z));
+      // Not yet placed (just joined, or back after a dropped connection): no telling yet.
+      if (!r.snaps.length || !r.body.visible) continue;
+      const p = r.pose, on = p.state === 'deck' && !p.onLand && this.raft.solidAtWorld(p.pos.x, p.pos.z);
       if (on && r.aboard === false) this.hud.log(`${r.name} climbs aboard.`);
       r.aboard = on;
     }
