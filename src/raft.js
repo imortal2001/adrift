@@ -964,6 +964,15 @@ export class Raft {
     const drop = obj => this.group.remove(obj);   // geometry/material are shared caches
     // Fish on a campfire's spit come back with it — cooked if they were done.
     const spit = o => { for (const f of o?.spitFish || []) add({ [f.t >= FIRE.cook ? f.done : f.raw]: 1 }); };
+    // What a thing on a deck gives back: its cost — but a fire only the wood
+    // it has not burned (its three laid logs are FIRE.laid seconds of it, and
+    // so on for any fed to it), or burning one down and taking it apart
+    // would be wood for nothing.
+    const objCost = o => {
+      const cost = { ...BUILDABLE_BY_ID[o.type].cost };
+      if (o.type === 'campfire') cost.wood = Math.floor((o.fuel ?? 0) / (FIRE.laid / BUILDABLE_BY_ID.campfire.cost.wood) + 1e-6);
+      return cost;
+    };
 
     if (piece.kind === 'cell') {
       const { cx, cz } = piece.rec;
@@ -972,7 +981,7 @@ export class Raft {
       const top = this.tops.get(key(cx, cz));
       if (top) { drop(top.obj); this.tops.delete(key(cx, cz)); add(BUILDABLE_BY_ID.roof.cost); }
       const o = this.objs.get(key(cx, cz));
-      if (o) { spit(o); drop(o.obj); this.objs.delete(key(cx, cz)); add(BUILDABLE_BY_ID[o.type].cost); }
+      if (o) { spit(o); drop(o.obj); this.objs.delete(key(cx, cz)); add(objCost(o)); }
 
       this.cells.delete(key(cx, cz));
       // Edges that were only held up by this cell come away with it.
@@ -996,11 +1005,11 @@ export class Raft {
       drop(piece.rec.obj);
       add(BUILDABLE_BY_ID.roof.cost);
     } else {
-      const { cx, cz, type } = piece.rec;
+      const { cx, cz } = piece.rec;
       spit(piece.rec);
       this.objs.delete(key(cx, cz));
       drop(piece.rec.obj);
-      add(BUILDABLE_BY_ID[type].cost);
+      add(objCost(piece.rec));
     }
     this.rebuildIndex();
     return refund;

@@ -101,7 +101,7 @@ by Pablo88 (https://sketchfab.com/Pablo88), licensed under CC-BY-4.0
 through `tools/build_tools.py`, which:
 
 - reorients each to stand along +Y, rescales it to a real-world length
-  (hammer 0.46 m, spear 1.75 m, rod 2.20 m, axe 0.62 m) and moves its origin
+  (hammer 0.46 m, spear 1.75 m, rod 2.20 m, axe 0.55 m) and moves its origin
   to the grip; the axe is turned about its haft so its edge leads;
 - **hammer, rod and axe:** downsizes the embedded textures (base colour to
   JPEG at 1024, data maps to 512). The hammer went from 19 MB to 1.5 MB, the

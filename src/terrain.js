@@ -1678,16 +1678,53 @@ export class Terrain {
       if (!c.plants) continue;
       for (const p of c.plants) {
         if (this.felled.has(p.key)) continue;
-        const dx = p.x - origin.x, dy = (p.y + 1.2) - origin.y, dz = p.z - origin.z;
-        const d = Math.hypot(dx, dy, dz);
-        if (d > p.reach) continue;
-        const dot = (dx * dir.x + dy * dir.y + dz * dir.z) / (d || 1);
+        // Looked for anywhere up its own height — fallen branches at the
+        // ground, a stump at its top, a trunk up to above your head — not at
+        // one height for everything, or a fern beside a log is what you get
+        // when you look down at the log.
+        // (Within reach along the ground: how far you can reach to your feet
+        // is not less than how far you can reach ahead.)
+        const dx = p.x - origin.x, dz = p.z - origin.z, flat = Math.hypot(dx, dz);
+        if (flat > p.reach) continue;
+        const h = Math.min(2.4, this.plantHeight(p));
+        let dot = -2;
+        for (const f of [0.15, 0.5, 0.9]) {
+          const dy = p.y + h * f - origin.y;
+          const k = (dx * dir.x + dy * dir.y + dz * dir.z) / (Math.hypot(dx, dy, dz) || 1);
+          if (k > dot) dot = k;
+        }
         if (dot < 0.25) continue;
-        const score = dot * 2 - d / p.reach;
+        const score = dot * 2 - flat / p.reach;
         if (score > bestScore) { bestScore = score; best = p; }
       }
     }
     return best;
+  }
+
+  /** How tall a plant stands, from its body: a log lying is a few tens of centimetres. */
+  plantHeight(p) {
+    if (p.h === undefined) {
+      const geo = p.inst.geometry;
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      p.h = Math.max(0.2, geo.boundingBox.max.y * p.matrix.getMaxScaleOnAxis());
+    }
+    return p.h;
+  }
+
+  /** The plants taken and not yet grown back, for the save: [key, seconds left]. */
+  felledList() {
+    return [...this.felled].map(([k, t]) => [k, Math.round(t)]);
+  }
+
+  /** Back from a save: those still gone, hidden wherever their chunk is already built. */
+  restoreFelled(list) {
+    for (const [k, t] of list || []) {
+      if (typeof k !== 'string' || !(t > 0)) continue;
+      this.felled.set(k, t);
+      const p = this.plantsByKey.get(k);
+      if (p) { p.inst.setMatrixAt(p.index, HIDDEN); p.inst.instanceMatrix.needsUpdate = true; }
+      this.setSolid(k, false);
+    }
   }
 
   /**

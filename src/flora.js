@@ -681,18 +681,21 @@ class Builder {
       }
       rings.push(ring);
     }
+    // Wound to face out (the bark is one-sided): round the ring the way it
+    // was built, then up the path. The other way the near side of every trunk
+    // is culled, and you look through it into the hollow of the far side.
     for (let i = 0; i < n - 1; i++) {
       for (let s = 0; s < sides; s++) {
         const a = rings[i][s], b = rings[i][s + 1], c = rings[i + 1][s], d = rings[i + 1][s + 1];
-        this.tri(k, a, c, b);
-        this.tri(k, b, c, d);
+        this.tri(k, a, b, c);
+        this.tri(k, b, d, c);
       }
     }
     if (cap) {
       const end = path[n - 1], tn = tangents[n - 1];
       const ci = this.vert(k, end.clone().addScaledVector(tn, radius(1, 0) * 0.3), tn, 0.5, along / vMetres, cap, sway(1));
       const last = rings[n - 1];
-      for (let s = 0; s < sides; s++) this.tri(k, last[s], ci, last[s + 1]);
+      for (let s = 0; s < sides; s++) this.tri(k, last[s], last[s + 1], ci);
     }
   }
 
