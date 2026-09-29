@@ -410,8 +410,10 @@ export class Player {
     this.sheltered = sheltered;
 
     const exertion = this.state === 'swim' ? 1.5 : 1;
-    this.hunger = Math.max(0, this.hunger - dt * 0.105 * exertion * (sheltered ? 0.55 : 1));
-    this.thirst = Math.max(0, this.thirst - dt * 0.155 * exertion * (sheltered ? 0.75 : 1));
+    // Full to empty in ~14 minutes of thirst and ~20 of hunger, out in the open:
+    // time enough to gather, craft and put up a first collector.
+    this.hunger = Math.max(0, this.hunger - dt * 0.085 * exertion * (sheltered ? 0.55 : 1));
+    this.thirst = Math.max(0, this.thirst - dt * 0.12 * exertion * (sheltered ? 0.75 : 1));
 
     if (this.submerged) this.breath = Math.max(0, this.breath - dt * 5.5);
     else this.breath = Math.min(100, this.breath + dt * 24);

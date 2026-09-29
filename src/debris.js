@@ -16,7 +16,7 @@ const BAND = 14;            // lateral spread of the current
 const SPEED = 1.35;
 const COCONUT_SCALE = 2.4;  // the scanned nut is hand-sized, ~17 cm; afloat it is shown at 40, as the old one was
 
-const CURRENT = new THREE.Vector2(0.60, 0.80).normalize();
+export const CURRENT = new THREE.Vector2(0.60, 0.80).normalize();
 const SIDE = new THREE.Vector2(-CURRENT.y, CURRENT.x);
 
 const WEIGHTED = [];
@@ -143,10 +143,23 @@ export class DebrisField {
         held: false,          // hooked and being reeled in
       };
       this.items.push(it);
-      // Seed the first batch spread along the whole corridor so the ocean
-      // isn't empty for the first two minutes.
-      this.respawn(it, Math.random() * (SPAWN_DIST + KILL_DIST) - SPAWN_DIST);
     }
+    this.scatter();
+  }
+
+  /**
+   * Spread every piece along the whole corridor round where the flotsam is
+   * centred — at the start, and whenever that centre jumps (you wake
+   * somewhere else, or die and come to elsewhere). Recycling them all at the
+   * upstream end instead sends them down as one clump, then leaves the sea
+   * empty for a minute and a half until the next.
+   */
+  scatter() {
+    for (const it of this.items) {
+      if (!it.held) this.respawn(it, Math.random() * (SPAWN_DIST + KILL_DIST) - SPAWN_DIST);
+    }
+    const h = this.hub;
+    this.lastHub = { x: h.x, z: h.z };
   }
 
   /**
@@ -219,7 +232,7 @@ export class DebrisField {
     return { x: r.x ?? r.group.position.x, z: r.z ?? r.group.position.z };
   }
 
-  respawn(it, along = -SPAWN_DIST) {
+  respawn(it, along = -SPAWN_DIST - Math.random() * 12) {
     const h = this.hub;
     // Somewhere afloat: a spot over land is tried again, a little way along.
     for (let tries = 0; tries < 6; tries++) {
@@ -247,6 +260,9 @@ export class DebrisField {
     const R = this.raftRadius();
     const n = new THREE.Vector3();
     const h = this.hub;
+    // The centre moved further than drifting could take it: start afresh round it.
+    if (!this.lastHub || Math.hypot(h.x - this.lastHub.x, h.z - this.lastHub.z) > 40) this.scatter();
+    this.lastHub.x = h.x; this.lastHub.z = h.z;
     const rx0 = this.raft.x ?? this.raft.group.position.x, rz0 = this.raft.z ?? this.raft.group.position.z;
 
     for (const it of this.items) {

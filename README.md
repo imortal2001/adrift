@@ -1,8 +1,8 @@
 # Adrift — Ocean Raft Survival (prototype)
 
-You wake on four lashed pallets in open ocean. Debris drifts past on the
-current; everything you will ever own starts as something you pulled out of the
-water. This prototype covers the first ring of the loop:
+You wake adrift — on four lashed pallets, a scrap of wreckage, in the open
+water or on a beach. Debris drifts past on the current; everything you will
+ever own starts as something you pulled out of the water. This prototype covers the first ring of the loop:
 
 **Gather → Craft → Build → Upgrade the raft**
 
@@ -85,11 +85,12 @@ code and models, runs on this machine only, and has its own
 | `I` | pack — register tools and items into the five slots |
 | `Backspace` | (in the pack) empty the selected slot |
 | `C` / `B` | crafting / take out the hammer |
+| `Shift`-click | (in crafting) make five of a recipe at once |
 | wheel, `[` `]` | with the hammer out: pick a build piece |
 | Right-click | throw what is in hand — the spear, or the hook |
 | Hold left / right click | with the paddle, on the deck: paddle forward / back-paddle |
 | `Q` | eat — a coconut if you have one, otherwise a fish (the one in hand, else the one you have most of) |
-| `X` | salvage the piece under the crosshair — materials come back |
+| `X` | salvage the piece under the crosshair — materials come back (from a campfire, only the wood it has not burned) |
 | `F` | step off into the water |
 | `Z` / `Space` | swim down / swim up — `Space` climbs out when the deck is in reach |
 | `H` | pause and show the help |
@@ -102,13 +103,13 @@ instead of a key per tool:
 
 | In hand | Left-click |
 |---|---|
-| Hammer | build mode is on; click places the piece (wheel or `[` `]` picks it) |
+| Hammer | build mode is on; click places the piece (wheel or `[` `]` picks it). `E` still works on what you look at — feed the fire, drink, gather |
 | Hook | throw it at debris and reel the debris in |
 | Coconut, any fish | eat it (raw or cooked) |
 | Bow drill | **hold** at an unlit campfire to saw up an ember — it takes 1 Palm for tinder |
 | Spear | a thrust that skewers the fish on the crosshair; **right-click throws it** — pull it back out with `E` |
 | Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
-| Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes, and goes out if you put it away or get in the water — keeping what it had left |
+| Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes. Put away, it smoulders for 45 seconds and flares up again if you take it out in that time; after that it needs lighting again, keeping what it had left. The water puts it straight out |
 | Fire striker | nothing in hand — `E` at an unlit campfire strikes a spark into it (1 Palm for tinder), at once |
 | Axe | a stroke at the tree, log, stump or bamboo on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
 | Material, or nothing | nothing |
@@ -123,7 +124,29 @@ minute. Press `I` for the pack to register anything by hand — click a slot chi
 it somewhere else moves it rather than duplicating it.
 
 A registration is independent of whether you still own the item. Eat your last
-coconut and the slot stays bound and greyed out, ready for the next one.
+coconut and the slot stays bound and greyed out, ready for the next one (the
+pack marks it *none left*).
+
+In the pack, a material says what it goes into — the recipes and building
+pieces that take it.
+
+### What to do next
+
+There is no tutorial, but there is always one thing on screen to do next: the
+**objective line**, top left, over the message log. It runs through what a
+castaway needs, in order — driftwood, planks, a hammer, a bigger raft, a
+collector, a hook, a fire lit and a fish cooked, a roof; then land (it says
+how far, and which way from where you are looking), a statue, an axe, a torch,
+a cave and its flint, and a fire striker. Each counts as done once it has
+happened, whatever order you got there in, and says so for a moment before
+the next. It is `GOALS` in `main.js`.
+
+The rest of the guidance is said when it matters: thirst or hunger under 25
+(the bar pulses red too) and again at empty, with what would help; a
+dinosaur coming for you — there is no fighting one, so it says to make for the
+water or a cave; and dying, which blacks the screen out with where you have
+woken. Nothing said on the start screen is lost: the log's clock stops while
+it is up.
 
 ### Mouse look
 
@@ -378,11 +401,14 @@ rather than stopping), full trees within ~100 m and a cheap build of each out
 to ~220 m, the far canopy beyond; landmarks — crags and spires — to the edge
 of the chunks. Foliage sways in the wind in the vertex shader. Trunks, stumps
 and rocks are solid; you walk round them. Anything with a harvest can be
-taken, and stays gone — through a rebuild or a reload of its chunk — until
-it grows back.
+taken, and stays gone — through a rebuild or a reload of its chunk, and
+through a reload of the game (it is saved) — until it grows back.
 
 What comes away in your hands, you take with **E**: fallen branches, and the
-fronds of the shrubs, palms, cycads, magnolias and tree ferns. What does not
+fronds of the shrubs, palms, cycads, magnolias and tree ferns. What the
+crosshair picks is the plant you are looking at anywhere up its height —
+fallen branches at your feet, a stump at its top — so the fern growing
+beside a log does not get in the way of the log. What does not
 — a standing **redwood** or **araucaria**, a **fallen log**, a **stump**,
 **bamboo** — takes an **axe** (an iron blade on a haft: 1 Plank,
 1 Rope, 1 Scrap — a third-party model, CREDITS.md). Hold it and click (or E) at the tree: each stroke is
@@ -1233,7 +1259,8 @@ would split the raft in two.
 
 ## Tuning
 
-- Survival pressure: the rates in `Player.vitals()` (`player.js`).
+- Survival pressure: the rates in `Player.vitals()` (`player.js`) — thirst
+  empties in ~14 minutes in the open, hunger in ~20.
 - Debris density and drift: `POOL`, `SPEED`, `BAND` in `debris.js`.
 - Fish: the `SPECIES` table in `fish.js` — body, colour, zone, school count,
   size, and per species `hover`, `react`, `roam` and `bed` — plus `ZONES` for
