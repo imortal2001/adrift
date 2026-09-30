@@ -39,8 +39,8 @@ import { Waterfall, lakeGeometry } from '/src/waterfall.js';
 import { REEF_ANIMALS, turtleBody, rayBody, octopusBody, Crabs, OCTO_SHADES } from '/src/reeflife.js';
 import { octopusModel, rayModel, shelledModel, seaTurtleModel } from '/src/reefmodels.js';
 import { SPECIES as FLORA, speciesMesh, speciesGeometry, speciesMaterial, setFloraTime } from '/src/flora.js';
-import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE } from '/src/items.js';
-import { POSES, Viewmodel, FLAME } from '/src/viewmodel.js';
+import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE, CATCHES } from '/src/items.js';
+import { POSES, Viewmodel, FLAME, COOKED } from '/src/viewmodel.js';
 import { CAVES, ARCH_LIST, SHELF_LIST, survey as surveyCaves, caveGeometry, archGeometry, shelfGeometry, caveMaterial } from '/src/caves.js';
 import { Fishing } from '/src/fishing.js';
 import { Hook } from '/src/hook.js';
@@ -278,6 +278,27 @@ export async function loadRegistry() {
   }
 
   // ── fish ──
+  // What each body is built to (tools/build_fish.py): the species' published
+  // measurements as proportions of standard length — Fishes of Texas, the
+  // Smithsonian's Shorefishes of the Greater Caribbean, FishBase.
+  const ANATOMY = {
+    tang: ['a compressed disc ~0.6 of its length deep; head steep, eye high, a long snout concave above and below; dorsal and anal fins high; an even yellow with a white scalpel on the tail stalk', 'FishBase; Smithsonian Shorefishes'],
+    bluetang: ['an oval disc with a pointed snout and small low mouth; the black palette; a yellow tail with its corners drawn out', 'Animal Diversity Web'],
+    chromis: ['0.44 of its length deep; a small terminal mouth reaching under the front of the eye; pectorals ~0.27; a deep, sharp-tipped fork', 'Fishes of Texas; Smithsonian Shorefishes'],
+    wrasse: ['slender (0.26 deep), head a third of its length; thick lips and front canines, the jaw bone hidden; dorsal VIII,12 unnotched', 'Fishes of Texas; Smithsonian Shorefishes'],
+    silver: ['slender, with a head wider than the body and an eye twice its snout; two dorsals; a silver stripe over a black one', 'Smithsonian Shorefishes'],
+    snapper: ['head ~40% of its length, eye a tenth, a red iris; the jaw to under the front of the eye, four canines; dorsal X,14 shallowly notched; long pointed pectorals and anal fin; the tail barely concave', 'Fishes of Texas; Smithsonian Shorefishes'],
+    porgy: ['head a third of its length on a deep body; a long sloping snout, thick lips, front canines; the eye high with a blue line beneath; pectorals past the anal fin', 'Fishes of Texas; Smithsonian Shorefishes'],
+    flounder: ['a flat disc on its blind side, both eyes on top, the lower one well ahead; the head notched before it; fringed by dorsal and anal fins; ringed with blue', 'Smithsonian Shorefishes; Fishes of Texas'],
+    mackerel: ['a slim torpedo; snout shorter than the rest of the head, the end of the jaw bone showing, knife-like teeth; two dorsals together, 8–10 finlets; plain silver as an adult', 'Smithsonian Shorefishes; Fishes of Texas'],
+    tuna: ['a conical snout, no fatty eyelid; long yellow sickle second dorsal and anal; a sickle pectoral to the second dorsal; yellow finlets; a crescent tail', 'FishBase; Smithsonian Shorefishes'],
+    barracuda: ['head a third of its length, pike-like and flat on top; the lower jaw jutting, fangs of unequal size; the pelvics ahead of the first dorsal; ~20 dark bars', 'Fishes of Texas; FishBase; Smithsonian Shorefishes'],
+    grouper: ['head ~40% of its length; the jaw bone past the back of the eye, thick lips; dorsal IX,15, the middle spines longest; rounded pectorals, anal and tail; red with blue spots', 'FishBase'],
+    mahi: ['a bull: under a quarter of its length deep, with a near-vertical bony forehead; the dorsal from over the eye to the tail; sickle pectorals; a deep fork', 'FishBase; Smithsonian Shorefishes'],
+  };
+  // The ones that run from you let you closer the slower you come (src/fish.js
+  // WARY): their full flight distance (SENSE there), halved drifting in.
+  const WARY_AT = { school: 2.5, dart: 3.5, hide: 2.6, bolt: 2.0 };
   const fish = await schools();
   for (const { sp } of fish.groups) {
     const fighter = FIGHTERS[sp.key];
@@ -298,7 +319,9 @@ export async function loadRegistry() {
           curious: 'turns to watch you; backs off only when close', retreat: 'backs away toward its hole, facing you',
           ignore: 'keeps its line; swerves at arm\u2019s length', dart: 'the school bursts away',
           circle: 'comes over and circles you, wide, to look',
-          school: 'a fright ripples through the shoal' }[sp.react || 'school']],
+          school: 'a fright ripples through the shoal' }[sp.react || 'school'] +
+          (WARY_AT[sp.react || 'school'] ? ` \u2014 at ~${WARY_AT[sp.react || 'school']} m swimming hard, about half that drifting in slowly` : '')],
+        ...(ANATOMY[sp.key] ? [['Built to', ANATOMY[sp.key][0]], ['Measurements from', ANATOMY[sp.key][1]]] : []),
         ...(fighter ? [['Fights', fighter.style]] : []),
         ...(sp.color !== 0xffffff ? [['Tint', '#' + sp.color.toString(16).padStart(6, '0')]] : []),
       ],
@@ -364,7 +387,7 @@ export async function loadRegistry() {
     facts: reefFacts('octopus', [['Size', 'half a metre to a metre across the arms'],
       ['Behaviour', 'creeps over the coral, arms curling, its colour sliding to match what it is on; startled within 2.8 m, it blanches, jets off backwards and leaves a cloud of ink — then hides'],
       ['Moves by', manifest.has('octopus') ? 'its rig’s eight arm chains, curled and swept in code' : 'its arms re-shaped every frame'],
-      ['Caught with', 'the spear — thrown, or thrust once it has hidden'], ['Eats as', 'a fish: cooks on the spit']]),
+      ['Caught with', 'the spear — thrown, or thrust once it has hidden, or when you have drifted in slowly'], ['Eats as', 'a fish: cooks on the spit']]),
     variants: [{ id: 'crawl', label: 'Creeping' }, { id: 'jet', label: 'Jetting off' }, { id: 'code', label: 'Built in code' }],
     async build(variant) {
       const entry = variant === 'code' ? null : await reefModel('octopus');
@@ -471,6 +494,7 @@ export async function loadRegistry() {
 
   // ── equipment ──
   const held = await heldBodies();
+  const heldFish = (await schools()).groups.map(g => g.sp).filter(sp => CATCHES.some(c => c[0] === sp.key));
   for (const [id, pose] of Object.entries(POSES)) {
     if (id === 'torch_lit') continue;                 // the torch's card shows it lit
     const hasModel = !!pose.model && manifest.has(pose.model);
@@ -485,9 +509,29 @@ export async function loadRegistry() {
               ...(id === 'fish' ? [['In play', 'every fish is its own item and is held as its own species; this is the stand-in for one the schools cannot draw']] : []),
               ['Frame', id === 'bowdrill' ? 'its own: the bow across, the spindle down, as held' : 'stands along +Y, origin at the grip']],
       variants: hasModel ? [{ id: 'model', label: 'glTF model' }, { id: 'fallback', label: 'Built-in fallback' }]
-              : id === 'torch' ? [{ id: 'lit', label: 'Burning' }, { id: 'unlit', label: 'Unlit' }] : null,
+              : id === 'torch' ? [{ id: 'lit', label: 'Burning' }, { id: 'unlit', label: 'Unlit' }]
+              // In hand, a fish is its own species, raw or cooked (viewmodel.js body()): each of them.
+              : id === 'fish' ? [{ id: 'standin', label: 'Stand-in' },
+                  ...heldFish.flatMap(sp => [{ id: `raw:${sp.key}`, label: cap(sp.name) },
+                                             { id: `cooked:${sp.key}`, label: `${cap(sp.name)}, cooked` }])] : null,
       async build(variant) {
         let obj = null;
+        if (id === 'fish' && variant && variant !== 'standin') {
+          // As the game holds one (main.js viewmodel.fishBody, viewmodel.js standFish).
+          const [how, key] = variant.split(':');
+          const f = await schools();
+          await f.ready;
+          const sp = f.species(key);
+          const mesh = sp && f.displayBody(key, Math.min(sp.big ? 0.36 : 0.40, sp.length[1]));
+          if (mesh) {
+            f.lively.delete(mesh);
+            if (how === 'cooked') mesh.material.color.multiply(COOKED);
+            mesh.rotation.set(-Math.PI / 2, 0, 0);
+            const box = new THREE.Box3().setFromObject(mesh);
+            mesh.position.y = -box.min.y - 0.04;
+            obj = new THREE.Group().add(mesh);
+          }
+        }
         if (hasModel && variant !== 'fallback') obj = (await lib.get(pose.model))?.scene.clone(true);
         if (id === 'torch' && variant !== 'unlit') {
           obj = held.torch_lit.clone(true);
@@ -497,7 +541,7 @@ export async function loadRegistry() {
         // The game holds tools along +Y. For display they lie on the floor,
         // working end to the right, the way you would lay one out on a bench;
         // on end, a spear is a vertical hairline across a 4:3 card.
-        const long = ['hammer', 'spear', 'rod', 'plank', 'leaf', 'fish'].includes(id);
+        const long = ['hammer', 'spear', 'rod', 'plank', 'leaf', 'fish', 'bamboo'].includes(id);
         if (long) obj.rotation.z = -Math.PI / 2;
         return { object: rest(shadows(obj)), view: long ? { yaw: 0.25, pitch: 0.55 } : undefined };
       },

@@ -26,6 +26,10 @@ export { BODY_LENGTH };
 export const BIG = 0.8;        // metres: longer than this will not go on a spear
 
 const HOME_RANGE = 78;         // schools beyond this are recycled closer in
+// Playing together, the host's schools are the sea for everyone within this
+// of the host (sharedworld.js takes the host's only that near) — so they are
+// kept round each of them, not round the host alone.
+const SHARED_SEA = 160;
 const DEEP_RANGE = 170;        // ...but the tuna live further out than that
 const SPAWN_MIN = 14, SPAWN_MAX = 62;
 const DRIFT = 0.45;            // how much of the ocean current they give in to
@@ -337,7 +341,7 @@ export class FishSchools {
 
     this.upgraded = [];        // reported once, like the wildlife models
     this.library = new ModelLibrary();
-    this.loadBodies();
+    this.ready = this.loadBodies();   // (the gallery waits on it for a fish in hand)
   }
 
   /**
@@ -425,6 +429,54 @@ export class FishSchools {
   respawn(school, initial = false) {
     this.placeSchool(school, initial);
     if (school.ashore) return;
+    this.gather(school, initial);
+  }
+
+  /**
+   * Who the schools are kept round: you — and, running the sea for others,
+   * whoever of them is in it. Keeping them round the host alone left a guest
+   * a hundred metres off, still in the host's sea, in empty water.
+   */
+  hubs() {
+    const hub = this.hub, out = this._hubs ||= [];
+    out.length = 0;
+    out.push(hub);
+    if (!this.follow) {
+      for (const o of this.others) {
+        if (Math.hypot(o.x - hub.x, o.z - hub.z) < SHARED_SEA) out.push(o);
+      }
+    }
+    return out;
+  }
+
+  /** How far (x, z) is from the nearest of them. */
+  fromHubs(x, z) {
+    let best = Infinity;
+    for (const h of this.hubs()) best = Math.min(best, Math.hypot(x - h.x, z - h.z));
+    return best;
+  }
+
+  /** Where a school put back goes round: whichever of you has the fewest near. */
+  anchor() {
+    const hubs = this.hubs();
+    if (hubs.length === 1) return hubs[0];
+    let best = null, fewest = Infinity;
+    for (const h of hubs) {
+      let n = 0;
+      for (const s of this.schools) {
+        if (!s.ashore && Math.hypot(s.center.x - h.x, s.center.z - h.z) < HOME_RANGE) n++;
+      }
+      n += Math.random() * 0.5;                 // (ties broken either way)
+      if (n < fewest) { fewest = n; best = h; }
+    }
+    return best;
+  }
+
+  /**
+   * A school moved a long way — put back, or where the host has it now — and
+   * its fish with it.
+   */
+  gather(school, initial = false) {
     // Its fish come with it. Left where they were — the far side of the
     // range it was recycled from, or a sea of someone else's, hundreds of
     // metres off — they swam the whole way, and for minutes the school was
@@ -432,7 +484,13 @@ export class FishSchools {
     // And not in front of you: a school put back within sight's reach gets
     // its fish just past it, on the far side from you, to swim the last few
     // metres in rather than appear out of the water.)
-    const hub = this.hub, c = school.center;
+    // (Out of sight of whichever of you is nearest it.)
+    const c = school.center;
+    let hub = this.hub, hd = Infinity;
+    for (const h of [this.hub, ...this.others]) {
+      const dd = Math.hypot(c.x - h.x, c.z - h.z);
+      if (dd < hd) { hd = dd; hub = h; }
+    }
     const dx = c.x - hub.x, dz = c.z - hub.z, d = Math.hypot(dx, dz);
     const k = initial || d >= 26 ? 1 : 26 / Math.max(d, 1);
     const from = this._from ||= new THREE.Vector3();
@@ -448,6 +506,7 @@ export class FishSchools {
   placeSchool(school, initial) {
     const min = initial ? 8 : SPAWN_MIN;
     const kind = school.kind;
+    const hub = this.anchor();
     school.ashore = false;
     if (kind === 'raft') {
       const r = this.raftPos();
@@ -470,8 +529,7 @@ export class FishSchools {
       const last = false;
       const a = Math.random() * Math.PI * 2;
       const d = kind === 'deep' ? rand(...school.zone.range) : rand(min, SPAWN_MAX);
-      // Round the raft, wherever it has got to.
-      const hub = this.hub;
+      // Round the raft, wherever it has got to — or whichever of you it is for.
       const x = hub.x + Math.cos(a) * d, z = hub.z + Math.sin(a) * d;
       if (kind === 'deep') {
         // Past the drop-off, over water too deep for anything to grow on.
@@ -578,8 +636,7 @@ export class FishSchools {
 
       // Following the host's schools, where they go is the host's to say.
       if (this.follow) continue;
-      const hub = this.hub;
-      const far = Math.hypot(s.center.x - hub.x, s.center.z - hub.z);
+      const far = this.fromHubs(s.center.x, s.center.z);
       if (far > (s.kind === 'deep' ? DEEP_RANGE : HOME_RANGE)) this.respawn(s);
       else if (s.kind === 'reef' && (s.floor < ZONES.reef.floor[0] - 6)) this.respawn(s);
       // A tuna school that has wandered back over the shelf goes back out.
@@ -799,8 +856,10 @@ export class FishSchools {
       s.ashore = false;
       const d = was ? Infinity : Math.hypot(x - s.center.x, z - s.center.z);
       if (d > 12) {
+        // Moved: its fish follow — just out of sight if it is near you, not
+        // set down in the water in front of you.
         s.center.set(x, y, z);
-        for (const f of s.members) f.pos.set(x, y, z).add(f.offset);
+        this.gather(s);
       } else s.center.lerp(this._v.set(x, y, z), 0.5);
       if (alarm > s.alarm) { s.alarm = alarm; s.threat.copy(s.center); }
     });

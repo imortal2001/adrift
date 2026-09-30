@@ -1257,8 +1257,12 @@ and carry it forward. The dinosaurs are the host's alone — a guest's are
 drawn where the host says — so they hunt whichever of you is on land, and a
 bite on a guest is sent to that guest — as is the warning that one has
 turned on them, so a guest is told to run just as the host would be. The flotsam, the whale and the
-schools go on moving everywhere and are eased back onto the host's; each
-school's fish are every machine's own, swimming round it and shying from
+schools go on moving everywhere and are eased back onto the host's — kept
+round everyone in the host's sea, not round the host alone (a guest a hundred
+metres off, still taking the host's schools, used to swim in empty water;
+a school put back goes to whichever of you has the fewest near, and when one
+moves, its fish come in from just out of sight rather than appearing in front
+of you); each school's fish are every machine's own, swimming round it and shying from
 whoever is nearest — and from how fast each of you comes at them, the others
 too, so a guest stalking a shoal is not given away by the host's schools
 running from them at the full distance — and a fish someone catches is gone

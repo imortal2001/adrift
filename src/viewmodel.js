@@ -73,6 +73,7 @@ export const POSES = {
   // using.
   wood:    { model: null,          pos: [0.25, -0.34, -0.62], rot: [0.25, 0.5, 1.25] },
   plank:   { model: null,          pos: [0.27, -0.36, -0.72], rot: [0.95, 0.3, 0.55] },
+  bamboo:  { model: null,          pos: [0.24, -0.34, -0.66], rot: [0.35, 0.45, 1.15] },
   rope:    { model: null,          pos: [0.20, -0.26, -0.56], rot: [0.55, 0.3, 0.25] },
   leaf:    { model: null,          pos: [0.22, -0.30, -0.56], rot: [-0.45, 0.4, 0.45] },
   scrap:   { model: null,          pos: [0.19, -0.25, -0.56], rot: [0.5, 0.6, 0.3] },
@@ -400,6 +401,30 @@ const BODIES = {
       const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.05, l, 9), [bark, end, end]);
       c.position.set(x, 0, z);
       g.add(c);
+    }
+    return g;
+  },
+  // Horsetail canes, a few cut lengths: green-gold, ribbed, jointed, a dark
+  // papery sheath round each node — a giant horsetail's, not a bamboo's.
+  // (Held, they used to be nothing at all: the hand went empty.)
+  bamboo() {
+    const g = new THREE.Group();
+    const cane = mat(0xa7a45c, 0.7, { side: THREE.DoubleSide }), sheath = mat(0x3e3a26, 0.85), cut = mat(0xd8cf9a, 0.9);
+    for (const [x, z, r, l] of [[0, 0, 0.017, 0.72], [0.034, 0.012, 0.015, 0.66], [0.016, -0.03, 0.016, 0.7]]) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, l, 10, 1, true), cane);
+      c.position.set(x, l / 2 - 0.1, z);
+      g.add(c);
+      for (let y = 0.06; y < l - 0.04; y += 0.13) {
+        const node = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.12, r * 1.08, 0.016, 10), sheath);
+        node.position.set(x, y - 0.1, z);
+        g.add(node);
+      }
+      for (const y of [-0.1, l - 0.1]) {           // cut ends: pale, hollow-looking rings
+        const end = new THREE.Mesh(new THREE.RingGeometry(r * 0.55, r, 10), cut);
+        end.rotation.x = y < 0 ? Math.PI / 2 : -Math.PI / 2;
+        end.position.set(x, y, z);
+        g.add(end);
+      }
     }
     return g;
   },
