@@ -1977,6 +1977,9 @@ export const SPECIES = [
     farVariant: v => v >= 2 ? 2 : 0, trunkOf: v => v >= 2 ? 0.8 : 2.6,
     chopOf: v => v >= 2 ? 3 : 6, yieldOf: v => v >= 2 ? { wood: 4 } : { wood: 8 },
     rings: 3, farFrom: 2, scale: [0.72, 1.25], trunk: 2.6, reach: 5.5, regrow: 300, yield: { wood: 8 }, chop: 6, falls: true,
+    // Cut, a stump stays: the heartwood cherry to red-brown, the sapwood
+    // nearly white, inside a thick fibrous bark.
+    cut: 'solid', heartwood: [0x9a4a30, 0xe2cfa6, 0x5a3322],
     // Deep, moist, well-drained alluvium: the river flats, a bank's height
     // above the water (the modern coast redwood's best ground is just that).
     where: s => (s.forest * s.wet * 1.1 + band(s.edge, 10, 25, 220, 380) * s.wet * smooth01(0.22, 0.06, s.slope) * 0.6) *
@@ -1988,6 +1991,7 @@ export const SPECIES = [
     // Cloud forest is short: its trees a fraction of the height below (Luquillo: 20–30 m, then 3–5 m on the tops).
     size: s => 1 - 0.68 * smooth01(175, 270, s.h),
     rings: 3, farFrom: 2, scale: [0.75, 1.3], trunk: 1.4, reach: 3.6, regrow: 220, yield: { wood: 5 }, chop: 4, falls: true,
+    cut: 'solid', heartwood: [0xc9a36e, 0xeadcb4, 0x4d3a2c],      // pale, yellowish-brown heart, cream sapwood
     // Drier ground than the redwoods; rocky slopes, ridges and escarpment
     // rims; the headlands over the sea, as the Norfolk and Cook pines; open
     // araucarian woodland where it is too dry for closed forest (50–150
@@ -2081,11 +2085,13 @@ export const SPECIES = [
   // Last in the list, so adding it moved nothing else that grows.
   { name: 'bamboo', group: 'Understorey', habitat: 'stands along the river banks, and in the wet lowlands behind the beaches — giant horsetail, up to ~6 m, where later ages have bamboo', label: 'Giant horsetail', layer: 'under', make: horsetailGrove, variants: 3, material: 'tree', bark: 'smooth',
     rings: 2, farFrom: 2, scale: [0.8, 1.25], trunk: 0.45, reach: 3.2, regrow: 180, yield: { bamboo: 4 }, chop: 2, falls: true,
+    cut: 'hollow',                          // a horsetail's stems are hollow: cut, a stubble of open culms
     where: s => (band(s.edge, 1.5, 4, 16, 34) * 0.4 + band(s.shore, 8, 16, 50, 90) * s.wet * 0.12) *
                 band(s.h, 1.5, 3, 45, 70) * (s.slope < 0.4 ? 1 : 0) },
   // After the bamboo, so adding it moved nothing else that grows.
   { name: 'metasequoia', group: 'Canopy trees', habitat: 'the river banks, levees and lake shores, in stands: wet, fresh-built ground, open to the light — the dawn redwood, a Late Cretaceous tree unchanged today', label: 'Dawn redwood', layer: 'canopy', make: metasequoia, variants: 3, material: 'tree',
     rings: 3, farFrom: 2, scale: [0.7, 1.25], trunk: 1.1, reach: 4, regrow: 260, yield: { wood: 6 }, chop: 5, falls: true,
+    cut: 'solid', heartwood: [0xa35a3c, 0xe0c9a0, 0x6a3f2b],      // red-brown heart, pale sapwood
     where: s => band(s.edge, 1.5, 4, 60, 110) * s.wet * 0.8 * band(s.h, 2, 5, 120, 160) * (s.slope < 0.25 ? 1 : 0) },
 ];
 const TREE_H = 190;   // where the cloud forest of the tops begins (TREELINE in src/terrain.js)

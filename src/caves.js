@@ -842,6 +842,26 @@ export class Caves {
     return 1 + (Math.abs(seedAt(f.x * 13, f.z * 13)) % 2);
   }
 
+  /** Chipped by someone else (playing together): gone here too. */
+  chippedElsewhere(key, left = FLINT_REGROW) {
+    const f = this.flint.find(x => x.key === key);
+    if (!f || this.chipped.has(key)) return;
+    this.chipped.set(key, Math.min(Math.max(Number(left) || FLINT_REGROW, 1), FLINT_REGROW));
+    this.placeFlint(f, false);
+  }
+
+  /** The faces chipped and not yet back, for a save or a room's world: [key, seconds left]. */
+  chippedList() { return [...this.chipped].map(([k, t]) => [k, Math.round(t)]); }
+
+  /** Another world's chipped faces: all back first, then those gone there. */
+  restoreChipped(list, clear = true) {
+    if (clear) {
+      for (const k of this.chipped.keys()) { const f = this.flint.find(x => x.key === k); if (f) this.placeFlint(f, true); }
+      this.chipped.clear();
+    }
+    for (const [k, t] of Array.isArray(list) ? list : []) if (typeof k === 'string' && t > 0) this.chippedElsewhere(k, t);
+  }
+
   /** The spring you are looking at within reach, or null. */
   pickSpring(eye, dir, reach = 3) {
     for (const c of CAVES) {

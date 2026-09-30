@@ -38,7 +38,7 @@ import { Terrain, CHUNK, WORLD, heightAt, coastDistance, reefMask, landAt, RIVER
 import { Waterfall, lakeGeometry } from '/src/waterfall.js';
 import { REEF_ANIMALS, turtleBody, rayBody, octopusBody, Crabs, OCTO_SHADES } from '/src/reeflife.js';
 import { octopusModel, rayModel, shelledModel, seaTurtleModel } from '/src/reefmodels.js';
-import { SPECIES as FLORA, speciesMesh, setFloraTime } from '/src/flora.js';
+import { SPECIES as FLORA, speciesMesh, speciesGeometry, speciesMaterial, setFloraTime } from '/src/flora.js';
 import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE } from '/src/items.js';
 import { POSES, Viewmodel, FLAME } from '/src/viewmodel.js';
 import { CAVES, ARCH_LIST, SHELF_LIST, survey as surveyCaves, caveGeometry, archGeometry, shelfGeometry, caveMaterial } from '/src/caves.js';
@@ -604,6 +604,60 @@ export async function loadRegistry() {
       },
     });
   }
+  // ── a tree felled: the stump it leaves, and the trunk down beside it ──
+  for (const sp of FLORA.filter(s => s.cut)) {
+    const forms = Array.from({ length: sp.variants }, (_, v) => ({ id: String(v), label: `Variant ${v + 1}` }));
+    add({
+      id: `felled-${sp.name}`, name: `${sp.label} — felled`, category: 'vegetation', group: sp.group,
+      kind: 'built in code', backdrop: 'world', source: 'src/terrain.js · addStump(), topple(), cutFaces()',
+      variants: forms.length > 1 ? forms : null,
+      facts: [['Cut', sp.cut === 'hollow' ? 'a stubble of open stems a hand high — a horsetail’s are hollow'
+                                           : 'at knee height or so, higher on a big trunk: the stump its own foot, clipped at the cut'],
+              ...(sp.heartwood ? [['The face', 'its own cross-section there, flutes and buttresses and all: the heartwood, a narrow band of sapwood, the bark; growth rings and a few checks']] : []),
+              ['Falls', 'hinged on the stump’s far edge, away from the axe; lies a few seconds, and sinks from sight'],
+              ['Stays', `the stump, until the tree grows back (${sp.regrow} s); you can stand on it`]],
+      async build(variant) {
+        const v = Number(variant || 0);
+        const inst = new THREE.InstancedMesh(speciesGeometry(sp, v, 0), speciesMaterial(sp), 1);
+        const M = new THREE.Matrix4();
+        inst.setMatrixAt(0, M);
+        const p = { sp, inst, index: 0, matrix: M, x: 0, y: 0, z: 0, key: `gallery-${sp.name}`, trunk: sp.trunkOf ? sp.trunkOf(v) : sp.trunk };
+        const c = t.cutOf(p);
+        const g = new THREE.Group();
+        // The stump, where it stood.
+        const below = new THREE.Plane(), above = new THREE.Plane();
+        const stump = t.clippedCopy(p, below);
+        g.add(stump);
+        if (c.top) g.add(t.cutFace(p, c.top));
+        // The rest of it, over on its side from the hinge at the far edge of
+        // the cut — away from where you look, so its cut end faces you.
+        const down = new THREE.Group();
+        down.position.set(-c.rw * 0.9, c.hw, 0);
+        // (A touch past level, the crown down on the ground, the butt up on its hinge.)
+        const geo = inst.geometry;
+        if (!geo.boundingBox) geo.computeBoundingBox();
+        down.rotation.z = Math.PI / 2 + Math.atan2(c.hw + c.rw * 0.9, geo.boundingBox.max.y * 0.85);
+        const log = t.clippedCopy(p, above);
+        log.position.set(c.rw * 0.9, -c.hw, 0);
+        down.add(log);
+        if (c.end) { const e = t.cutFace(p, c.end); e.matrix.setPosition(c.rw * 0.9, -c.hw, 0); down.add(e); }
+        g.add(down);
+        // (Clipping is in the world's frame: kept with the pieces wherever the stage puts them.)
+        const keep = () => {
+          g.updateMatrixWorld(true);
+          below.set(new THREE.Vector3(0, -1, 0), c.hl).applyMatrix4(stump.matrixWorld);
+          above.set(new THREE.Vector3(0, 1, 0), -c.hl).applyMatrix4(log.matrixWorld);
+        };
+        keep();
+        // Framed on the cut: the stump, and the end of the trunk beside it.
+        const r = Math.max(c.rw, 0.25);
+        return { object: shadows(g), keepHeight: true,
+                 frame: { center: V(-r * 1.2, c.hw + r * 0.6, 0), size: V(r * 5.5, r * 3.2 + c.hw, r * 4.5) },
+                 update: (dt, time) => { keep(); setFloraTime(time); } };
+      },
+    });
+  }
+
   const reefGeo = reefGeometry();
 
   // ── corals & rocks ──

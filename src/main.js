@@ -124,6 +124,8 @@ class Game {
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // A felled tree is drawn clipped at its cut: the stump below, what falls above (terrain.js).
+    this.renderer.localClippingEnabled = true;
     document.body.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -153,6 +155,8 @@ class Game {
     this.torch = { lit: false, fuel: 0, embers: 0 };
     // Trees part-chopped: plant key → { n: strokes so far, at: when the last was }.
     this.chops = new Map();
+    this.plantClaims = new Map();   // a guest's plants, taken and waiting on the host's word (takeShared)
+    this.plantTakers = new Map();   // hosting: who took each plant, to tell whoever was too slow
     this.torchLights = [0, 1, 2].map(() => {
       const l = new THREE.PointLight(0xffa35a, 0, 26, 2);
       this.scene.add(l);
@@ -328,7 +332,7 @@ class Game {
 
     this.bindUI();
     window.game = this;          // debug handle: inspect or poke state from the console
-    this.renderer.setAnimationLoop(() => this.frame());
+    this.renderer.setAnimationLoop(() => this.tick());
     this.keepTicking();
   }
 
@@ -1083,8 +1087,83 @@ class Game {
 
   /** A plant down, or picked: what it gives, into the pack. */
   takePlant(plant, how = null) {
-    this.gain(this.terrain.harvest(plant), how);
     this.chops.delete(plant.key);
+    const got = this.takeShared(plant, null, how);
+    if (got) this.gain(got, how);
+  }
+
+  /**
+   * A plant taken, cut down (falling `away`) or picked: gone for everyone.
+   * Playing together, the host settles who had it (two of you at one tree get
+   * one lot of wood): a guest's is gone at once here, and what it gives comes
+   * from the host (claimPlant), so this gives nothing — or someone was
+   * quicker. Otherwise, what it gives.
+   */
+  takeShared(plant, away = null, how = null) {
+    const a = away ? [+away.x.toFixed(2), +away.z.toFixed(2)] : null;
+    const got = this.terrain.harvest(plant);
+    if (this.net.connected && !this.net.isHost) {
+      this.plantClaims.set(plant.key, { how: how || got.label, wait: !!a && !!plant.sp.falls, y: undefined });
+      this.net.event({ k: 'claimplant', key: plant.key, a, r: plant.sp.regrow, y: got.yield }, this.net.host);
+      return null;
+    }
+    this.plantTakers.set(plant.key, this.net.name || 'Someone');
+    this.together.world.plantTaken(plant.key, a, plant.sp.regrow);
+    return got;
+  }
+
+  /** A guest's plant, settled: what it gave (the host said), once any tree it was is down. */
+  settlePlant(key) {
+    const c = this.plantClaims.get(key);
+    if (!c || c.wait || c.y === undefined) return;
+    this.plantClaims.delete(key);
+    if (c.y) this.gain({ label: c.how, yield: c.y }, c.how);
+    else this.hud.log(`${c.who || 'Someone else'} got to it first.`, 'bad');
+  }
+
+  /** Someone else took a plant: gone here too — and a tree, near enough, comes down where you can see it. */
+  plantGone(key, a, regrow) {
+    const p = this.terrain.takenElsewhere(key, regrow);
+    this.chops.delete(key);
+    if (!p || !p.sp.falls || !Array.isArray(a)) return;
+    if (Math.hypot(p.x - this.player.pos.x, p.z - this.player.pos.z) > 300) return;
+    const away = new THREE.Vector3(a[0], 0, a[1]);
+    if (away.lengthSq() < 1e-6) return;
+    this.fellTree(p, away.normalize());
+  }
+
+  /** Someone's axe at a tree: it shudders and the chips fly here too, and the stroke counts. */
+  chopSeen(key, a) {
+    const p = this.terrain.plantsByKey.get(key);
+    if (!p || this.terrain.felled.has(key)) return;
+    const c = this.chops.get(key) || { n: 0 };
+    c.n++; c.at = this.time;
+    this.chops.set(key, c);
+    if (!Array.isArray(a) || Math.hypot(p.x - this.player.pos.x, p.z - this.player.pos.z) > 120) return;
+    const away = new THREE.Vector3(a[0], 0, a[1]);
+    if (away.lengthSq() < 1e-6) return;
+    away.normalize();
+    const bamboo = p.sp.name === 'bamboo';
+    const bite = this.terrain.bitePoint(p, away);
+    this.terrain.burst(bite, away, bamboo ? 'bamboo' : 'wood', 12);
+    sound.chop(bite, { bamboo, last: false });
+    this.terrain.shake(p, away);
+  }
+
+  /** A tree coming down, away from the axe: the creak, the rush, the crash, felt underfoot. `onDown` as it lands. */
+  fellTree(plant, away, onDown = null) {
+    const fell = this.terrain.topple(plant, away, f => {
+      onDown?.(f);
+      sound.crash(new THREE.Vector3(plant.x + away.x * f.H * 0.45, plant.y + 1, plant.z + away.z * f.H * 0.45), Math.min(1, f.H / 45));
+      // Felt underfoot, if you are near.
+      const d = Math.hypot(plant.x + away.x * f.H * 0.5 - this.player.pos.x, plant.z + away.z * f.H * 0.5 - this.player.pos.z);
+      const k = Math.max(0, 1 - d / 40) * Math.min(1, f.H / 20);
+      if (k > 0) this.quake = { t: 0, amp: 0.09 * k };
+    });
+    // As it goes: the creak of it giving way, then the rush of it coming down.
+    const size = Math.min(1, fell.H / 45);
+    sound.creak(new THREE.Vector3(plant.x, plant.y + 2, plant.z), fell.fall * 0.55);
+    sound.fall(new THREE.Vector3(plant.x + away.x * fell.H * 0.35, plant.y + fell.H * 0.35, plant.z + away.z * fell.H * 0.35), fell.fall, size);
   }
 
   /** What a plant gave (terrain.harvest()), into the pack, and said. */
@@ -1127,29 +1206,31 @@ class Game {
     const last = c.n >= (plant.chop ?? plant.sp.chop);
     this.terrain.burst(bite, away, bamboo ? 'bamboo' : 'wood', last ? 26 : 12);
     sound.chop(bite, { bamboo, last });
-    if (!last) { this.terrain.shake(plant, away); return; }
+    if (!last) {
+      this.terrain.shake(plant, away);
+      this.together.world.chopped(plant.key, [+away.x.toFixed(2), +away.z.toFixed(2)]);
+      return;
+    }
     const name = plant.sp.label.toLowerCase();
     this.chops.delete(plant.key);
-    const got = this.terrain.harvest(plant);
-    if (!plant.sp.falls) { this.gain(got, `You chop the ${name} up`); return; }
+    if (!plant.sp.falls) {
+      const how = `You chop the ${name} up`, got = this.takeShared(plant, away, how);
+      if (got) this.gain(got, how);
+      return;
+    }
+    const how = `The ${name} comes down with a crash`, got = this.takeShared(plant, away, how);
     this.hud.log(`The ${name} creaks, and leans…`);
-    const fell = this.terrain.topple(plant, away, f => {
-      this.gain(got, `The ${name} comes down with a crash`);
-      sound.crash(new THREE.Vector3(plant.x + away.x * f.H * 0.45, plant.y + 1, plant.z + away.z * f.H * 0.45), Math.min(1, f.H / 45));
-      // Felt underfoot, if you are near.
-      const d = Math.hypot(plant.x + away.x * f.H * 0.5 - this.player.pos.x, plant.z + away.z * f.H * 0.5 - this.player.pos.z);
-      const k = Math.max(0, 1 - d / 40) * Math.min(1, f.H / 20);
-      if (k > 0) this.quake = { t: 0, amp: 0.09 * k };
+    this.fellTree(plant, away, () => {
+      if (got) { this.gain(got, how); return; }
+      const claim = this.plantClaims.get(plant.key);
+      if (claim) { claim.wait = false; this.settlePlant(plant.key); }
     });
-    // As it goes: the creak of it giving way, then the rush of it coming down.
-    const size = Math.min(1, fell.H / 45);
-    sound.creak(new THREE.Vector3(plant.x, plant.y + 2, plant.z), fell.fall * 0.55);
-    sound.fall(new THREE.Vector3(plant.x + away.x * fell.H * 0.35, plant.y + fell.H * 0.35, plant.z + away.z * fell.H * 0.35), fell.fall, size);
   }
 
   /** Chip a flint face off a cave wall. */
   chipFlint(f) {
     const n = this.caves.chip(f);
+    this.together.world.chipped(f.key);
     this.inv.add('flint', n);
     this.hotbar.autoAssign('flint');
     this.useAnim('eat');
@@ -1379,6 +1460,10 @@ class Game {
     this.statues.clear();
     for (const s of scatter()) this.statues.add(s);
     this.registered = null;
+    // And the land as it grew: a new castaway finds none of the last one's stumps.
+    this.terrain.clearFelled();
+    this.caves.restoreChipped([]);
+    this.chops.clear();
   }
 
   /**
@@ -1554,10 +1639,10 @@ class Game {
   }
 
   // ── a room's world: kept on the relay ──────────────────────────────────────
-  /** The world as it stands, for the room to keep: the rafts, the statues, the time of day. */
+  /** The world as it stands, for the room to keep: the rafts, the statues, the time of day, what is cut and chipped. */
   worldJSON() {
     return { v: 1, rafts: this.rafts.toJSON(), statues: this.statues.toJSON(), sky: [+this.sky.time.toFixed(1), this.sky.day],
-             wakers: this.wakersJSON() };
+             wakers: this.wakersJSON(), felled: this.terrain.felledList(), chipped: this.caves.chippedList() };
   }
 
   /** You, in the room's world. */
@@ -1584,6 +1669,11 @@ class Game {
     this.save();
     this.clearSpits();
     this.room = code;
+    // The trees you cut at home are standing in this world, and its own are down.
+    this.terrain.clearFelled();
+    this.caves.restoreChipped([]);
+    this.chops.clear();
+    this.plantClaims.clear();
     if (world) this.loadWorld(world);
     else if (host) this.freshWorld();
     else { this.rafts.load([]); this.raft = null; this.setRaft(this.rafts.make()); this.statues.clear(); }
@@ -1603,6 +1693,10 @@ class Game {
     this.wakers = new Map();
     this.clearSpits();
     this.hud.clearLog();
+    this.terrain.clearFelled();
+    this.caves.restoreChipped([]);
+    this.chops.clear();
+    this.plantClaims.clear();
     if (!this.loadSave()) this.newStart();
     this.refreshAll();
     this.hud.log('You are back in your own world.');
@@ -1627,6 +1721,8 @@ class Game {
     this.statues.load(w.statues);
     this.loadWakers(w.wakers);
     if (Array.isArray(w.sky)) [this.sky.time, this.sky.day] = w.sky;
+    this.terrain.restoreFelled(Array.isArray(w.felled) ? w.felled : []);
+    this.caves.restoreChipped(w.chipped);
   }
 
   /** You, as the room kept you: what you carry, how you are, and where — aboard your raft, wherever it has got to. */
@@ -1839,7 +1935,6 @@ class Game {
     return best;
   }
 
-  /** One of what is in hand, to someone else. */
   /** Twice a second, playing together: someone coming aboard the raft you are on is said. */
   watchCrew() {
     if (!this.onDeck()) { for (const r of this.net.remotes.values()) r.aboard = false; return; }
@@ -1948,6 +2043,31 @@ class Game {
       const raft = this.rafts.byId(e.ri);
       const o = raft?.objs.get(`${e.cx},${e.cz}`);
       if (o?.type === 'campfire') this.settleCooked(raft, o, r);
+      return true;
+    }
+    // A guest took a plant: theirs, if nobody had it first — it is gone for
+    // everyone, and what it gives (the guest's own count) goes to them.
+    if (e.k === 'claimplant') {
+      if (!this.net.isHost || typeof e.key !== 'string') return true;
+      if (this.terrain.felled.has(e.key)) {
+        this.net.event({ k: 'plantno', key: e.key, who: this.plantTakers.get(e.key) || null }, r.id);
+        return true;
+      }
+      if (this.plantTakers.size > 400) this.plantTakers.clear();
+      this.plantTakers.set(e.key, r.name);
+      this.plantGone(e.key, e.a, e.r);
+      this.together.world.plantTaken(e.key, e.a, e.r);
+      const y = {};
+      for (const [id, n] of Object.entries(e.y || {})) if (ITEMS[id] && n > 0) y[id] = Math.min(20, n | 0);
+      this.net.event({ k: 'plantok', key: e.key, y }, r.id);
+      return true;
+    }
+    if (e.k === 'plantok' || e.k === 'plantno') {
+      const c = this.plantClaims.get(e.key);
+      if (!c) return true;
+      c.y = e.k === 'plantok' && e.y && typeof e.y === 'object' ? e.y : null;
+      if (e.k === 'plantno') { c.who = typeof e.who === 'string' ? e.who.slice(0, 20) : null; c.wait = false; }
+      this.settlePlant(e.key);
       return true;
     }
     if (e.k === 'claimgather') {
@@ -2154,9 +2274,23 @@ class Game {
   }
 
   // ── frame ──────────────────────────────────────────────────────────────────
-  frame(step = null) {
+  /**
+   * Each frame the browser draws. Alone, a slow one is a step of no more than
+   * a twentieth of a second — a slow machine plays slower. Playing together
+   * the time is everyone's (a host's world is the others' too, and they carry
+   * its animals on in real time), so a slow frame is made up, in steps no
+   * bigger than that, only the last of them drawn.
+   */
+  tick() {
+    const total = Math.min(this.clock.getDelta(), this.net.connected ? 0.25 : 0.05);
+    const n = Math.max(1, Math.ceil(total / 0.05 - 1e-6));
+    for (let i = 1; i < n; i++) this.frame(total / n, false);
+    this.frame(total / n);
+  }
+
+  frame(step = null, draw = true) {
     const dt = step ?? Math.min(this.clock.getDelta(), 0.05);
-    const drawn = !document.hidden;           // hidden, the world goes on (keepTicking) but nothing is drawn
+    const drawn = draw && !document.hidden;   // hidden, the world goes on (keepTicking) but nothing is drawn
     const input = this.input;
     const now = performance.now();
 
@@ -2785,6 +2919,7 @@ class Game {
         // The trees you cut and the plants you took, until they grow back —
         // or a reload would put them all back at once.
         felled: this.terrain.felledList(),
+        chipped: this.caves.chippedList(),
       }));
     } catch { /* storage full or blocked — not worth interrupting play */ }
   }
@@ -2826,6 +2961,7 @@ class Game {
     this.sky.day = d.day ?? 1;
     for (const g of d.goals || []) this.goalsDone.add(g);
     this.terrain.restoreFelled(d.felled);
+    this.caves.restoreChipped(d.chipped);
     if (d.view) this.view.set(d.view);
     if (d.character) this.character = d.character;
     return true;

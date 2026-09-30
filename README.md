@@ -562,14 +562,24 @@ a woodcutter's swing — drawn up and back over your shoulder, driven across
 and down into the trunk, a jolt as the blade bites, pulled out — and the blow
 lands when the blade does, not on the click: the tree shudders and chips fly
 from the cut (pale wood and bark; green-gold off horsetail). A few strokes on —
-six for a redwood, four for an araucaria, three for a log or a stump, two
+six for an old redwood and three for a young one, four for an old araucaria
+and two for a young, five for a dawn redwood, three for a log or a stump, two
 for a horsetail stand — it is down. A standing tree creaks and leans, slowly, then
-falls away from you ever faster, meets the ground where the ground is (on a
-slope uphill, it stops short), bounces, and throws up leaves and dust where
-it lands — the ground shakes if you are close — and the wood is yours as it
-hits. It lies a few seconds, then sinks out of sight. A log or a stump is
-chopped up where it lies, in a burst of chips. Leave one half-chopped a
-minute and you start again.
+falls away from you ever faster, hinged on the far edge of the cut, meets the
+ground where the ground is (on a slope uphill, it stops short), bounces, and
+throws up leaves and dust where it lands — the ground shakes if you are
+close — and the wood is yours as it hits. It lies a few seconds, then sinks
+out of sight. It is cut, not pulled up whole: what comes down is the tree
+above the cut, knee high or so (higher on a big trunk), its end a face of
+wood, and the **stump** stays where it stood — its own flared, fluted foot,
+bark and all — until the tree grows back; you can climb up and stand on it.
+The face is the trunk's own cross-section at the cut, buttresses and flutes
+and all: the heartwood (a redwood's cherry red, an araucaria's pale
+yellow-brown, a dawn redwood's red-brown), a narrow band of paler sapwood,
+the bark round it, growth rings closer together toward the outside, a few
+checks out from the pith. A horsetail stand leaves a stubble of hollow stems.
+A log or a stump is chopped up where it lies, in a burst of chips. Leave one
+half-chopped a minute and you start again.
 
 And you hear it (`src/sound.js`): the swish of the swing and the thunk and
 crack of the bite — a hollow tock off the horsetail's hollow canes — then, the last stroke, the
@@ -1108,7 +1118,8 @@ forest are built from the same code everywhere, and the raft sits at the
 same place.
 
 **A lasting world.** A room is a world of its own, and it lasts: the relay
-keeps it when everyone has gone — its rafts, its statues, the time of day —
+keeps it when everyone has gone — its rafts, its statues, the time of day,
+the trees cut down and the flint chipped out that have not grown back yet —
 and keeps each player's record in it: what you carry, how you are, your start
 and your statue, and where you were. Hosting a new room starts a fresh world.
 Joining one, you come back as you left: aboard your raft, wherever it has
@@ -1117,7 +1128,7 @@ host on the crew's raft — four lashed pallets — and someone new to it comes
 to aboard the biggest raft there is, with the others rather than a long swim
 from them (only a world with no raft at all puts a newcomer on its edge, like
 any castaway). The log starts clean in each world. Your own game waits at home, untouched, and is yours again when you
-leave.
+leave — the trees you cut there down still, and the room's standing.
 
 **Rafts, any number.** Anyone can build a raft — lay a first foundation on
 the water away from any raft — and anyone can board, build on and paddle any
@@ -1161,7 +1172,13 @@ turned on them, so a guest is told to run just as the host would be. The flotsam
 schools go on moving everywhere and are eased back onto the host's; each
 school's fish are every machine's own, swimming round it and shying from
 whoever is nearest, and a fish someone catches is gone for everyone. What
-someone gathers is gone for everyone too. A thrown spear flies on every
+someone gathers is gone for everyone too — flotsam, and on land the fronds
+picked, the flint chipped out of a cave wall and the trees cut down. A tree
+shudders at every stroke on every screen and comes down on every screen near
+enough to see it, and every stroke counts, whoever makes it: two of you at
+one tree fell it in half the time, and the wood goes to whoever lands the
+last. Two of you taking one plant at once is the host's to settle, as with a
+crate: one gets it, and the other is told who was quicker. A thrown spear flies on every
 screen and lands in the same place; what it skewers, the thrower's game
 says. Your own time of day waits with your raft.
 

@@ -13,7 +13,11 @@
 // are eased back onto the host's. A school's fish are each machine's own,
 // swimming round it and shying from whichever of you is nearest; a fish
 // someone takes is gone for everyone. A spear someone throws flies on every
-// machine — what it catches, the thrower's game says.
+// machine — what it catches, the thrower's game says. What anyone takes on
+// land — a tree cut down, fronds picked, flint chipped out of a cave wall —
+// is gone for everyone, and a tree comes down on every screen near enough to
+// see it; every stroke of an axe counts for whoever lands the last, so two of
+// you fell a tree in half the time. Who got a plant is the host's to settle.
 //
 // Far apart, though, the sea about each of you is your own: the flotsam, the
 // fish and the whale keep near each player (their `focus`), and a guest takes
@@ -28,7 +32,7 @@ const EVERY = 1 / 3;           // the host tells the others how things stand thi
 const SLOW = 3;                // …and where the flotsam and the fish schools are, every this many
 
 export const WORLD_EVENTS = ['world', 'gather', 'fish', 'spear', 'sk', 'spearBack', 'bite', 'kill', 'spears', 'paddle',
-                             'statue', 'unstatue'];
+                             'statue', 'unstatue', 'plant', 'chop', 'flint', 'felled'];
 
 export class SharedWorld {
   constructor(game) {
@@ -82,6 +86,8 @@ export class SharedWorld {
                v: s.vel.toArray().map(r), f: s.catch.map(f => f.key) };
     });
     if (list.length) this.net.event({ k: 'spears', list }, id);
+    // And, hosting, what is gone from the land since the room last kept it.
+    if (this.net.isHost) this.net.event({ k: 'felled', f: this.game.terrain.felledList(), c: this.game.caves.chippedList() }, id);
   }
 
   /** A kill the host's animals made: news to everyone. */
@@ -113,6 +119,15 @@ export class SharedWorld {
   }
 
   tookBack(s) { this.send({ k: 'spearBack', s: s.id }); }
+
+  /** A plant gone — cut down (falling `a`, the way it goes) or picked — for everyone. */
+  plantTaken(key, a, regrow) { this.send({ k: 'plant', key, a, r: Math.round(regrow) }); }
+
+  /** A stroke of the axe at a tree: the others see it shudder, and it counts toward it coming down. */
+  chopped(key, a) { this.send({ k: 'chop', key, a }); }
+
+  /** A flint face chipped out: gone for everyone. */
+  chipped(key) { this.send({ k: 'flint', key }); }
 
   /** A statue set up, or taken up again: it is the world's, so everyone's. */
   statueUp(s) { this.send({ k: 'statue', s: [s.id, +s.x.toFixed(2), +s.z.toFixed(2), +s.yaw.toFixed(3)] }); }
@@ -201,6 +216,16 @@ export class SharedWorld {
         }
         this.thrown.set(`${from}:${t.s}`, s);
       }
+    } else if (e.k === 'plant' && typeof e.key === 'string') {
+      g.plantGone(e.key, e.a, e.r);
+    } else if (e.k === 'chop' && typeof e.key === 'string') {
+      g.chopSeen(e.key, e.a);
+    } else if (e.k === 'flint' && typeof e.key === 'string') {
+      g.caves.chippedElsewhere(e.key);
+    } else if (e.k === 'felled') {
+      if (this.net.isHost) return;
+      g.terrain.restoreFelled(Array.isArray(e.f) ? e.f : []);
+      g.caves.restoreChipped(e.c, false);
     } else if (e.k === 'kill' && Array.isArray(e.p)) {
       if (this.net.isHost) return;
       g.wildlife.kills.push({ hunter: String(e.h), victim: String(e.v), pos: new THREE.Vector3(e.p[0], g.player.pos.y, e.p[1]) });

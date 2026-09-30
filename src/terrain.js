@@ -1008,6 +1008,8 @@ export class Terrain {
     // detail — or unloaded and loaded again — does not regrow them.
     this.felled = new Map();
     this.plantsByKey = new Map();
+    // A felled tree's stump, where it stood, until it grows back (addStump).
+    this.stumps = new Map();
 
     this.far = this.buildFar();
     this.rivers = this.buildRivers();
@@ -1099,7 +1101,7 @@ export class Terrain {
     // Flora geometry is shared between every chunk; only the ground and the
     // cliff drapes belong to this one.
     c.group.traverse(o => { if (o.isMesh && o.userData.own) o.geometry.dispose(); });
-    for (const p of c.plants || []) this.plantsByKey.delete(p.key);
+    for (const p of c.plants || []) { this.removeStump(p.key); this.plantsByKey.delete(p.key); }
   }
 
   buildChunk({ i, j, ring, band = bandOf(ring) }) {
@@ -1347,6 +1349,7 @@ export class Terrain {
     for (const s of solids) if (this.felled.has(s.plantKey)) s.off = true;
     this._plants = plants;
     this._landProps = solids.length ? solids : null;
+    for (const p of plants) if (this.felled.has(p.key)) this.addStump(p, solids);
     return total;
   }
 
@@ -1905,7 +1908,33 @@ export class Terrain {
       const p = this.plantsByKey.get(k);
       if (p) { p.inst.setMatrixAt(p.index, HIDDEN); p.inst.instanceMatrix.needsUpdate = true; }
       this.setSolid(k, false);
+      if (p) this.addStump(p);
     }
+  }
+
+  /** Every plant back where it grew: into another world (a room's, or home again), with its own felled. */
+  clearFelled() {
+    for (const k of this.felled.keys()) {
+      const p = this.plantsByKey.get(k);
+      if (p) { p.inst.setMatrixAt(p.index, p.matrix); p.inst.instanceMatrix.needsUpdate = true; }
+      this.removeStump(k);
+      this.setSolid(k, true);
+    }
+    this.felled.clear();
+  }
+
+  /**
+   * Taken by someone else (playing together): gone here too, for as long as
+   * it takes to grow back. The plant, if its chunk is built here — to be seen
+   * coming down — or null (already gone, or too far off to be built).
+   */
+  takenElsewhere(key, regrow) {
+    if (typeof key !== 'string' || this.felled.has(key)) return null;
+    const p = this.plantsByKey.get(key);
+    if (p) { this.harvest(p); return p; }
+    this.felled.set(key, Math.min(Math.max(Number(regrow) || 600, 30), 7200));
+    this.setSolid(key, false);
+    return null;
   }
 
   /**
@@ -1978,10 +2007,23 @@ export class Terrain {
    * ever: gone, and growing back in its own time.)
    */
   topple(p, dir, onLand = null) {
-    const m = new THREE.InstancedMesh(p.inst.geometry, p.inst.material, 1);
-    m.setMatrixAt(0, p.matrix);
-    m.castShadow = true;
-    m.frustumCulled = false;
+    // A tree is cut: what falls is the tree above the cut, hinged on the
+    // stump's far edge (the side it falls to), its end a face of wood.
+    const cut = p.sp.cut ? this.cutOf(p) : null;
+    const hinge = new THREE.Vector3(p.x, p.y, p.z);
+    let plane0 = null, plane = null, end = null, m;
+    if (cut) {
+      hinge.set(0, cut.hl, 0).applyMatrix4(p.matrix).addScaledVector(dir, cut.rw * 0.9);
+      plane0 = new THREE.Plane(new THREE.Vector3(0, 1, 0), -cut.hl).applyMatrix4(p.matrix);
+      plane = plane0.clone();
+      m = this.clippedCopy(p, plane);
+      if (cut.end) { end = this.cutFace(p, cut.end); this.scene.add(end); }
+    } else {
+      m = new THREE.InstancedMesh(p.inst.geometry, p.inst.material, 1);
+      m.setMatrixAt(0, p.matrix);
+      m.castShadow = true;
+      m.frustumCulled = false;
+    }
     this.scene.add(m);
     const geo = p.inst.geometry;
     if (!geo.boundingBox) geo.computeBoundingBox();
@@ -1990,12 +2032,12 @@ export class Terrain {
     let stop = 1.53;
     search: for (let a = 0.15; a < 1.56; a += 0.02) {
       for (const f of [0.3, 0.6, 0.9]) {
-        const x = p.x + dir.x * Math.sin(a) * H * f, z = p.z + dir.z * Math.sin(a) * H * f;
-        if (p.y + Math.cos(a) * H * f < heightAt(x, z) + 0.35) { stop = a; break search; }
+        const x = hinge.x + dir.x * Math.sin(a) * H * f, z = hinge.z + dir.z * Math.sin(a) * H * f;
+        if (hinge.y + Math.cos(a) * H * f < heightAt(x, z) + 0.35) { stop = a; break search; }
       }
     }
     this.falling = this.falling || [];
-    const f = { m, p, t: 0, H, stop, fall: 1.3 + H / 40, dir: dir.clone(),
+    const f = { m, p, t: 0, H, stop, fall: 1.3 + H / 40, dir: dir.clone(), hinge, plane0, plane, end,
                 axis: new THREE.Vector3(dir.z, 0, -dir.x).normalize(), onLand, landed: false };
     this.falling.push(f);
     return f;
@@ -2037,10 +2079,21 @@ export class Terrain {
       }
       const sink = Math.max(0, f.t - f.fall - 4) * 1.3;
       R.makeRotationAxis(f.axis, angle);
-      out.makeTranslation(f.p.x, f.p.y - sink, f.p.z).multiply(R).multiply(T.makeTranslation(-f.p.x, -f.p.y, -f.p.z)).multiply(f.p.matrix);
+      // The motion (turned about the hinge, and later sinking), then the tree.
+      const move = this._fallMove ||= new THREE.Matrix4(), h = f.hinge;
+      move.makeTranslation(h.x, h.y - sink, h.z).multiply(R).multiply(T.makeTranslation(-h.x, -h.y, -h.z));
+      out.multiplyMatrices(move, f.p.matrix);
       f.m.setMatrixAt(0, out);
       f.m.instanceMatrix.needsUpdate = true;
-      if (f.t > f.fall + 5.6) { this.scene.remove(f.m); f.m.dispose(); f.done = true; }
+      if (f.plane) f.plane.copy(f.plane0).applyMatrix4(move);
+      if (f.end) { f.end.matrix.copy(out); f.end.matrixWorldNeedsUpdate = true; }
+      if (f.t > f.fall + 5.6) {
+        this.scene.remove(f.m);
+        for (const mat of f.m.userData.mats || []) mat.dispose();
+        f.m.dispose();
+        if (f.end) this.scene.remove(f.end);
+        f.done = true;
+      }
     }
     if (this.falling) this.falling = this.falling.filter(f => !f.done);
     // The bits: thrown, falling (leaves drifting), resting where they land; gone when their time is up.
@@ -2067,16 +2120,114 @@ export class Terrain {
   /** Fell a plant: hide that one instance and let it grow back later. */
   harvest(p) {
     this.felled.set(p.key, p.sp.regrow);
-    p.inst.setMatrixAt(p.index, HIDDEN);
-    p.inst.instanceMatrix.needsUpdate = true;
+    // (Its chunk may have been built again since it was picked — a new level
+    // of detail, as you walked — and it is that one there now.)
+    const now = this.plantsByKey.get(p.key) || p;
+    for (const q of now === p ? [p] : [p, now]) {
+      q.inst.setMatrixAt(q.index, HIDDEN);
+      q.inst.instanceMatrix.needsUpdate = true;
+    }
     this.setSolid(p.key, false);
+    this.addStump(now);
     return { label: p.sp.label, yield: p.yield || p.sp.yield };
   }
 
   setSolid(key, on) {
     for (const c of this.chunks.values()) {
-      for (const s of c.landProps || []) if (s.plantKey === key) s.off = !on;
+      for (const s of c.landProps || []) {
+        if (s.plantKey !== key) continue;
+        s.off = !on;
+        if (on && s.fullTop !== undefined) { s.top = s.fullTop; delete s.fullTop; }
+      }
     }
+  }
+
+  // ── the cut ────────────────────────────────────────────────────────────────
+  // A tree comes down cut, not pulled out of the ground whole: what falls is
+  // the tree above the cut, its end a face of wood, and the stump stays where
+  // it stood, the same face on top, until the tree grows back. Both are the
+  // tree itself, clipped at the cut (so the stump is its own flared, fluted
+  // foot, bark and all), and the face is the trunk's own cross-section there.
+
+  /** Where a plant is cut, and the faces of the cut: the stump's top, and the cut end of what falls. */
+  cutOf(p) {
+    const scale = p.matrix.getMaxScaleOnAxis();
+    const hollow = p.sp.cut === 'hollow';
+    const want = hollow ? 0.3 : THREE.MathUtils.clamp(0.5 + 0.12 * (p.trunk ?? p.sp.trunk ?? 1) * scale, 0.35, 0.9);
+    const hl = Math.max(0.05, Math.round(want / scale / 0.05) * 0.05);          // (in the plant's own units, a few heights to cache)
+    const geo = p.inst.geometry, key = `${geo.uuid}|${hl.toFixed(2)}`;
+    this._cutCache ||= new Map();
+    let c = this._cutCache.get(key);
+    if (!c) {
+      c = { hl, top: null, end: null, r: 0.3 };
+      if (!hollow) Object.assign(c, cutFaces(geo, hl));
+      this._cutCache.set(key, c);
+    }
+    return { ...c, hw: c.hl * scale, rw: c.r * scale };
+  }
+
+  /** A plant's own look, clipped by `plane` (world): the stump below the cut, or what falls above it. */
+  clippedCopy(p, plane) {
+    const src = Array.isArray(p.inst.material) ? p.inst.material : [p.inst.material];
+    const mats = src.map(m => {
+      const c = m.clone();
+      c.onBeforeCompile = m.onBeforeCompile;
+      c.customProgramCacheKey = m.customProgramCacheKey;
+      c.clippingPlanes = [plane];
+      c.clipShadows = true;
+      return c;
+    });
+    const m = new THREE.InstancedMesh(p.inst.geometry, Array.isArray(p.inst.material) ? mats : mats[0], 1);
+    m.setMatrixAt(0, p.matrix);
+    if (p.inst.instanceColor) { p.inst.getColorAt(p.index, this._c); m.setColorAt(0, this._c); }
+    m.castShadow = true;
+    m.receiveShadow = true;
+    m.frustumCulled = false;
+    m.userData.mats = mats;
+    return m;
+  }
+
+  /** A face of the cut, moving with the plant (its `matrix`). */
+  cutFace(p, geometry) {
+    const m = new THREE.Mesh(geometry, cutFaceMaterial(p.sp));
+    m.matrixAutoUpdate = false;
+    m.matrix.copy(p.matrix);
+    m.matrixWorldNeedsUpdate = true;
+    m.receiveShadow = true;
+    return m;
+  }
+
+  /** Felled, a tree leaves its stump: to stand on, where the trunk stood (`solids`: the chunk's, while it is built). */
+  addStump(p, solids = null) {
+    if (!p.sp.cut || this.stumps.has(p.key)) return;
+    const c = this.cutOf(p);
+    // Below the cut, in the plant's own frame (it may lean a little).
+    const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), c.hl).applyMatrix4(p.matrix);
+    const mesh = this.clippedCopy(p, plane);
+    this.scene.add(mesh);
+    const top = c.top && this.cutFace(p, c.top);
+    if (top) this.scene.add(top);
+    this.stumps.set(p.key, { mesh, top });
+    // Still in the way, but only as high as it was cut: you step up onto it.
+    const lists = solids ? [solids] : [...this.chunks.values()].map(ch => ch.landProps || []);
+    for (const list of lists) {
+      for (const s of list) {
+        if (s.plantKey !== p.key) continue;
+        s.off = false;
+        if (s.fullTop === undefined) s.fullTop = s.top;
+        s.top = Math.min(s.fullTop, p.y + c.hw);
+      }
+    }
+  }
+
+  removeStump(key) {
+    const st = this.stumps.get(key);
+    if (!st) return;
+    this.scene.remove(st.mesh);
+    for (const m of st.mesh.userData.mats) m.dispose();
+    st.mesh.dispose();
+    if (st.top) this.scene.remove(st.top);
+    this.stumps.delete(key);
   }
 
   regrow(dt) {
@@ -2084,6 +2235,7 @@ export class Terrain {
       const t = left - dt;
       if (t > 0) { this.felled.set(key, t); continue; }
       this.felled.delete(key);
+      this.removeStump(key);
       const p = this.plantsByKey.get(key);
       if (p) {
         p.inst.setMatrixAt(p.index, p.matrix);
@@ -2117,3 +2269,121 @@ const _bitColour = new THREE.Color(), _bitAt = new THREE.Vector3();
 
 // An instance matrix that puts something out of sight: a felled plant.
 const HIDDEN = new THREE.Matrix4().makeTranslation(0, -400, 0).multiply(new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4));
+
+/**
+ * The faces of a cut `hl` up a trunk (in the geometry's own units): its
+ * cross-section there, from where the bark (the first group) crosses that
+ * height, so a fluted or buttressed foot gets a face that fits it. The
+ * stump's `top` faces up; the `end` of what falls faces down. `r`, its
+ * average radius.
+ */
+function cutFaces(geo, hl) {
+  const pos = geo.attributes.position, idx = geo.index;
+  const gr = geo.groups.find(g => g.materialIndex === 0) || { start: 0, count: idx ? idx.count : pos.count };
+  const xs = [], zs = [];
+  const P = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  for (let t = gr.start; t + 2 < gr.start + gr.count; t += 3) {
+    for (let k = 0; k < 3; k++) P[k].fromBufferAttribute(pos, idx ? idx.getX(t + k) : t + k);
+    for (let k = 0; k < 3; k++) {
+      const a = P[k], b = P[(k + 1) % 3];
+      if ((a.y - hl) * (b.y - hl) >= 0) continue;
+      const u = (hl - a.y) / (b.y - a.y);
+      xs.push(a.x + (b.x - a.x) * u); zs.push(a.z + (b.z - a.z) * u);
+    }
+  }
+  if (xs.length < 8) return {};
+  // The trunk's, not a low branch's or a root's: about the middle of them.
+  let cx = 0, cz = 0;
+  for (let i = 0; i < xs.length; i++) { cx += xs[i]; cz += zs[i]; }
+  cx /= xs.length; cz /= xs.length;
+  const N = 40, rad = new Array(N).fill(0);
+  for (let i = 0; i < xs.length; i++) {
+    const dx = xs[i] - cx, dz = zs[i] - cz;
+    const b = Math.floor(((Math.atan2(dz, dx) + Math.PI) / (Math.PI * 2)) * N) % N;
+    rad[b] = Math.max(rad[b], Math.hypot(dx, dz));
+  }
+  const have = rad.filter(r => r > 0).length;
+  if (have < 10) return {};
+  // Gaps (a bin no edge crossed): between the neighbours either side.
+  for (let b = 0; b < N; b++) {
+    if (rad[b] > 0) continue;
+    let l = 1, r = 1;
+    while (rad[(b - l + N) % N] === 0) l++;
+    while (rad[(b + r) % N] === 0) r++;
+    rad[b] = (rad[(b - l + N) % N] * r + rad[(b + r) % N] * l) / (l + r);
+  }
+  const face = up => {
+    const v = [cx, hl, cz], uv = [0.5, 0.5], ix = [];
+    for (let b = 0; b <= N; b++) {
+      const a = (b % N + 0.5) / N * Math.PI * 2 - Math.PI, r = rad[b % N];
+      v.push(cx + Math.cos(a) * r, hl, cz + Math.sin(a) * r);
+      // The rings follow the outline: its edge is always the bark.
+      uv.push(0.5 + Math.cos(a) * 0.5, 0.5 + Math.sin(a) * 0.5);
+    }
+    for (let b = 1; b <= N; b++) up ? ix.push(0, b + 1, b) : ix.push(0, b, b + 1);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(ix);
+    g.computeVertexNormals();
+    return g;
+  };
+  return { top: face(true), end: face(false), r: rad.reduce((s, r) => s + r, 0) / N };
+}
+
+/**
+ * The face of the wood, a species' own (`heartwood`: heart, sapwood, bark):
+ * the dark heart, a paler band of sapwood, the bark round it; growth rings,
+ * closer together toward the outside, and a few checks out from the pith.
+ */
+const _cutFaces = new Map();
+function cutFaceMaterial(sp) {
+  let m = _cutFaces.get(sp.name);
+  if (m) return m;
+  const [heart, sap, bark] = (sp.heartwood || [0xb58a5a, 0xe2cfa6, 0x4a3326]).map(c => new THREE.Color(c));
+  const css = c => `#${c.getHexString()}`;
+  const S = 256, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d'), o = S / 2;
+  const grad = g.createRadialGradient(o, o, 0, o, o, o);
+  // (Sapwood a narrow band, as it is in a big conifer, and no whiter than
+  // fresh wood is in the shade of a forest.)
+  const pale = sap.clone().lerp(heart, 0.18).multiplyScalar(0.86);
+  grad.addColorStop(0, css(heart.clone().multiplyScalar(0.82)));
+  grad.addColorStop(0.7, css(heart));
+  grad.addColorStop(0.76, css(pale));
+  grad.addColorStop(0.88, css(pale.clone().multiplyScalar(0.92)));
+  grad.addColorStop(0.9, css(bark));
+  grad.addColorStop(1, css(bark.clone().multiplyScalar(0.7)));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  let seed = sp.name.length * 977 + 13;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  g.strokeStyle = 'rgba(45, 22, 10, 0.3)';
+  for (let k = 1; k < 30; k++) {
+    const r = o * 0.88 * Math.pow(k / 30, 0.75);
+    g.lineWidth = 0.6 + rnd() * 1.2;
+    g.beginPath();
+    for (let a = 0; a <= 72; a++) {
+      const t = (a / 72) * Math.PI * 2, w = r * (1 + Math.sin(t * 3 + k) * 0.015 + Math.sin(t * 7 + k * 2) * 0.006);
+      const x = o + Math.cos(t) * w, y = o + Math.sin(t) * w;
+      if (a) g.lineTo(x, y); else g.moveTo(x, y);
+    }
+    g.stroke();
+  }
+  g.strokeStyle = 'rgba(30, 14, 6, 0.4)';
+  for (let k = 0; k < 5; k++) {
+    const t = rnd() * Math.PI * 2, a = o * 0.04, b = o * (0.25 + rnd() * 0.35);
+    g.lineWidth = 0.8 + rnd() * 1.2;
+    g.beginPath();
+    g.moveTo(o + Math.cos(t) * a, o + Math.sin(t) * a);
+    g.lineTo(o + Math.cos(t + 0.05) * b, o + Math.sin(t + 0.05) * b);
+    g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, metalness: 0 });
+  _cutFaces.set(sp.name, m);
+  return m;
+}
