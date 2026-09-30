@@ -1238,7 +1238,8 @@ line with it — so fires burning down and collectors filling at slightly
 different rates on each machine never leave you on different rafts. Two of
 you at one thing at once is the host's to settle too: two people building
 on one spot get one piece, and whoever lost is paid back; two hooks on one
-crate, or two hands at one fire, get one crate and one lot of fish, and
+crate, or two hands at one fire, get one crate and one lot of fish — and
+two of you at a collector with one drink left in it, one drink — and
 whoever was slower is told who was quicker. If the host leaves, the next player in takes
 over — everyone is told who — and the raft goes on.
 

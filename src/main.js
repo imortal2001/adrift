@@ -1371,6 +1371,41 @@ class Game {
     this.settleCooked(this.raft, o, null);
   }
 
+  /**
+   * A drink from a collector. Playing together that is the host's to settle,
+   * as the fish on a fire are: each drinking from their own copy, two of you
+   * at the last of it both drank, and it went down by one — so a guest asks,
+   * and drinks when the host says there was some.
+   */
+  drinkCollector(c) {
+    if (this.net.connected && !this.net.isHost) {
+      this.net.event({ k: 'claimdrink', ri: this.raft.id, cx: c.cx, cz: c.cz }, this.net.host);
+      return;
+    }
+    this.settleDrink(this.raft, c, null);
+  }
+
+  /** Hosting, or alone: a drink from a collector for `taker` (a Remote), or null for you — if there is one. */
+  settleDrink(raft, c, taker) {
+    if (!(c.water >= 1)) {
+      const who = c.drank && this.time - c.drank.at < 5 ? c.drank.by : null;
+      if (taker) this.net.event({ k: 'grant', none: true, items: {}, note: `${who || 'Someone else'} drank the last of it first.` }, taker.id);
+      return;
+    }
+    c.water -= 1;
+    c.drank = { by: taker ? taker.name : this.net.name, at: this.time };
+    raft.refreshCollector(c);
+    this.together.touched(c, raft);
+    if (taker) this.net.event({ k: 'drank' }, taker.id);
+    else this.drank();
+  }
+
+  drank() {
+    this.player.thirst = Math.min(100, this.player.thirst + 32);
+    this.hud.log('Cool rainwater. That buys you time.', 'good');
+    this.hud.updateVitals(this.player);
+  }
+
   /** Hosting, or alone: a fire's cooked fish to whoever took them off — `taker` (a Remote), or null for you. */
   settleCooked(raft, o, taker) {
     const done = o.spitFish.filter(f => f.t >= FIRE.cook);
@@ -2061,6 +2096,17 @@ class Game {
       this.hud.refreshCraft(this.inv);
       return true;
     }
+    if (e.k === 'claimdrink') {
+      if (!this.net.isHost) return true;
+      const raft = this.rafts.byId(e.ri);
+      const o = raft?.objs.get(`${e.cx},${e.cz}`);
+      if (o?.type === 'collector') this.settleDrink(raft, o, r);
+      return true;
+    }
+    if (e.k === 'drank') {
+      this.drank();
+      return true;
+    }
     if (e.k === 'claimfish') {
       if (!this.net.isHost) return true;
       const raft = this.rafts.byId(e.ri);
@@ -2200,13 +2246,7 @@ class Game {
       if (c.water >= 1) {
         return {
           prompt: `<b>E</b> drink (${Math.floor(c.water)} left)`,
-          act: () => {
-            c.water -= 1;
-            this.raft.refreshCollector(c);
-            this.together.touched(c);
-            this.player.thirst = Math.min(100, this.player.thirst + 32);
-            this.hud.log('Cool rainwater. That buys you time.', 'good');
-          },
+          act: () => this.drinkCollector(c),
         };
       }
       return { prompt: `Collector is filling (${Math.round(c.water / c.capacity * 100)}%)`, act: null };
