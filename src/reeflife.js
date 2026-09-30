@@ -587,7 +587,8 @@ export class ReefLife {
     if (a.kind === 'pond_turtle') { const w = freshWaterAt(x, z); return !!w && w.kind !== 'river' && w.depth > 0.35; }
     const reef = reefMask(x, z, -coastDistance(x, z));
     if (a.kind === 'turtle') return h < -4;
-    if (a.kind === 'ray') return h < -3 && h > -20 && reef < 0.15;
+    // (On the open sand — not up on a rock lying on it.)
+    if (a.kind === 'ray') return h < -3 && h > -20 && reef < 0.15 && this.floor(x, z) < h + 0.3;
     if (a.kind === 'octopus') return h < -3 && h > -18 && reef > 0.3;
     return h < -1 && h > -14;                                  // a reef crab
   }
@@ -661,6 +662,15 @@ export class ReefLife {
     this.time = time;
     this.eye = eye;
     this.player = playerPos;
+    // How fast you are coming (as fish.js has it): an octopus sits tight in
+    // its camouflage for a diver drifting in, and jets off from one swimming
+    // hard at it.
+    if (this._eyeWas && eye) {
+      const v = Math.min(6, this._eyeWas.distanceTo(eye) / Math.max(dt, 1e-4));
+      this.eyeSpeed += (v - this.eyeSpeed) * Math.min(1, dt * 4);
+    } else { this._eyeWas = new THREE.Vector3(); this.eyeSpeed = 0; }
+    if (eye) this._eyeWas.copy(eye);
+    this.stalk = 0.5 + 0.5 * THREE.MathUtils.smoothstep(this.eyeSpeed, 0.25, 1.8);
     const crabs = [];
     for (const a of this.animals) {
       const [hub, range] = this.home(a);
@@ -690,7 +700,8 @@ export class ReefLife {
 
   turtle(a, dt, time) {
     const th = this.threat(a.pos);
-    const bed = heightAt(a.pos.x, a.pos.z), sea = waveHeight(a.pos.x, a.pos.z, time);
+    // Over the coral heads, not through them: the floor with what stands on it.
+    const bed = this.floor(a.pos.x, a.pos.z), sea = waveHeight(a.pos.x, a.pos.z, time);
     if (th.d < 5 && a.state !== 'flee') { a.state = 'flee'; a.timer = 6; a.heading = Math.atan2(a.pos.x - th.from.x, a.pos.z - th.from.z); }
     if ((a.breathe -= dt) <= 0 && a.state === 'idle') { a.state = 'rise'; }
     let want = 0.55, beat = 0.28, depth = a.cruise ?? (a.cruise = rand(2, 5));
@@ -712,7 +723,7 @@ export class ReefLife {
 
   ray(a, dt) {
     const th = this.threat(a.pos);
-    const bed = heightAt(a.pos.x, a.pos.z);
+    const bed = this.floor(a.pos.x, a.pos.z);
     if (th.d < 3.5 && a.state !== 'flee') {
       a.state = 'flee'; a.timer = rand(4, 6); a.heading = Math.atan2(a.pos.x - th.from.x, a.pos.z - th.from.z) + rand(-0.4, 0.4);
     }
@@ -735,7 +746,8 @@ export class ReefLife {
 
   octopus(a, dt) {
     const th = this.threat(a.pos);
-    if (th.d < 2.8 && a.state !== 'jet' && a.state !== 'hide') {
+    // (At full, 2.8 m: past a thrust's reach, so it could only ever be thrown at.)
+    if (th.d < 2.8 * (th.from === this.eye ? this.stalk : 1) && a.state !== 'jet' && a.state !== 'hide') {
       a.state = 'jet'; a.timer = 1.6;
       a.heading = Math.atan2(th.from.x - a.pos.x, th.from.z - a.pos.z);        // it faces what scared it, and shoots off backwards
       this.squirt(a.pos);

@@ -45,6 +45,14 @@ const DRIFT = 0.45;            // how much of the ocean current they give in to
 // 11 hits in 16 to 3. Close in and they bolt; stay at a throw and you get one.
 const SENSE = { school: 2.5, dart: 3.5, hide: 2.6, bolt: 2.0, curious: 6.0, retreat: 3.2, ignore: 1.8,
                 circle: 14 };
+// How near they let you come goes with how fast you come: a fish's flight
+// distance grows with a predator's approach speed (Stankowich & Blumstein
+// 2005; spearfishers' own "slow and low"). Swimming hard at a shoal, it bolts
+// at the full SENSE; drifting in, at about half — inside a thrust's reach
+// (viewmodel.js THRUST_REACH, 1.9 m), where at full it never was. Only for
+// the kinds that run from you; the curious and the big ones are as they were.
+const WARY = { school: 1, dart: 1, hide: 1, bolt: 1 };
+const STALK = [0.5, 0.25, 1.8];  // the fraction of SENSE drifting in, and the speeds (m/s) from calm to full
 const CIRCLE = 6.5;            // how wide a great white circles something it is sizing up
 const ALARM = 3.0;             // seconds a frightened school keeps moving off
 const SURFACE_CLEARANCE = 0.32;
@@ -371,6 +379,9 @@ export class FishSchools {
     return this.terrain ? this.terrain.clearanceAt(x, z) : heightAt(x, z);
   }
 
+  /** Is something standing on the sand at (x, z) — a rock, a coral head? A flatfish lies beside it, not in it. */
+  onSomething(x, z, bed = heightAt(x, z)) { return this.clearance(x, z) > bed + 0.25; }
+
   /**
    * Drop a school back into range. Reef schools look for sea bed at a depth
    * the coral actually grows at, so a shoal is never left hanging over the
@@ -413,7 +424,7 @@ export class FishSchools {
         const bed = heightAt(x, z);
         const [lo, hi] = school.zone.floor;
         const coral = reefMask(x, z, -coastDistance(x, z));
-        if ((bed < lo || bed > hi || coral > 0.08) && !last) continue;
+        if ((bed < lo || bed > hi || coral > 0.08 || this.onSomething(x, z, bed)) && !last) continue;
         school.floor = bed;
         school.center.set(x, bed, z);
       } else if (kind === 'reef') {
@@ -486,6 +497,11 @@ export class FishSchools {
       }
 
       if (s.kind === 'sand') {
+        // Round a rock lying on the sand, not into it.
+        if (this.onSomething(s.center.x, s.center.z)) {
+          s.center.x = px; s.center.z = pz;
+          s.wander += Math.PI;
+        }
         s.floor = heightAt(s.center.x, s.center.z);
         s.center.y = s.floor;
       } else if (s.kind === 'reef') {
@@ -511,6 +527,15 @@ export class FishSchools {
       // A tuna school that has wandered back over the shelf goes back out.
       else if (s.kind === 'deep' && heightAt(s.center.x, s.center.z) > s.zone.floor + 4) this.respawn(s);
     }
+
+    // How fast you are coming, smoothed over a quarter second or so — a jump
+    // (a respawn, a teleport) is capped and soon forgotten.
+    if (this._youWas) {
+      const v = Math.min(6, this._youWas.distanceTo(playerPos) / Math.max(dt, 1e-4));
+      this.youSpeed += (v - this.youSpeed) * Math.min(1, dt * 4);
+    } else { this._youWas = new THREE.Vector3(); this.youSpeed = 0; }
+    this._youWas.copy(playerPos);
+    const stalk = STALK[0] + (1 - STALK[0]) * THREE.MathUtils.smoothstep(this.youSpeed, STALK[1], STALK[2]);
 
     for (const f of this.fish) {
       const s = f.school;
@@ -547,8 +572,10 @@ export class FishSchools {
       const react = f.sp.react || 'school';
       if (f.delay > 0 && (f.delay -= dt) <= 0) this.bolt(f);
       let push = 0;
-      if (pd < SENSE[react] && pd > 0.001) {
-        const near = 1 - pd / SENSE[react];
+      // (The others' approach is not known here: to them, the full distance.)
+      const sense = SENSE[react] * (WARY[react] && you === playerPos ? stalk : 1);
+      if (pd < sense && pd > 0.001) {
+        const near = 1 - pd / sense;
         switch (react) {
           case 'curious':
             // Turn and watch. Back off, slowly, only when you are close.
@@ -617,7 +644,7 @@ export class FishSchools {
       f.pos.addScaledVector(f.vel, dt);
       // No fish where there is no water to swim in — up the beach, or over
       // a reef flat too shallow to cover it: it turns back, towards its school.
-      if (heightAt(f.pos.x, f.pos.z) > -1.1) {
+      if (heightAt(f.pos.x, f.pos.z) > -1.1 || (s.kind === 'sand' && this.onSomething(f.pos.x, f.pos.z))) {
         f.pos.x = ox; f.pos.z = oz;
         this._v.set(s.center.x - ox, 0, s.center.z - oz).normalize();
         f.vel.x = this._v.x * f.speed * 0.5; f.vel.z = this._v.z * f.speed * 0.5;

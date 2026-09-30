@@ -24,10 +24,15 @@ void main(){
   vec3 d = normalize(vDir);
   float up = clamp(d.y, -1.0, 1.0);
 
-  // Submerged: the backdrop is the water column — lit from above, black below.
+  // Submerged: the backdrop is the water column — the fog's own colour out
+  // to the horizon and above, so the far reef fades into it rather than
+  // ending at a line; darker only looking down into the deep. And in the
+  // colour space the fogged reef is drawn in: the fog colour is linear, and
+  // put out as it was it showed as a navy far darker than the teal the same
+  // fog gives the sea bed — a hard band along the edge of the view.
   if (uUnderwater > 0.5) {
-    vec3 w = uWaterColor * (0.22 + 0.78 * smoothstep(-0.65, 1.0, up));
-    gl_FragColor = vec4(w, 1.0);
+    vec3 w = uWaterColor * mix(0.45, 1.0, smoothstep(-0.7, -0.08, up));
+    gl_FragColor = linearToOutputTexel(vec4(w, 1.0));
     return;
   }
 

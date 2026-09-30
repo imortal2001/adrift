@@ -650,7 +650,10 @@ curve in `underwater.js`, opened up so you can see 25–30m on the shelf; the
 first cut fogged out at 12m and the sea bed came across as a grey wall you
 could never see enough of. And the sunlight is focused into **caustics** —
 three sine grids beaten together and sharpened, gated to fragments below the
-waterline, applied to the terrain and the reef from the same clock.
+waterline, applied to the terrain and the reef from the same clock. The water
+column behind it all is the fog's own colour, put out in the same colour space
+as the fogged sea bed, so the far reef fades into it with no line at the edge
+of the view (drawn linear, it showed as a navy band twice as dark).
 
 The props are geometry standing **on** the sea bed, not part of it, so nothing
 that reads `heightAt` knows they exist — which is how the first cut had a third
@@ -828,6 +831,17 @@ couple of seconds between throws, spear hit rates are the same as before any
 of this — measured; a quick second throw into a school you have just scared
 is harder.
 
+**How near depends on how you come.** A fish's flight distance grows with a
+predator's approach speed (Stankowich & Blumstein 2005), and spearfishers
+work slow and low for it. Swim hard at a shoal and it bolts at the full
+distance — about 2.5 m, just outside a thrust's reach (1.9 m), which is why a
+thrust used to land on almost nothing; drift in, or hold still and let them
+come past, and they let you to about half that (measured: ~2.5 m at 2.4 m/s,
+~2.0 at 1.2, ~1.3 at 0.5). Held still at the edge of a shoal, a thrust takes
+one every twenty seconds or so. Only the ones that run from you: the curious,
+the wary and the big are as they were — and to someone else playing, whose
+approach this machine does not see, the full distance.
+
 **Caught.** A speared fish struggles on the spear in bursts that weaken over
 about ten seconds and stop. A hooked one fights as it pulls (see Fishing): it
 swims away on its runs, hangs off the line nose-away when resting, is towed in
@@ -843,7 +857,7 @@ big one landed on the deck flops.
 |---|---|---|
 | Red snapper | a few metres over the reef | small schools around structure |
 | Porgy | low over the reef | in ones and twos, picking at the bottom |
-| Flounder | on the open sand, between colonies | lies flat and still, camouflaged; bolts along the bottom if you get close |
+| Flounder | on the open sand, between colonies — beside a rock lying on it, never inside it | lies flat and still, camouflaged; bolts along the bottom if you get close |
 | Mackerel | mid-water | a fast school |
 | Barracuda | 3-6 m over a coral head | hangs almost motionless; turns to watch you rather than moving off |
 | Grouper | just off the bottom | solitary, stays by its hole, and backs into it if you come close |
@@ -1320,19 +1334,20 @@ The fish are not alone (`src/reeflife.js`). Round you at sea — keeping to the
 same focus the fish do — and on the beaches when you are ashore:
 
 - **Sea turtles** (3) glide over the reef and the sand in water deeper than
-  4 m, on slow sweeps of their front flippers — slow up, fast down, the
+  4 m — over the coral heads and rocks, not through them, on slow sweeps of their front flippers — slow up, fast down, the
   flipper turning edge-on on the way back. Every minute or two one rises to
   the surface to breathe, lies there a few seconds, and dives again. Swim at
   one and it turns away, unhurried.
-- **Stingrays** (4) lie on the open sand between the reefs, mottled the colour
+- **Stingrays** (4) lie on the open sand between the reefs (never up on a rock), mottled the colour
   of it; now and then one lifts off and flies low on rippling wings — a wave
   running down each wing, front to back, growing toward the tips. Come within
   3.5 m and it is off at a rush.
 - **Octopus** (3) creep over the coral, eight arms reaching and curling, their
   colour sliding through the reef's to match what they are on. Come within
   2.8 m and one blanches, jets off backwards and leaves a cloud of ink — then
-  hides, still, where it lands, which is when you can get close. The spear
-  takes one — thrown, or thrust into one that is hiding.
+  hides, still, where it lands, which is when you can get close. Drift in
+  slowly and it trusts its camouflage to about half that, inside a thrust's
+  reach. The spear takes one — thrown, or thrust.
 - **Crabs** (7 on the reef, 8 on the beaches) scuttle sideways in short
   bursts. On the reef one runs a few metres from you; on a beach it runs for
   the sea and is gone. Get close and **E** grabs it.

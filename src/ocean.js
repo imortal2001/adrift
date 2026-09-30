@@ -185,6 +185,8 @@ void main(){
     // surface.
     float dens = mix(uFogDensity * 3.0, uUnderDensity, uUnderwater);
     vec3 into = mix(uDeep * 0.75, uUnderFog, uUnderwater);
+    // (The water fog as the fogged reef shows it — see the sky's water column.)
+    into = mix(into, linearToOutputTexel(vec4(into, 1.0)).rgb, uUnderwater);
     float f = 1.0 - exp(-pow(dist * dens, 2.0));
     gl_FragColor = vec4(mix(col, into, clamp(f, 0.0, 1.0)) * uShade, 1.0);
     return;
