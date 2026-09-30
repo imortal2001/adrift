@@ -8,7 +8,8 @@
 // drawn and posed.
 
 import * as THREE from 'three';
-import { heightAt, isLand, coastDistance, freshWaterAt, landAt, slopeAt, moistureAt, forestAt, TREELINE } from './terrain.js';
+import { heightAt, isLand, coastDistance, freshWaterAt, landAt, slopeAt, moistureAt, forestAt, TREELINE,
+         RIVERS, LAKES, riverCourse } from './terrain.js';
 import { caveAt } from './caves.js';
 import { ModelLibrary, playState, driveGait, plantFeet } from './models.js';
 import { MOTION, prepareDino, poseDino } from './dinopose.js';
@@ -106,7 +107,9 @@ const HABITAT = {
                     s.mesa * 0.3 - s.beach * 0.5,
   // (The coastal lowland only where a river or a lake is near it: a herd
   // lives within reach of fresh water, not a trek of half a kilometre.)
-  parasaur:    s => 0.1 + near(s.edge, 25) * 1.6 + s.wetForest * 0.9 + s.beach * near(s.edge, 150) * 0.5 +
+  // (The wet forest by the water — riparian — not any damp forest: placed in
+  // damp forest seven hundred metres from a river, a herd never drank.)
+  parasaur:    s => 0.1 + near(s.edge, 25) * 1.6 + s.wetForest * near(s.edge, 200) * 0.9 + s.beach * near(s.edge, 150) * 0.5 +
                     s.open * near(s.edge, 80) * 0.4 - s.upland * 0.8,
   stegosaur:   s => 0.2 + s.open * 0.8 + near(s.edge, 90) * 1.5 + s.edgeForest * 0.6 + s.beach * 0.3 - s.closed * 0.8 -
                     s.upland * 0.6,
@@ -517,6 +520,35 @@ export class Wildlife {
     return null;
   }
 
+  /**
+   * A stretch of the way toward the nearest fresh water anywhere — a river's
+   * course or a lake — for one with none within reach: up to ~80 m along it,
+   * somewhere it can stand and walk to.
+   */
+  freshWaterToward(a) {
+    if (!this._fresh) {
+      this._fresh = [];
+      for (const rv of RIVERS) for (const p of riverCourse(rv, 20)) this._fresh.push(p);
+      for (const L of LAKES) this._fresh.push({ x: L.x, z: L.z });
+    }
+    let best = null, bd = Infinity;
+    for (const p of this._fresh) {
+      const d = Math.hypot(p.x - a.pos.x, p.z - a.pos.z);
+      if (d < bd) { bd = d; best = p; }
+    }
+    if (!best || bd < 30) return null;
+    for (const step of [80, 55, 35]) {
+      const k = Math.min(1, step / bd);
+      for (const side of [0, 0.35, -0.35, 0.7, -0.7]) {
+        const ux = (best.x - a.pos.x) / bd, uz = (best.z - a.pos.z) / bd;
+        const c = Math.cos(side), s_ = Math.sin(side), dx = ux * c - uz * s_, dz = ux * s_ + uz * c;
+        const x = a.pos.x + dx * bd * k, z = a.pos.z + dz * bd * k;
+        if (this.footing(x, z) && this.walkable(a.pos.x, a.pos.z, x, z)) return { x, z };
+      }
+    }
+    return null;
+  }
+
   /** The way to the nearest water from where it stands, if any is close: to face it and drink. */
   waterWay(a) {
     let best = null, bestD = Infinity;
@@ -589,13 +621,16 @@ export class Wildlife {
    * sea, and as close to where it meant to go as that allows. Keeps to the
    * side it chose last time unless that closes, so it does not dither.
    */
+  /** A big animal shoulders through ferns, cycads, palms and saplings: props slighter than this. */
+  shoulders(a) { return a.radius > 0.9 ? Math.max(0.6, a.radius * 0.5) : 0; }
+
   steer(a, want) {
     const reach = a.radius + 2.5 + Math.abs(a.speed) * 1.8;
     const solids = this.terrain ? this.terrain.solidsNear(a.pos.x, a.pos.z, reach + 4, this._near) : [];
     let best = 0, bestCost = Infinity;
     // A big animal shoulders through ferns, cycads and palms, and a sauropod
     // through saplings too; only a real trunk turns it.
-    const shoulders = a.radius > 0.9 ? Math.max(0.6, a.radius * 0.5) : 0;
+    const shoulders = this.shoulders(a);
     const wade = this.wade(a);
     // (Fleeing, and cornered — the water, a drop — it will bolt along the
     // bank rather than stand there; never back toward the hunter. Just going
@@ -615,9 +650,14 @@ export class Wildlife {
       else if (!this.footing(a.pos.x + dx * 0.8, a.pos.z + dz * 0.8, wade)) cost += 20;
       for (const p of solids) {
         if (p.hit < shoulders) continue;
-        // Distance from the prop's axis to the path ahead.
+        // Distance from the prop's axis to the path ahead — only a prop that
+        // is ahead. (Counted from where it stands as well, a trunk it was
+        // already against shut every way alike, away from it too; so it took
+        // the straightest, into the trunk again, and walked on the spot.)
         const px = p.x - a.pos.x, pz = p.z - a.pos.z;
-        const t = Math.min(reach, Math.max(0, px * dx + pz * dz));
+        const along = px * dx + pz * dz;
+        if (along <= 0) continue;
+        const t = Math.min(reach, along);
         const gap = Math.hypot(px - dx * t, pz - dz * t) - p.hit - a.radius;
         if (gap < 0.6) cost += 8 * (1 - t / (reach + 1)) + 4;
       }
@@ -638,9 +678,12 @@ export class Wildlife {
     // Thirsty: to the water's edge, and stand there a while with the head down.
     if (a.thirst <= 0 && !a.drinkAt) {
       a.drinkAt = this.waterNear(a);
-      if (!a.drinkAt) a.thirst = rnd(60, 120);
-      // (Time enough to walk there, with the stops on the way; then it gives up for now.)
-      else a.drinkLimit = 60 + Math.hypot(a.drinkAt.x - a.pos.x, a.drinkAt.z - a.pos.z) / a.sp.walk * 1.8;
+      if (!a.drinkAt) { a.thirst = rnd(60, 120); a.dry = (a.dry || 0) + 1; }
+      else {
+        a.dry = 0;
+        // (Time enough to walk there, with the stops on the way; then it gives up for now.)
+        a.drinkLimit = 60 + Math.hypot(a.drinkAt.x - a.pos.x, a.drinkAt.z - a.pos.z) / a.sp.walk * 1.8;
+      }
     }
     if (a.drinkAt && a.drinkFor > (a.drinkLimit || 180)) { a.drinkAt = null; a.drinkFor = 0; a.thirst = rnd(40, 100); }
     if (a.drinkAt) {
@@ -660,6 +703,13 @@ export class Wildlife {
       return;
     }
     const lead = a.leader && !a.leader.dead ? a.leader : null;
+    // No water within reach, time and again: it (and so its herd, following)
+    // sets off for the nearest there is, a stretch at a time — rather than
+    // live out its days in country with none.
+    if (!lead && a.dry >= 2) {
+      const w = this.freshWaterToward(a);
+      if (w) { a.target.set(w.x, 0, w.z); return; }
+    }
     if (lead) {
       // Keep with the group: somewhere near where the leader is going.
       const c = lead.target && lead.state !== 'rest' ? lead.target : lead.pos;
@@ -753,6 +803,7 @@ export class Wildlife {
       for (const a of this.all) this.shadow(a, dt, time, player);
       return;
     }
+    this.spaceOut(dt);
     for (const a of this.all) {
       if (a.dead) {
         // A kill lies where it fell for a while, then is gone.
@@ -781,6 +832,37 @@ export class Wildlife {
       this.think(a, dt, player, playerOnLand);
       this.move(a, dt);
       this.draw(a, dt, time, player);
+    }
+  }
+
+  /**
+   * Room for each: two animals closer than their bodies allow are eased
+   * apart, as a herd keeps its spacing. Nothing kept them apart before —
+   * followers make for spots round the leader, and walked into and through
+   * one another (sauropods in each other's flanks a tenth of the time). Not a
+   * hunter and what it is after, and only onto ground either would stand on.
+   */
+  spaceOut(dt) {
+    const live = this._live || (this._live = []);
+    live.length = 0;
+    for (const a of this.all) if (!a.dead) live.push(a);
+    const k = Math.min(1, dt * 3);
+    for (let i = 0; i < live.length; i++) {
+      const a = live[i], ra = Math.max(a.radius, (a.len || 2) * 0.22);
+      for (let j = i + 1; j < live.length; j++) {
+        const b = live[j];
+        if (a.prey === b || b.prey === a) continue;
+        const rb = Math.max(b.radius, (b.len || 2) * 0.22);
+        const dx = b.pos.x - a.pos.x, dz = b.pos.z - a.pos.z, d = Math.hypot(dx, dz), gap = ra + rb - d;
+        if (gap <= 0) continue;
+        const ux = d > 1e-3 ? dx / d : 1, uz = d > 1e-3 ? dz / d : 0;
+        // The lighter gives way more.
+        const wa = b.sp.scale / (a.sp.scale + b.sp.scale), push = gap * k;
+        const ax = a.pos.x - ux * push * wa, az = a.pos.z - uz * push * wa;
+        const bx = b.pos.x + ux * push * (1 - wa), bz = b.pos.z + uz * push * (1 - wa);
+        if (this.badness(ax, az, this.wade(a)) <= 0) { a.pos.x = ax; a.pos.z = az; }
+        if (this.badness(bx, bz, this.wade(b)) <= 0) { b.pos.x = bx; b.pos.z = bz; }
+      }
     }
   }
 
@@ -880,7 +962,14 @@ export class Wildlife {
     if (a.bite > 0) a.bite -= dt;
 
     if (sp.diet === 'meat' && a.state !== 'feed') {
-      if (!a.prey || a.prey.dead || a.timer <= 0) {
+      // The look round for prey keeps its own clock. On `timer` — which is
+      // also how long a wander or a rest lasts — it set that back to a second
+      // or two every frame a hunter had nothing in view, so an idle one never
+      // finished a wander: it never chose where to go next, never lay up and
+      // never went to drink, and walked on for ever toward wherever it last
+      // meant to (for most, the world's origin, out to sea).
+      a.scan = (a.scan ?? 0) - dt;
+      if ((a.prey && a.prey.dead) || a.scan <= 0) {
         // Fed, or worn out with chasing, it lies up a while — though not
         // with something walking right up to it.
         const tired = a.tiredUntil > this.clock;
@@ -898,7 +987,9 @@ export class Wildlife {
           a.state = 'wander';
           a.prey = null;
         }
-        a.timer = rnd(1.5, 3.5);
+        a.scan = rnd(1.5, 3.5);
+        // (While hunting, its timer is the chase's; out of it, a wander's own.)
+        if (a.state === 'hunt') a.timer = a.scan;
       }
       if (a.state === 'hunt') {
         const tgt = a.prey === 'player' ? player.pos : a.prey && a.prey.pos;
@@ -1136,7 +1227,9 @@ export class Wildlife {
     // Never inside a trunk or a rock, whatever the steering missed.
     if (this.terrain) {
       a.pos.y = heightAt(a.pos.x, a.pos.z);
-      this.terrain.collideReef(a.pos, a.radius, a.tall);
+      // (Through what it shoulders through, as it steers: stopped by a sapling
+      // its steering meant to push past, a sauropod walked on the spot.)
+      this.terrain.collideReef(a.pos, a.radius, a.tall, this.shoulders(a));
     }
     this.fitGround(a, dt);
   }

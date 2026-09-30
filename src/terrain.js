@@ -1829,7 +1829,8 @@ export class Terrain {
    * @param radius  body radius
    * @param height  body height above `pos`
    */
-  collideReef(pos, radius, height) {
+  /** …`through`: props slighter than this (a trunk's radius) are pushed through, not stopped by — a sauropod's saplings. */
+  collideReef(pos, radius, height, through = 0) {
     let stand = -Infinity;
     if (this.reefSolids.size === 0) return stand;
 
@@ -1840,6 +1841,7 @@ export class Terrain {
         if (!bucket) continue;
         for (const p of bucket) {
           if (p.off) continue;                      // felled
+          if (through && p.hit < through) continue;
           const feet = pos.y;
           if (feet >= p.top) {                      // already clear of it
             const dx0 = pos.x - p.x, dz0 = pos.z - p.z;

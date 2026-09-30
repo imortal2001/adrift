@@ -1538,7 +1538,9 @@ pick the far bank), straight there without stopping to graze, and it drinks
 with its head at the water's edge: it turns to face the water, stops short by
 about a quarter of its length, and a grazer too short in the neck to reach
 leans down into it from the shoulders. If it cannot get there in time enough for
-the distance, it gives up for a while and tries again. Nothing picks
+the distance, it gives up for a while and tries again; and one with no water
+within reach at all, time and again, sets off for the nearest river or lake a
+stretch at a time, its herd following. Nothing picks
 somewhere to wander on the far side of a river either, and an animal fleeing
 and cornered against the water bolts along the bank rather than freezing.
 
@@ -1598,7 +1600,12 @@ The rest is in `wildlife.js`:
   foot hanging in the air or pushed into a slope, and a turning or slowing
   animal does not slide its planted feet. Only near you: past 70 m the clip
   plays as it is.
-- **It stops**: grazers to feed, everything now and then to stand and look.
+- **It keeps its room.** Two animals closer than their bodies allow are eased
+  apart — the lighter giving way more, and only onto ground either could stand
+  on — so a herd keeps its spacing instead of walking through itself.
+- **It stops**: grazers to feed, everything now and then to stand and look —
+  the hunters too, between hunts: they lie up and go down to drink like the
+  rest.
 
 **As the animals were, not as the films have them.** The five models share
 one set of clips — idle, walk, run, attack, death — made in the Jurassic Park
