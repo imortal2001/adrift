@@ -933,6 +933,11 @@ export class Wildlife {
       a.bite = n.strike ? a.sp.biteEvery : 0;
     }
     a.pos.y = heightAt(a.pos.x, a.pos.z);
+    // Out of the trunks and rocks round here. The host only has the trees
+    // round itself, so an animal near a guest far from it walked where there
+    // were none, and on the guest's screen through a trunk a tenth of the
+    // time; this copy is pushed round them, as the host's would have been.
+    if (this.terrain) this.terrain.collideReef(a.pos, a.radius, a.tall, this.shoulders(a));
     this.fitGround(a, dt);
     this.draw(a, dt, time, player);
   }

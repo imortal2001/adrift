@@ -1256,7 +1256,10 @@ others how they stand three times a second; the others' games take that on
 and carry it forward. The dinosaurs are the host's alone — a guest's are
 drawn where the host says — so they hunt whichever of you is on land, and a
 bite on a guest is sent to that guest — as is the warning that one has
-turned on them, so a guest is told to run just as the host would be. The flotsam, the whale and the
+turned on them, so a guest is told to run just as the host would be. The host
+has the trees only round itself, though, so round a guest far from it the
+guest's own copy of each animal is kept out of the trunks and rocks there —
+it used to walk through one a tenth of the time. The flotsam, the whale and the
 schools go on moving everywhere and are eased back onto the host's — kept
 round everyone in the host's sea, not round the host alone (a guest a hundred
 metres off, still taking the host's schools, used to swim in empty water;
