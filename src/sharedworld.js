@@ -29,6 +29,7 @@ import { ThrownSpears } from './spear.js';
 import { DAY_SECONDS } from './sky.js';
 
 const EVERY = 1 / 3;           // the host tells the others how things stand this often…
+const SAME_SEA = 30;           // m: a fish taken this near the one in its slot here is that one
 const SLOW = 3;                // …and where the flotsam and the fish schools are, every this many
 
 export const WORLD_EVENTS = ['world', 'gather', 'fish', 'spear', 'sk', 'spearBack', 'bite', 'kill', 'spears', 'paddle',
@@ -51,8 +52,12 @@ export class SharedWorld {
   // ── coming and going ───────────────────────────────────────────────────────
   enter(host) {
     const g = this.game;
-    g.fish.onTake = i => this.send({ k: 'fish', i });
-    g.spears.onSkewer = (s, i) => this.send({ k: 'sk', s: s.id, i });
+    // Where it was, as well as which: far apart, each of you has a sea of
+    // your own, and the fish in that slot here is some other fish, maybe in
+    // front of you.
+    const at = p => p && [Math.round(p.x), Math.round(p.z)];
+    g.fish.onTake = (i, p) => this.send({ k: 'fish', i, p: at(p) });
+    g.spears.onSkewer = (s, i, key, p) => this.send(i >= 0 ? { k: 'sk', s: s.id, i, key, p: at(p) } : { k: 'sk', s: s.id, key });
   }
 
   exit() {
@@ -109,6 +114,9 @@ export class SharedWorld {
   }
 
   send(e) { if (this.net.connected) this.net.event(e); }
+
+  /** Is our fish `f` the one someone took at `p` ([x, z]) — in the same sea? (No `p`: an older game's word; take it as said.) */
+  sameSea(f, p) { return !!f && (!Array.isArray(p) || Math.hypot(f.pos.x - p[0], f.pos.z - p[1]) < SAME_SEA); }
 
   // ── what you do ────────────────────────────────────────────────────────────
   gathered(it) { this.send({ k: 'gather', i: this.game.debris.items.indexOf(it), p: [Math.round(it.x * 10) / 10, Math.round(it.z * 10) / 10] }); }
@@ -184,11 +192,16 @@ export class SharedWorld {
       if (same && !it.held) g.debris.harvest(it);
     } else if (e.k === 'fish') {
       const f = g.fish.fish[e.i];
-      if (f && !(f.caught > 0)) g.fish.take(f, true);
+      if (f && !(f.caught > 0) && this.sameSea(f, e.p)) g.fish.take(f, true);
     } else if (e.k === 'spear' && Array.isArray(e.p) && Array.isArray(e.d)) {
       this.ghosts ||= new ThrownSpears(g.scene, g.terrain, g.raft, g.fish, g.spears.makeBody, true);
       const s = this.ghosts.throw(new THREE.Vector3(...e.p), new THREE.Vector3(...e.d).normalize(), !!e.u, !!e.l);
       this.thrown.set(`${from}:${e.s}`, s);
+    } else if (e.k === 'sk' && typeof e.key === 'string' && !(e.i >= 0 && this.sameSea(g.fish.fish[e.i], e.p))) {
+      // Not one of the shared fish — an octopus, the thrower's own: one like it on their spear.
+      const s = this.thrown.get(`${from}:${e.s}`), sp = g.fish.species(e.key);
+      const body = s && sp && g.fish.displayBody(e.key, (sp.length[0] + sp.length[1]) / 2);
+      if (body) this.ghosts.skewer(s, body);
     } else if (e.k === 'sk') {
       const s = this.thrown.get(`${from}:${e.s}`), f = g.fish.fish[e.i];
       if (!f) return;

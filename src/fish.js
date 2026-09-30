@@ -51,8 +51,41 @@ const SENSE = { school: 2.5, dart: 3.5, hide: 2.6, bolt: 2.0, curious: 6.0, retr
 // at the full SENSE; drifting in, at about half — inside a thrust's reach
 // (viewmodel.js THRUST_REACH, 1.9 m), where at full it never was. Only for
 // the kinds that run from you; the curious and the big ones are as they were.
+// Everyone's, not only yours: playing together, the host's schools move for
+// the whole sea, and one that fled a guest drifting in at the full distance
+// on the host's screen took the guest's stealth away with it.
 const WARY = { school: 1, dart: 1, hide: 1, bolt: 1 };
 const STALK = [0.5, 0.25, 1.8];  // the fraction of SENSE drifting in, and the speeds (m/s) from calm to full
+
+/**
+ * How fast each of you is coming, from where your eyes are frame to frame —
+ * yours, and the others' as they are drawn here — smoothed over a quarter
+ * second or so. A jump (a respawn, a teleport) is capped and soon forgotten;
+ * someone just come into view is taken to be swimming until seen otherwise.
+ */
+export class Approach {
+  constructor() { this.seen = new Map(); this.frame = 0; }
+
+  /** Once a frame, with every eye there is. */
+  update(dt, eyes) {
+    this.frame++;
+    for (const e of eyes) {
+      if (!e) continue;
+      let r = this.seen.get(e);
+      if (!r) this.seen.set(e, r = { was: e.clone(), speed: STALK[2] });
+      const v = Math.min(6, r.was.distanceTo(e) / Math.max(dt, 1e-4));
+      r.speed += (v - r.speed) * Math.min(1, dt * 4);
+      r.was.copy(e);
+      r.at = this.frame;
+    }
+    for (const [e, r] of this.seen) if (this.frame - r.at > 2) this.seen.delete(e);
+  }
+
+  speed(e) { return this.seen.get(e)?.speed ?? STALK[2]; }
+
+  /** How much of its flight distance a wary animal keeps from the eye `e`: half drifting in, all of it swimming hard. */
+  stalk(e) { return STALK[0] + (1 - STALK[0]) * THREE.MathUtils.smoothstep(this.speed(e), STALK[1], STALK[2]); }
+}
 const CIRCLE = 6.5;            // how wide a great white circles something it is sizing up
 const ALARM = 3.0;             // seconds a frightened school keeps moving off
 const SURFACE_CLEARANCE = 0.32;
@@ -211,6 +244,7 @@ export class FishSchools {
     // they do to you; whether the schools follow the host's rather than
     // wander off on their own; and who to tell when a fish is taken.
     this.others = [];
+    this.approach = new Approach();   // how fast each of you is coming
     this.follow = false;
     this.onTake = null;
 
@@ -388,6 +422,29 @@ export class FishSchools {
    * basin with nothing under it.
    */
   respawn(school, initial = false) {
+    this.placeSchool(school, initial);
+    if (school.ashore) return;
+    // Its fish come with it. Left where they were — the far side of the
+    // range it was recycled from, or a sea of someone else's, hundreds of
+    // metres off — they swam the whole way, and for minutes the school was
+    // empty water. (Only those far from it: nearer ones swim in as before.
+    // And not in front of you: a school put back within sight's reach gets
+    // its fish just past it, on the far side from you, to swim the last few
+    // metres in rather than appear out of the water.)
+    const hub = this.hub, c = school.center;
+    const dx = c.x - hub.x, dz = c.z - hub.z, d = Math.hypot(dx, dz);
+    const k = initial || d >= 26 ? 1 : 26 / Math.max(d, 1);
+    const from = this._from ||= new THREE.Vector3();
+    from.set(hub.x + (d > 1 ? dx : 1) * k, c.y, hub.z + (d > 1 ? dz : 0) * k);
+    for (const f of school.members) {
+      if (f.caught > 0 || f.pos.distanceTo(c) < 30) continue;
+      f.pos.copy(from).add(f.offset);
+      f.vel.set(0, 0, 0);
+      f.fright = f.delay = 0;
+    }
+  }
+
+  placeSchool(school, initial) {
     const min = initial ? 8 : SPAWN_MIN;
     const kind = school.kind;
     school.ashore = false;
@@ -528,14 +585,11 @@ export class FishSchools {
       else if (s.kind === 'deep' && heightAt(s.center.x, s.center.z) > s.zone.floor + 4) this.respawn(s);
     }
 
-    // How fast you are coming, smoothed over a quarter second or so — a jump
-    // (a respawn, a teleport) is capped and soon forgotten.
-    if (this._youWas) {
-      const v = Math.min(6, this._youWas.distanceTo(playerPos) / Math.max(dt, 1e-4));
-      this.youSpeed += (v - this.youSpeed) * Math.min(1, dt * 4);
-    } else { this._youWas = new THREE.Vector3(); this.youSpeed = 0; }
-    this._youWas.copy(playerPos);
-    const stalk = STALK[0] + (1 - STALK[0]) * THREE.MathUtils.smoothstep(this.youSpeed, STALK[1], STALK[2]);
+    // How fast each of you is coming (Approach, above).
+    this._eyes ||= [];
+    this._eyes.length = 0;
+    this._eyes.push(playerPos, ...this.others);
+    this.approach.update(dt, this._eyes);
 
     for (const f of this.fish) {
       const s = f.school;
@@ -572,8 +626,7 @@ export class FishSchools {
       const react = f.sp.react || 'school';
       if (f.delay > 0 && (f.delay -= dt) <= 0) this.bolt(f);
       let push = 0;
-      // (The others' approach is not known here: to them, the full distance.)
-      const sense = SENSE[react] * (WARY[react] && you === playerPos ? stalk : 1);
+      const sense = SENSE[react] * (WARY[react] ? this.approach.stalk(you) : 1);
       if (pd < sense && pd > 0.001) {
         const near = 1 - pd / sense;
         switch (react) {
@@ -903,7 +956,7 @@ export class FishSchools {
    * `told`: someone else took it, and has told everyone already.
    */
   take(f, told = false) {
-    if (!told) this.onTake?.(this.fish.indexOf(f));
+    if (!told) this.onTake?.(this.fish.indexOf(f), f.pos);
     // The rest of the shoal sees it go.
     this.startle(f.pos, 3.5, 0.05);
     f.caught = RESPAWN;

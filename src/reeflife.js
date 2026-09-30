@@ -39,6 +39,7 @@ import { waveHeight } from './ocean.js';
 import { heightAt, reefMask, coastDistance, slopeAt, freshWaterAt, LAKES, lakeShore } from './terrain.js';
 import { ModelLibrary } from './models.js';
 import { octopusModel, rayModel, shelledModel, seaTurtleModel, stillOf } from './reefmodels.js';
+import { Approach } from './fish.js';
 
 // ── making the bodies ────────────────────────────────────────────────────────
 const paint = (g, hex, vary = 0, seed = 1) => {
@@ -662,15 +663,10 @@ export class ReefLife {
     this.time = time;
     this.eye = eye;
     this.player = playerPos;
-    // How fast you are coming (as fish.js has it): an octopus sits tight in
-    // its camouflage for a diver drifting in, and jets off from one swimming
-    // hard at it.
-    if (this._eyeWas && eye) {
-      const v = Math.min(6, this._eyeWas.distanceTo(eye) / Math.max(dt, 1e-4));
-      this.eyeSpeed += (v - this.eyeSpeed) * Math.min(1, dt * 4);
-    } else { this._eyeWas = new THREE.Vector3(); this.eyeSpeed = 0; }
-    if (eye) this._eyeWas.copy(eye);
-    this.stalk = 0.5 + 0.5 * THREE.MathUtils.smoothstep(this.eyeSpeed, 0.25, 1.8);
+    // How fast each of you is coming (as fish.js has it): an octopus sits
+    // tight in its camouflage for a diver drifting in, and jets off from one
+    // swimming hard at it.
+    (this.approach ||= new Approach()).update(dt, [eye, ...this.others]);
     const crabs = [];
     for (const a of this.animals) {
       const [hub, range] = this.home(a);
@@ -747,7 +743,7 @@ export class ReefLife {
   octopus(a, dt) {
     const th = this.threat(a.pos);
     // (At full, 2.8 m: past a thrust's reach, so it could only ever be thrown at.)
-    if (th.d < 2.8 * (th.from === this.eye ? this.stalk : 1) && a.state !== 'jet' && a.state !== 'hide') {
+    if (th.d < 2.8 * (th.from ? this.approach.stalk(th.from) : 1) && a.state !== 'jet' && a.state !== 'hide') {
       a.state = 'jet'; a.timer = 1.6;
       a.heading = Math.atan2(th.from.x - a.pos.x, th.from.z - a.pos.z);        // it faces what scared it, and shoots off backwards
       this.squirt(a.pos);

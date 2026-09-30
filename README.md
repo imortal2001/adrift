@@ -917,7 +917,11 @@ and deliberately tight (within ~10° of the crosshair). And fish scatter from
 anything within 3.2 m, so an underwater throw stays fast enough to skewer out
 to ~3.7 m; from the deck a spear stays deadly for 6-7 m of water. Measured:
 11 of 12 aimed throws hit. A speared fish is replaced in its school after 45
-seconds, and never while you are near enough to see it appear. In water it is a stick of wood — drag stops it within
+seconds, and never while you are near enough to see it appear. A school that
+has fallen too far behind you is put back near you with its fish — just past
+sight, on the far side, if it lands close — rather than leaving them to swim
+the whole way: sailing far, or a guest leaving the host's sea for one of their
+own, used to leave the water round you empty for minutes. In water it is a stick of wood — drag stops it within
 about three metres and it floats back up, so a spear thrown out over the basin
 is never lost at the bottom. Throwing takes it out of your inventory until you
 walk up to it and press `E`; if you have another, the next one is drawn up into
@@ -1214,7 +1218,12 @@ bite on a guest is sent to that guest — as is the warning that one has
 turned on them, so a guest is told to run just as the host would be. The flotsam, the whale and the
 schools go on moving everywhere and are eased back onto the host's; each
 school's fish are every machine's own, swimming round it and shying from
-whoever is nearest, and a fish someone catches is gone for everyone. What
+whoever is nearest — and from how fast each of you comes at them, the others
+too, so a guest stalking a shoal is not given away by the host's schools
+running from them at the full distance — and a fish someone catches is gone
+for everyone in the same sea (sent with where it was, so far apart, in seas
+of your own, a catch of yours does not take a fish from in front of someone
+else). What
 someone gathers is gone for everyone too — flotsam, and on land the fronds
 picked, the flint chipped out of a cave wall and the trees cut down. A tree
 shudders at every stroke on every screen and comes down on every screen near
@@ -1223,7 +1232,10 @@ one tree fell it in half the time, and the wood goes to whoever lands the
 last. Two of you taking one plant at once is the host's to settle, as with a
 crate: one gets it, and the other is told who was quicker. A thrown spear flies on every
 screen and lands in the same place; what it skewers, the thrower's game
-says. Your own time of day waits with your raft.
+says — a fish, or an octopus (each of you has your own, so the others see
+one like it), on their spear as on yours, and on the spear in the hand of
+someone who thrusts. A spear out in the world when someone joins is there
+for them, with what is on it. Your own time of day waits with your raft.
 
 Paused (the start screen, `H`, `Esc`) while playing together, you stand
 still — hunger and thirst wait, and nothing hunts you — but the world goes

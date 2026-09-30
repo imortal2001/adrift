@@ -869,6 +869,7 @@ class Game {
       const body = this.reef.take(octo);
       this.viewmodel.skewer(body);
       if (!this.view.first) this.body.skewer(this.reef.bodyFor('octopus', 0.6));
+      this.net.event({ k: 'caught', key: 'octopus' });   // on the spear they see you hold
       this.addCatch('octopus');
       this.hud.log('You spear an octopus. Its arms wrap the shaft.', 'good');
       this.hud.refreshInventory(this.inv);
@@ -882,7 +883,7 @@ class Game {
     }
     this.fish.take(f);
     this.viewmodel.skewer(this.fish.bodyFor(f));
-    this.net.event({ k: 'caught', i: this.fish.fish.indexOf(f) });   // on the spear they see you hold
+    this.net.event({ k: 'caught', i: this.fish.fish.indexOf(f), key: f.sp.key });   // on the spear they see you hold
     if (!this.view.first) this.body.skewer(this.fish.bodyFor(f));   // on the spear you can see
     this.addCatch(f.sp.key);
     this.hud.log(`You spear a ${f.sp.name}.`, 'good');
@@ -2017,8 +2018,13 @@ class Game {
       return true;
     }
     if (e.k === 'caught') {
-      const f = this.fish.fish[e.i];
-      if (f && r.body.heldId === 'spear') r.body.skewer(this.fish.bodyFor(f));
+      if (r.body.heldId !== 'spear') return true;
+      // A fish of the shared schools, by which; an octopus (each of you has your own), by kind.
+      if (e.key === 'octopus') { r.body.skewer(this.reef.bodyFor('octopus', 0.6)); return true; }
+      // (In a sea of their own, the fish in that slot here may be some other kind: then one of theirs.)
+      const f = this.fish.fish[e.i], sp = e.key && this.fish.species(e.key);
+      if (f && (!e.key || f.sp.key === e.key)) r.body.skewer(this.fish.bodyFor(f));
+      else if (sp) r.body.skewer(this.fish.displayBody(e.key, (sp.length[0] + sp.length[1]) / 2));
       return true;
     }
     // Handed things (what you gathered, fish off a fire, a piece of yours
