@@ -254,6 +254,7 @@ class Remote {
     this.tag.material.opacity = clear;
     this.tag.visible = clear > 0.01;
     this.drawLine(a.s.ln, b.s.ln, k);
+    this.drawCatch(a.s.ln, b.s.ln, k);
     if (this.bubble) {
       if (performance.now() / 1000 > this.bubbleUntil) this.dropBubble();
       else this.bubble.position.set(p.pos.x, p.pos.y + 2.25 + this.bubble.scale.y / 2, p.pos.z);
@@ -297,7 +298,41 @@ class Remote {
     if (kind === 1) this.line.end.lookAt(start);
   }
 
+  /**
+   * The fish on their line, when one is on: its own body, where their game
+   * has it — fighting under the float, leaping clear, swung in to the rod or
+   * hauled onto the deck — struggling as a hooked fish does. Without it a
+   * crewmate saw a float skitter about and nothing come up out of the sea.
+   */
+  drawCatch(la, lb, k) {
+    const key = Array.isArray(lb) && typeof lb[4] === 'string' ? lb[4] : null;
+    if (!key) { this.dropCatch(); return; }
+    if (this.caught && this.caught.key !== key) this.dropCatch();
+    if (!this.caught) {
+      const mesh = this.net.catchBody?.(key, Math.max(0.1, +lb[5] || 0.3));
+      if (!mesh) return;
+      mesh.rotation.order = 'YXZ';
+      this.net.scene.add(mesh);
+      this.caught = { key, mesh };
+    }
+    const m = this.caught.mesh, same = Array.isArray(la) && la[4] === key;
+    const at = i => same ? la[i] + (lb[i] - la[i]) * k : lb[i];
+    m.position.set(at(6), at(7), at(8));
+    const turn = (i) => same ? la[i] + Math.atan2(Math.sin(lb[i] - la[i]), Math.cos(lb[i] - la[i])) * k : lb[i];
+    m.rotation.set(turn(9), turn(10), turn(11));
+  }
+
+  dropCatch() {
+    if (!this.caught) return;
+    const m = this.caught.mesh;
+    m.removeFromParent();
+    m.geometry?.dispose();
+    m.material?.dispose?.();
+    this.caught = null;
+  }
+
   dropLine() {
+    this.dropCatch();
     if (!this.line) return;
     this.line.rope.removeFromParent();
     this.line.rope.geometry.dispose();
@@ -405,8 +440,9 @@ export class Net {
    * @param onEvent   (e, remote) => true if the game took it: things that
    *                  are for you rather than about them — a gift, a catch
    */
-  constructor({ scene, library, cloneHeld, log, raft, rafts, together, onEvent }) {
+  constructor({ scene, library, cloneHeld, catchBody, log, raft, rafts, together, onEvent }) {
     this.scene = scene;
+    this.catchBody = catchBody;  // (species, length) → a fish, for what is on someone's line
     this.rafts = rafts;         // every raft: someone on a deck is sent on theirs, by its id
     this.onEvent = onEvent;
     this.eye = null;            // where you look from, for how clearly their names show
@@ -658,7 +694,14 @@ export class Net {
     const s = { p: [r2(at.x), r2(h), r2(at.z)],
                 y: Math.round(yaw * 1000) / 1000, pi: Math.round(player.pitch * 100) / 100,
                 st: { deck: 'd', air: 'a', swim: 's' }[player.state] || 'd', h: held || null };
-    if (line) s.ln = [r2(line[0]), r2(line[1]), r2(line[2]), line[3]];
+    if (line) {
+      s.ln = [r2(line[0]), r2(line[1]), r2(line[2]), line[3]];
+      // And what is on it, fighting: which fish, how long, where and which way it faces.
+      if (typeof line[4] === 'string') {
+        const r3 = v => Math.round(v * 1000) / 1000;
+        s.ln.push(line[4], r2(line[5]), r2(line[6]), r2(line[7]), r2(line[8]), r3(line[9]), r3(line[10]), r3(line[11]));
+      }
+    }
     if (deck) { s.r = 1; s.ri = this.raft.id; }
     else if (swim) s.r = 2;
     if (player.onLand && !swim) s.l = 1;         // on land: prey, to the host's dinosaurs

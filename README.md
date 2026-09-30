@@ -732,16 +732,55 @@ cover and preopercle, eyes (size, height, shape, pupil) and markings.
 | Chromis | short snout, a big eye, a small, slightly upturned mouth |
 | Wrasse | pointed snout, thick lips, canines jutting at the front of the jaws |
 | Silverside | a head wider than the body, a huge eye (twice the snout), a small oblique mouth |
-| Red snapper | a triangular head, a large mouth reaching under the front of its red eye, canines |
+| Red snapper | a big triangular head (40% of its length), a large mouth reaching under the front of its big red eye, canines, a serrated preopercle |
 | Porgy | a long sloping snout, a large mouth with thick lips and a heavy lower jaw, orange at the corner; a brown face with a blue line under the eye and pale stripes below it |
 | Flounder | both eyes on the upper side, widely spaced and raised on short stalks; a small mouth ending under the lower eye |
-| King mackerel | a pointed snout shorter than the rest of the head, a large mouth with knife-like teeth |
+| King mackerel | a pointed snout shorter than the rest of the head, a large mouth with the end of the jaw bone showing and knife-like teeth; plain silver as an adult |
 | Yellowfin tuna | a conical snout, a small eye, a small mouth ending well before it |
 | Great barracuda | a long pike-like head, flat on top; the lower jaw jutting past the upper; fangs of unequal size |
 | Grouper | flat between the eyes, a huge mouth running back past the eye, a protruding lower jaw, thick lips, a rounded preopercle |
 | Mahi-mahi | a bull: the tall, flat forehead of the male, a small eye set low near the mouth |
 | Blacktip reef shark | a short, broadly rounded snout; oval eyes with slit pupils; nostrils under the snout with their nipple-shaped flaps; an arched, down-turned mouth with serrated teeth; five gill slits |
 | Humpback whale | (the procedural fallback; the game's whale is now a textured model, below) tubercles — golf-ball knobs — along the rostrum and on the jaw, twin blowholes behind a raised splashguard, a long arching mouth line with the eye just past its corner, throat pleats |
+
+**Measured, not guessed.** A second pass set every species against its
+published measurements — Fishes of Texas, the Smithsonian's Shorefishes of
+the Greater Caribbean, FishBase — as proportions of standard length, and
+most of what still looked wrong about the fish turned out to be numbers:
+
+- **Bodies.** The disc of the yellow tang was built as deep as it is long;
+  a real one is 55–70% (its fins are what make it tall, and those are now
+  taller). The chromis and the bluehead wrasse were half as deep again as
+  theirs, the mahi too; the snapper and the grouper a little too slender.
+- **Heads.** A snapper's or a grouper's head is some 40% of its length,
+  a porgy's, barracuda's or wrasse's about a third — they were 20–28%, which
+  is most of why they looked like toys. Eye, mouth, gill cover, pectoral and
+  dorsal all moved back with it: a snapper's eye is a tenth of its length, a
+  porgy's pectoral reaches past the start of its anal fin, a grouper's jaw
+  runs past the back of its eye.
+- **Fins.** Pectorals at their real lengths (a snapper's 0.28 of its length,
+  a porgy's 0.36, a chromis's 0.27) and a yellowfin's sickle reaching the
+  second dorsal; the snapper's anal fin pointed; tails forked as deeply as
+  each species' are — a snapper's barely, a chromis's deep and sharp, a blue
+  tang's with its corners drawn out.
+- **Marks.** The yellow tang is one even lemon yellow with a white scalpel on
+  its tail stalk (the dark bands were another tang's); the king mackerel is
+  plain silver (the yellow spots are the young's); the barracuda has its
+  twenty-odd bars.
+
+And three things every fish had wrong. **The pupil** was a slit on all of
+them — a cat's, or a shark's — where a bony fish's is round, the lens a
+glassy bead bulging through it; the iris now shades from the bright,
+silvery ring round the pupil (the argentea) to a darker rim, and the skin
+comes right up to it, not a dark socket: a fish has no lids. **The mouth**
+was a near-black band; shut, it is a fine crease, finest at the snout and in
+the corner, with the lips either side catching the light and, where the
+species shows it, the rear end of the maxilla drawn on the cheek (a
+wrasse's, a porgy's and a snapper's are hidden under the cheek bones, a
+mackerel's and a grouper's are not). **The spiny dorsal** was one sawtooth
+ramp; it is now a perch's — spines rising to the third or fourth, cut deep
+between them (shallow on a snapper or porgy), dipping where they meet the soft
+rays, and the soft part taller, rounded and falling away behind.
 
 The blacktip is the exception to "built from scratch": its body is a
 textured model of the real species ("Blacktip Reef Shark" by Lais.Marques,
@@ -1147,7 +1186,9 @@ someone's head fades beyond sixty-odd metres, and behind a hill there is no
 telling anyone is there. You are told when someone climbs aboard the raft
 you are on, and what the others build (gathered up: "Ben built 3
 Foundations and a Wall"). You see the others' lines out too — the
-rod's float, the hook on its rope — a fish on the spear they thrust with, the
+rod's float, the hook on its rope, and the fish on the end of it — fighting
+under the float, leaping clear, swung in to the rod or hauled onto the deck,
+with word of what they landed — a fish on the spear they thrust with, the
 spears they threw before you joined, and the dinosaurs' kills wherever you are.
 
 You see each other as you are: where you stand or swim, which way you face,

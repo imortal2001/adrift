@@ -197,6 +197,7 @@ class Game {
     this.together = new Together(this);
     this.net = new Net({ scene: this.scene, library: this.viewmodel.library,
                          cloneHeld: id => this.viewmodel.cloneBody(id),
+                         catchBody: (key, length) => this.fish.displayBody(key, length),
                          log: (text, kind, ms) => this.hud.log(text, kind, ms),
                          raft: this.raft, rafts: this.rafts, together: this.together,
                          onEvent: (e, r) => this.fromCrew(e, r) });
@@ -2017,6 +2018,11 @@ class Game {
       this.hud.refreshCraft(this.inv);
       return true;
     }
+    if (e.k === 'landed' && typeof e.key === 'string') {
+      const sp = this.fish.species(e.key);
+      if (sp) this.hud.log(`${r.name} lands a ${sp.name}.`);
+      return true;
+    }
     if (e.k === 'caught') {
       if (r.body.heldId !== 'spear') return true;
       // A fish of the shared schools, by which; an octopus (each of you has your own), by kind.
@@ -2110,7 +2116,15 @@ class Game {
   /** Where the end of your line is, if one is out: the rod's float, or the hook. [x, y, z, kind] */
   lineOut() {
     const f = this.fishing.float;
-    if (f.visible) return [f.position.x, f.position.y, f.position.z, 0];
+    if (f.visible) {
+      // A fish on it: that too, for the others to see it fight (net.js drawCatch).
+      const c = this.fishing.catch, m = c?.mesh;
+      if (m?.parent) {
+        return [f.position.x, f.position.y, f.position.z, 0, c.key, c.length,
+                m.position.x, m.position.y, m.position.z, m.rotation.x, m.rotation.y, m.rotation.z];
+      }
+      return [f.position.x, f.position.y, f.position.z, 0];
+    }
     const h = this.hook;
     if (h.state !== 'idle' && h.head.visible) return [h.head.position.x, h.head.position.y, h.head.position.z, 1];
     return null;
@@ -2659,6 +2673,7 @@ class Game {
     this.fishing.update(dt, this.time, this.player, held === 'rod' && this.inv.has('rod'));
     for (const e of this.fishing.events.splice(0)) {
       if (e.catch) {
+        this.net.event({ k: 'landed', key: e.catch });     // "Ben lands a grouper", for the others
         this.addCatch(e.catch, e.count);
         this.hud.refreshInventory(this.inv);
       }

@@ -132,7 +132,8 @@ const ZONES = {
 const SPECIES = [
   { key: 'chromis', name: 'chromis',  mesh: 'chromis', color: 0x3f86d6, zone: 'reef',
     schools: 3, per: 24, length: [0.15, 0.21], speed: [0.9, 1.5], react: 'hide' },
-  { key: 'tang', name: 'yellow tang',     mesh: 'tang',    color: 0xf2bb3c, zone: 'reef',
+  // (A lemon yellow: over the grey, counter-shaded body an orange-yellow read ochre.)
+  { key: 'tang', name: 'yellow tang',     mesh: 'tang',    color: 0xf8d42a, zone: 'reef',
     schools: 2, per: 13, length: [0.24, 0.34], speed: [0.8, 1.3] },
   // Its own body now: a rounder disc than the yellow tang's, and the black
   // palette marking and yellow tail are in the mesh, so it wears no tint.
