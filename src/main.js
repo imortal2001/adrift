@@ -1375,9 +1375,12 @@ class Game {
   settleCooked(raft, o, taker) {
     const done = o.spitFish.filter(f => f.t >= FIRE.cook);
     if (!done.length) {
-      if (taker) this.net.event({ k: 'grant', none: true, items: {}, note: 'Someone else took the fish off first.' }, taker.id);
+      // (Who, if it was only just now: the other hand at the same fish.)
+      const who = o.took && this.time - o.took.at < 5 ? o.took.by : null;
+      if (taker) this.net.event({ k: 'grant', none: true, items: {}, note: `${who || 'Someone else'} took the fish off first.` }, taker.id);
       return;
     }
+    o.took = { by: taker ? taker.name : this.net.name, at: this.time };
     o.spitFish = o.spitFish.filter(f => f.t < FIRE.cook);
     this.layoutSpit(o);
     for (const f of done) this.unhang(f);
@@ -1940,9 +1943,14 @@ class Game {
     return best;
   }
 
-  /** Twice a second, playing together: someone coming aboard the raft you are on is said. */
+  /**
+   * Twice a second, playing together: someone coming aboard the raft you are
+   * on is said. Off it yourself, who is aboard is not known — not "no one":
+   * that had you, climbing back on (or waking there), told everyone already
+   * standing on it had just climbed aboard.
+   */
   watchCrew() {
-    if (!this.onDeck()) { for (const r of this.net.remotes.values()) r.aboard = false; return; }
+    if (!this.onDeck()) { for (const r of this.net.remotes.values()) r.aboard = null; return; }
     for (const r of this.net.remotes.values()) {
       // Not yet placed (just joined, or back after a dropped connection): no telling yet.
       if (!r.snaps.length || !r.body.visible) continue;

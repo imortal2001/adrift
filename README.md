@@ -1184,7 +1184,8 @@ to whoever is in the way. The crew list gives each of the others' distance
 from you and an arrow for which way (↑ ahead, ↓ behind); a name over
 someone's head fades beyond sixty-odd metres, and behind a hill there is no
 telling anyone is there. You are told when someone climbs aboard the raft
-you are on, and what the others build (gathered up: "Ben built 3
+you are on — not, as you climb back on yourself or wake there, that everyone
+already standing on it just did — and what the others build (gathered up: "Ben built 3
 Foundations and a Wall"). You see the others' lines out too — the
 rod's float, the hook on its rope, and the fish on the end of it — fighting
 under the float, leaping clear, swung in to the rod or hauled onto the deck,
@@ -1238,7 +1239,7 @@ different rates on each machine never leave you on different rafts. Two of
 you at one thing at once is the host's to settle too: two people building
 on one spot get one piece, and whoever lost is paid back; two hooks on one
 crate, or two hands at one fire, get one crate and one lot of fish, and
-whoever was slower is told so. If the host leaves, the next player in takes
+whoever was slower is told who was quicker. If the host leaves, the next player in takes
 over — everyone is told who — and the raft goes on.
 
 One sea, too. Every machine's waves come from how long it has been running,
