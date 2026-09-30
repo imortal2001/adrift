@@ -1033,16 +1033,22 @@ export class Wildlife {
     const wadeTo = this.wade(a);
     const worse = this.badness(a.pos.x, a.pos.z, wadeTo);
     if (worse > 0) {
-      let best = Infinity;
-      const was = want, r = Math.max(4, a.radius * 2);
-      for (let k = 0; k < 12; k++) {
-        const ang = k / 12 * Math.PI * 2, sx = Math.sin(ang), sz = Math.cos(ang);
-        // The way there as well as where it ends: the worst of it, and how
-        // it ends. (Of ways out alike, the one nearest where it was going.)
-        let peak = 0;
-        for (let f = 0.25; f < 1; f += 0.25) peak = Math.max(peak, this.badness(a.pos.x + sx * r * f, a.pos.z + sz * r * f, wadeTo));
-        const cost = peak + this.badness(a.pos.x + sx * r, a.pos.z + sz * r, wadeTo) + Math.abs(wrap(ang - was)) * 0.01;
-        if (cost < best) { best = cost; want = ang; }
+      let best = Infinity, end = Infinity;
+      const was = want;
+      // (Near first; in a basin — a deep pool under a fall, its bed steep all
+      // round — nothing near is any better, and it looks further.)
+      for (const r of [Math.max(4, a.radius * 2), 8, 16]) {
+        for (let k = 0; k < 12; k++) {
+          const ang = k / 12 * Math.PI * 2, sx = Math.sin(ang), sz = Math.cos(ang);
+          // The way there as well as where it ends: the worst of it, and how
+          // it ends. (Of ways out alike, the one nearest where it was going.)
+          let peak = 0;
+          for (let f = 0.25; f < 1; f += 0.25) peak = Math.max(peak, this.badness(a.pos.x + sx * r * f, a.pos.z + sz * r * f, wadeTo));
+          const there = this.badness(a.pos.x + sx * r, a.pos.z + sz * r, wadeTo);
+          const cost = peak + there + Math.abs(wrap(ang - was)) * 0.01;
+          if (cost < best) { best = cost; want = ang; end = there; }
+        }
+        if (end < worse * 0.5) break;
       }
       if (best < Infinity) goal = Math.max(goal, walk);
     }

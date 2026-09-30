@@ -627,6 +627,10 @@ export async function loadRegistry() {
         // The stump, where it stood.
         const below = new THREE.Plane(), above = new THREE.Plane();
         const stump = t.clippedCopy(p, below);
+        // (Its bounds the stump's, not the whole tree's it is clipped from.)
+        const gb = inst.geometry.boundingBox || (inst.geometry.computeBoundingBox(), inst.geometry.boundingBox);
+        const rb = Math.max(c.rw, 0.3) * 1.6;
+        stump.boundingBox = new THREE.Box3(V(Math.max(gb.min.x, -rb), gb.min.y, Math.max(gb.min.z, -rb)), V(Math.min(gb.max.x, rb), c.hl, Math.min(gb.max.z, rb)));
         g.add(stump);
         if (c.top) g.add(t.cutFace(p, c.top));
         // The rest of it, over on its side from the hinge at the far edge of

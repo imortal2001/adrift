@@ -2204,6 +2204,9 @@ export class Terrain {
     // Below the cut, in the plant's own frame (it may lean a little).
     const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), c.hl).applyMatrix4(p.matrix);
     const mesh = this.clippedCopy(p, plane);
+    // (It stays put, unlike what falls: out of view, it need not be drawn.)
+    mesh.frustumCulled = true;
+    mesh.computeBoundingSphere();
     this.scene.add(mesh);
     const top = c.top && this.cutFace(p, c.top);
     if (top) this.scene.add(top);
