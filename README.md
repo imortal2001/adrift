@@ -301,6 +301,9 @@ nothing lines up in rows:
   landing is always sand. The beach is gentle, a foreshore of 3–5° (tanβ
   ~0.06, medium sand) rising to the back of the beach, and the cliff's height
   varies along the coast over a few hundred metres.
+  Past the waterline the sand never dips below the sea: a hollow up the
+  beach bottoms out dry instead of holding a pool of ocean, waves and all,
+  cut off from the water.
 - **Hills and plains** — rolling fbm hills behind the beach, flattened in
   places into wide plains of fern thicket, the hills dying away onto them
   over a long edge. The surf zone's swell stays at the surf zone; inland
@@ -328,6 +331,10 @@ nothing lines up in rows:
   banked into a flood plain across hollows. The first reaches the sea about
   200 m up the coast from the landing beach. The water is a ribbon at the
   surveyed level, flowing, reflecting the sky; you wade it, about a metre deep.
+  At the mouth it slopes down over the last few metres of beach and slides
+  under the sea, rather than ending in a square slab on top of the waves; and
+  a lake's water stops at its shore where the river leaves it over a cascade,
+  instead of hanging out over the drop.
   They are sized as rivers are: a channel widens downstream as the land it
   drains, to the ~0.4 power of the area (Leopold & Maddock 1953; Hack's law
   for the area), so from ~3 m at the spring to 11–12 m at the mouth — about
@@ -411,7 +418,10 @@ nothing lines up in rows:
   rock set into the hill with the ground above it untouched; where it comes
   out through the cliff face, the terrain's shader throws that bit of the
   ground away (`CAVE_CUT`, the nearest mouths) so the mouth opens, and the
-  tube's outer skin is what shows round the cut. Inside, its floor and walls
+  tube's outer skin is what shows round the cut. The mouth is set in from
+  the foot to where the rock stands over the way in within a few metres —
+  started at the foot of a 50° slope, the tube stood out of it for five
+  metres, a dome of rock on the grass. Inside, its floor and walls
   are what you stand on and walk within — `floorAt()` and `clampInCave()`,
   asked by the player before the ground is — and the third-person camera
   keeps inside it too.
@@ -419,12 +429,16 @@ nothing lines up in rows:
 It is streamed in **64m chunks** around whoever is looking: fine near you,
 progressively coarser out to about 450m, rebuilt two chunks per frame so
 walking never stutters, and disposed once out of range. Normals are sampled
-across the chunk edges and each chunk hangs a skirt, so there are no seams.
+across the chunk edges and each chunk hangs a skirt, so there are no seams —
+hung deeper where the ground along the edge climbs steeply, since across a
+cliff a coarser neighbour's edge can be ten metres off a finer one's.
 Beyond the chunks the **far land** takes over: the whole continent at 16 m, in
 two sheets — the ground, and the forest canopy as a lumpy shell over it — each
 sunk out of sight inside the square the chunks draw for real (and well inside
 it, not drawn at all — sunk only a little, it would run through the hills, and
-the caves in them). That is what you see of the far coast and the range from
+the caves in them). It is sunk from the lowest of each vertex's neighbours,
+not its own height, so a 16 m cell across a cliff cannot stand out of the
+ground at its foot. That is what you see of the far coast and the range from
 the raft.
 
 The ground's colour comes from what the land is — sand, straw on the plains,

@@ -241,10 +241,19 @@ function fitLandCave(c) {
   }
   if (!foot || freshWaterAt(foot.x, foot.z) || freshWaterAt(foot.x - c.ux * 3, foot.z - c.uz * 3)) return null;
   const R = stream(seedAt(foot.x, foot.z));
-  const sx = foot.x - c.ux * 1.2, sz = foot.z - c.uz * 1.2;
-  const floor0 = Math.min(heightAt(sx, sz), foot.h) + 0.02;
+  let floor0 = 0;
   const o = { tunnel: 14 + R() * 10, width: 1.55 + R() * 0.3, height: 3.1 + R() * 0.4, alcove: 0.5, turn: 0.55,
               room: 4.6 + R() * 1.6, roomH: 4.4 + R() * 1.2, floor: s => floor0 + 0.05 * s };
+  // In from the foot to where the rock stands over the way in: started at
+  // the foot itself, a tube four metres high came out of a slope of 50° for
+  // five metres before the hill closed over it — a dome of rock standing on
+  // the grass, not a mouth in the hillside. (On a true face that is a step
+  // or two; the floor starts on the ground where the mouth is.)
+  const up = d => heightAt(foot.x + c.ux * d, foot.z + c.uz * d);
+  let t = -1.2;
+  while (t < 4.5 && up(t + 3) < up(t) + o.height * 1.15) t += 0.5;
+  const sx = foot.x + c.ux * t, sz = foot.z + c.uz * t;
+  floor0 = (t <= -1.2 ? Math.min(heightAt(sx, sz), foot.h) : heightAt(sx, sz)) + 0.02;
   const samples = carvePath(sx, sz, Math.atan2(c.ux, c.uz), o, R);
   if (!covered(samples)) return null;
   const mid = samples.find(p => p.s >= o.tunnel + o.room) || samples.at(-1);

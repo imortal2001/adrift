@@ -1927,7 +1927,10 @@ function outcrop(lod, seed) {
 /** A spire: a tall stacked pillar of rock — a sea stack, or a landmark. */
 function spire(lod, seed) {
   const g = rockGeometry(seed, { detail: lod ? 2 : 3, stretch: [1, 4.5, 1.1], strata: 1.3 });
-  g.translate(0, 3, 0);
+  // Its foot a little below its origin, as the other rocks' are: at +0.6 it
+  // stood a metre or two clear of the ground, a sea stack floating over the
+  // bed and a butte over the plain.
+  g.translate(0, 2, 0);
   g.computeVertexNormals();
   return g;
 }

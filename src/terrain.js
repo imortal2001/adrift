@@ -336,6 +336,14 @@ export function landAt(x, z, out = _land) {
   // the plains. (Less in a river's bed, or its bumps come up through the water.)
   const fine = smooth(-6, 12, m) * (0.45 + out.mountain * 0.55 - out.plain * 0.35);
   h += fine * (fbm(x * 0.11, z * 0.11, 2) - 0.5) * 1.6 * (0.2 + 0.8 * smooth(0, 4, out.edge));  // surface detail
+  // Nor behind the beach: the undulation above dug hollows 20–30 m up the
+  // sand that went below the sea, and the ocean filled them — pools of sea,
+  // waves and all, cut off from the water. Only at the water's edge may the
+  // sand go under; past it a hollow bottoms out dry, pulled up softly.
+  if (m > 0 && !(out.water > 0)) {
+    const lo = 0.5 * smooth(4, 16, m);
+    if (h < lo) h = lo - 0.3 * (1 - Math.exp(-(lo - h) / 0.3));
+  }
   // Lakes last, after the detail, so how deep they are is exactly as dished.
   if (m >= 0 && LAKES.length) h = carveLakes(x, z, h, out);
   // And no river deeper than wading either — the detail above can dig a
@@ -817,7 +825,17 @@ export function riverGeometry(rv, keep = null) {
   // curtain's water, and joined to the pool it would be a slab of it lying
   // at the foot of the curtain.)
   const midFall = p => falls.some(f => p.level < f.top - 0.3 && p.level > f.bottom + 0.3 && Math.hypot(p.x - f.x, p.z - f.z) < 25);
-  const pts = riverCourse(rv, 2).map(p => ((keep && !keep(p.x, p.z)) || inLake(p) || midFall(p) ? null : p));
+  // Into the sea at the mouth: the river runs a little above the sea to the
+  // last, and carried on at that level its square end lay out on top of the
+  // waves. Over the last few metres of beach it slopes down under the sea's
+  // surface, and stops a little way out.
+  const toSea = p => {
+    const m = coastDistance(p.x, p.z);
+    if (m < -3) return null;
+    if (m < 8) p.level += (-0.3 - p.level) * smooth(8, 2, m);
+    return p;
+  };
+  const pts = riverCourse(rv, 2).map(p => ((keep && !keep(p.x, p.z)) || inLake(p) || midFall(p) ? null : toSea(p)));
   if (pts.filter(Boolean).length < 2) return null;
   const pos = [], uv = [], idx = [];
   // Above a fall the water stops at the lip, square to the cliff: the
@@ -1175,8 +1193,21 @@ export class Terrain {
         index.push(v, v + n, v + 1, v + 1, v + n, v + n + 1);
       }
     }
-    // Skirt: each edge copied a few metres down, and stitched to the edge.
-    const drop = 2 + step * 0.5;
+    // Skirt: each edge copied a few metres down, and stitched to the edge —
+    // further down where the ground along the edge climbs steeply. A coarser
+    // neighbour's edge runs straight between its own vertices, and across a
+    // cliff that can be ten metres and more off this one's: a fixed skirt
+    // left a crack down the face of the falls' cliff, sky through it.
+    const base = 2 + step * 0.5;
+    const dropAt = (edge, k) => {
+      let lo = Infinity, hi = -Infinity;
+      for (let q = Math.max(0, k - 4); q <= Math.min(n - 1, k + 4); q++) {
+        const y = pos[edge[q] * 3 + 1];
+        if (y < lo) lo = y;
+        if (y > hi) hi = y;
+      }
+      return base + (hi - lo);
+    };
     const edges = [
       Array.from({ length: n }, (_, a) => a),                       // north
       Array.from({ length: n }, (_, a) => (n - 1) * n + a),         // south
@@ -1186,11 +1217,11 @@ export class Terrain {
     let sv = n * n;
     edges.forEach((edge, e) => {
       const start = sv;
-      for (const v of edge) {
-        pos[sv * 3] = pos[v * 3]; pos[sv * 3 + 1] = pos[v * 3 + 1] - drop; pos[sv * 3 + 2] = pos[v * 3 + 2];
-        for (let k = 0; k < 3; k++) { nrm[sv * 3 + k] = nrm[v * 3 + k]; colours[sv * 3 + k] = colours[v * 3 + k]; }
+      edge.forEach((v, k) => {
+        pos[sv * 3] = pos[v * 3]; pos[sv * 3 + 1] = pos[v * 3 + 1] - dropAt(edge, k); pos[sv * 3 + 2] = pos[v * 3 + 2];
+        for (let c = 0; c < 3; c++) { nrm[sv * 3 + c] = nrm[v * 3 + c]; colours[sv * 3 + c] = colours[v * 3 + c]; }
         sv++;
-      }
+      });
       for (let k = 0; k < n - 1; k++) {
         const a = edge[k], b2 = edge[k + 1], c = start + k, d = start + k + 1;
         // Wound to face outward; both windings for simplicity are not needed
@@ -1454,16 +1485,32 @@ export class Terrain {
         canopy[v * 3 + 1] = Math.max(ground[v * 3 + 1] - 18, Math.min(src[v * 3 + 1] + 6, sum / 9));
       }
     }
+    // Under the near chunks the far ground is sunk out of the way — but a
+    // 16 m cell across a cliff runs straight from its top to its foot, and
+    // sunk from there it still stood metres out of the ground at the foot (a
+    // tan wedge beside the falls). Sunk from the lowest of its neighbours
+    // instead, no cell corner stands above the ground around it.
+    const low = new Float32Array(n * n), canopyLow = new Float32Array(n * n);
+    for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
+      let m = Infinity;
+      for (let db = -1; db <= 1; db++) for (let da = -1; da <= 1; da++) {
+        const bb = Math.min(n - 1, Math.max(0, b + db)), aa = Math.min(n - 1, Math.max(0, a + da));
+        m = Math.min(m, H[bb * n + aa]);
+      }
+      low[b * n + a] = m - 0.6;
+      canopyLow[b * n + a] = canopy[(b * n + a) * 3 + 1];
+    }
     const index = [];
     for (let b = 0; b < n - 1; b++) for (let a = 0; a < n - 1; a++) {
       const v = b * n + a;
       index.push(v, v + n, v + 1, v + 1, v + n, v + n + 1);
     }
     const focus = { value: new THREE.Vector2(1e9, 1e9) };
-    const sheet = (positions, colours, half, drop, rough) => {
+    const sheet = (positions, colours, lows, half, drop, rough) => {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+      geo.setAttribute('aLow', new THREE.BufferAttribute(lows, 1));
       geo.setIndex(index);
       geo.computeVertexNormals();
       const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: rough, metalness: 0 });
@@ -1478,11 +1525,12 @@ export class Terrain {
           .replace('#include <common>', `#include <common>
             uniform vec2 uFarFocus;
             uniform vec3 uCaveFar[4];
+            attribute float aLow;
             varying float vFarY;`)
           .replace('#include <begin_vertex>', `#include <begin_vertex>
             {
               vec2 rel = abs(transformed.xz - uFarFocus);
-              if (max(rel.x, rel.y) < ${(half - 0.5).toFixed(1)}) transformed.y -= ${drop.toFixed(1)};
+              if (max(rel.x, rel.y) < ${(half - 0.5).toFixed(1)}) transformed.y = min(transformed.y, aLow) - ${drop.toFixed(1)};
               // Round a cave, gone altogether (under the sea, so thrown away below):
               // sunk only a little, it runs through the hills — through the caves in them.
               if (max(rel.x, rel.y) < ${(half - 70).toFixed(1)}) {
@@ -1508,8 +1556,8 @@ export class Terrain {
     };
     return {
       focus,
-      ground: sheet(ground, gcol, (VIEW_CHUNKS + 0.5) * CHUNK, 14, 0.96),
-      canopy: sheet(canopy, ccol, (TREE_RING + 0.5) * CHUNK, 90, 0.85),
+      ground: sheet(ground, gcol, low, (VIEW_CHUNKS + 0.5) * CHUNK, 14, 0.96),
+      canopy: sheet(canopy, ccol, canopyLow, (TREE_RING + 0.5) * CHUNK, 90, 0.85),
     };
   }
 
