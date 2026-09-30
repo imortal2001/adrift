@@ -31,6 +31,9 @@ const HOME_RANGE = 78;         // schools beyond this are recycled closer in
 // kept round each of them, not round the host alone.
 const SHARED_SEA = 160;
 const DEEP_RANGE = 170;        // ...but the tuna live further out than that
+// Running the sea for others: how often the schools are shared out afresh
+// among you, and how far from all of you one must be to be moved unseen.
+const EVEN_OUT = 3, UNSEEN = 50;    // (the water's fog leaves a tenth of a fish there)
 const SPAWN_MIN = 14, SPAWN_MAX = 62;
 const DRIFT = 0.45;            // how much of the ocean current they give in to
 // How close you get before each kind of fish reacts, and how it does.
@@ -456,20 +459,58 @@ export class FishSchools {
     return best;
   }
 
-  /** Where a school put back goes round: whichever of you has the fewest near. */
-  anchor() {
-    const hubs = this.hubs();
-    if (hubs.length === 1) return hubs[0];
-    let best = null, fewest = Infinity;
-    for (const h of hubs) {
-      let n = 0;
-      for (const s of this.schools) {
-        if (!s.ashore && Math.hypot(s.center.x - h.x, s.center.z - h.z) < HOME_RANGE) n++;
-      }
-      n += Math.random() * 0.5;                 // (ties broken either way)
-      if (n < fewest) { fewest = n; best = h; }
+  /** How many schools are round `h` (not the dorado under the raft: they go where it goes). */
+  crowd(h) {
+    let n = 0;
+    for (const s of this.schools) {
+      if (!s.ashore && s.kind !== 'raft' && Math.hypot(s.center.x - h.x, s.center.z - h.z) < HOME_RANGE) n++;
     }
-    return best;
+    return n;
+  }
+
+  /** Where a school put back goes round: whichever of you has the fewest near first, then the next. */
+  byCrowd() {
+    const hubs = this.hubs();
+    if (hubs.length === 1) return hubs;
+    return hubs.map(h => [this.crowd(h) + Math.random() * 0.5, h])    // (ties broken either way)
+      .sort((a, b) => a[0] - b[0]).map(e => e[1]);
+  }
+
+  /**
+   * Schools are put back only when they stray out of all your ranges, and
+   * round whoever has the raft they never do: one of you gone off a hundred
+   * metres, still in the host's sea, swam in empty water. So now and then one
+   * goes from whoever has the most round them to whoever has the fewest —
+   * one none of you can see go.
+   */
+  evenOut() {
+    const hubs = this.hubs();
+    if (hubs.length < 2) return;
+    let lo = Infinity, hi = -1, rich = null, poor = null;
+    for (const h of hubs) {
+      const n = this.crowd(h);
+      if (n < lo) { lo = n; poor = h; }
+      if (n > hi) { hi = n; rich = h; }
+    }
+    if (hi - lo < 3) return;
+    const eyes = [this.hub, ...this.others];
+    const seen = p => eyes.some(e => Math.hypot(p.x - e.x, p.z - e.z) < UNSEEN);
+    // Only a kind that has somewhere to live there: no reef grows under
+    // someone out over the deep, and a reef school sent there sat stranded.
+    const tried = this._tried ||= new Set();
+    tried.clear();
+    const was = this._was ||= new THREE.Vector3();
+    for (const s of this.schools) {
+      if (s.ashore || s.kind === 'raft' || s.alarm > 0 || tried.has(s.kind)) continue;
+      if (Math.hypot(s.center.x - rich.x, s.center.z - rich.z) >= HOME_RANGE) continue;
+      if (seen(s.center) || s.members.some(f => !(f.caught > 0) && seen(f.pos))) continue;
+      tried.add(s.kind);
+      was.copy(s.center);
+      const floor = s.floor;
+      if (this.spot(s, poor, SPAWN_MIN)) { this.gather(s); return; }
+      s.center.copy(was);
+      s.floor = floor;
+    }
   }
 
   /**
@@ -505,10 +546,8 @@ export class FishSchools {
 
   placeSchool(school, initial) {
     const min = initial ? 8 : SPAWN_MIN;
-    const kind = school.kind;
-    const hub = this.anchor();
     school.ashore = false;
-    if (kind === 'raft') {
+    if (school.kind === 'raft') {
       const r = this.raftPos();
       // Round the raft — on the side with water under it, if it is near the shore.
       for (let attempt = 0; attempt < 12; attempt++) {
@@ -522,8 +561,17 @@ export class FishSchools {
       this.strand(school);
       return;
     }
-    // Every kind looks for water deep enough for it; none nearby (you are
-    // far inland), and the school waits, out of sight, and tries again.
+    // Every kind looks for water deep enough for it, round whichever of you
+    // has the fewest, then the next; none near any of you (all far inland —
+    // or, for a reef school, all out over the deep), and the school waits, out
+    // of sight, and tries again.
+    for (const hub of this.byCrowd()) if (this.spot(school, hub, min)) return;
+    this.strand(school);
+  }
+
+  /** A place for a school of its kind round `hub`: put there, and true — or false, none found. */
+  spot(school, hub, min) {
+    const kind = school.kind;
     const tries = 24;
     for (let attempt = 0; attempt < tries; attempt++) {
       const last = false;
@@ -556,9 +604,9 @@ export class FishSchools {
         const [top, bottom] = school.zone.band;
         school.center.set(x, rand(Math.max(bottom, bed + 1.5), top), z);
       }
-      return;
+      return true;
     }
-    this.strand(school);
+    return false;
   }
 
   /** No water for this school near enough: it keeps out of sight until there is. */
@@ -571,6 +619,10 @@ export class FishSchools {
   wet(kind, x, z) { return heightAt(x, z) <= SHALLOWEST[kind]; }
 
   update(dt, time, playerPos) {
+    if (!this.follow && (this.evenIn = (this.evenIn ?? EVEN_OUT) - dt) <= 0) {
+      this.evenIn = EVEN_OUT;
+      this.evenOut();
+    }
     for (const s of this.schools) {
       if (s.ashore) {
         // Waiting for water near enough — unless the host says where it is.

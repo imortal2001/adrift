@@ -14,6 +14,9 @@ const SPAWN_DIST = 98;      // metres upstream
 const KILL_DIST = 112;      // metres downstream before recycling
 const BAND = 14;            // lateral spread of the current
 const SPEED = 1.35;
+// Playing together, the host's flotsam is the sea for everyone within this of
+// the host (sharedworld.js; as the fish's) — so it drifts past each of them.
+const SHARED_SEA = 160;
 const COCONUT_SCALE = 2.4;  // the scanned nut is hand-sized, ~17 cm; afloat it is shown at 40, as the old one was
 
 export const CURRENT = new THREE.Vector2(0.60, 0.80).normalize();
@@ -127,6 +130,10 @@ export class DebrisField {
     this.items = [];
     const make = this.make = shapes();
     this.nut = null;          // the scanned coconut, once dress() has it
+    // Playing together (sharedworld.js): where the others are, hosting; and
+    // whether the pieces are the host's, and so where they go the host's to say.
+    this.others = [];
+    this.follow = false;
 
     for (let i = 0; i < POOL; i++) {
       const kind = WEIGHTED[(Math.random() * WEIGHTED.length) | 0];
@@ -232,15 +239,56 @@ export class DebrisField {
     return { x: r.x ?? r.group.position.x, z: r.z ?? r.group.position.z };
   }
 
+  /**
+   * Who the flotsam comes past: you — and, hosting, whoever of the others is
+   * in your sea. Round you alone, one of them a hundred metres off the line of
+   * it had none; and their own copy, recycling the pieces round them, had them
+   * pop in and out as your word put them back — and one hooked there was
+   * never there to be had.
+   */
+  hubs() {
+    const hub = this.hub, out = this._hubs ||= [];
+    out.length = 0;
+    out.push(hub);
+    if (!this.follow) {
+      for (const o of this.others) if (Math.hypot(o.x - hub.x, o.z - hub.z) < SHARED_SEA) out.push(o);
+    }
+    return out;
+  }
+
+  /** Is (x, z) in the stretch of current flowing past `h`? */
+  inReach(x, z, h) {
+    const rx = x - h.x, rz = z - h.z;
+    const along = rx * CURRENT.x + rz * CURRENT.y;
+    return along <= KILL_DIST && along >= -SPAWN_DIST - 30 && Math.abs(rx * SIDE.x + rz * SIDE.y) <= BAND + 60;
+  }
+
+  /** Where a piece put back comes down: past whichever of you has the fewest first, then the next. */
+  byCrowd() {
+    const hubs = this.hubs();
+    if (hubs.length === 1) return hubs;
+    return hubs.map(h => {
+      let n = Math.random() * 0.5;              // (ties broken either way)
+      for (const it of this.items) if (this.inReach(it.x, it.z, h)) n++;
+      return [n, h];
+    }).sort((a, b) => a[0] - b[0]).map(e => e[1]);
+  }
+
   respawn(it, along = -SPAWN_DIST - Math.random() * 12) {
-    const h = this.hub;
-    // Somewhere afloat: a spot over land is tried again, a little way along.
-    for (let tries = 0; tries < 6; tries++) {
+    // Somewhere afloat: a spot over land is tried again a little further up
+    // the current; land all the way up (an island up-current), and it comes
+    // out in the lee of it instead — left on the land, it was put back there
+    // again every frame, and none came by at all. Then past the next of you.
+    const hubs = this.byCrowd();
+    const afloat = (h, a) => {
       const lateral = (Math.random() * 2 - 1) * BAND;
-      it.x = h.x + CURRENT.x * along + SIDE.x * lateral;
-      it.z = h.z + CURRENT.y * along + SIDE.y * lateral;
-      if (heightAt(it.x, it.z) < -1) break;
-      along -= 15;
+      it.x = h.x + CURRENT.x * a + SIDE.x * lateral;
+      it.z = h.z + CURRENT.y * a + SIDE.y * lateral;
+      return heightAt(it.x, it.z) < -1;
+    };
+    found: for (const h of hubs) {
+      for (let tries = 0; tries < 6; tries++) if (afloat(h, along - tries * 15)) break found;
+      for (let tries = 1; tries <= 4; tries++) if (afloat(h, along + tries * 20)) break found;
     }
     it.held = false;
     it.yaw = Math.random() * 7;
@@ -287,11 +335,9 @@ export class DebrisField {
         }
 
         // Gone by downstream — or left behind, you having gone on, or washed
-        // up — it comes round again upstream of where you are now.
-        const rx = it.x - h.x, rz = it.z - h.z;
-        const along = rx * CURRENT.x + rz * CURRENT.y;
-        if (along > KILL_DIST || along < -SPAWN_DIST - 30 || Math.abs(rx * SIDE.x + rz * SIDE.y) > BAND + 60 ||
-            heightAt(it.x, it.z) > -0.3) this.respawn(it);
+        // up — it comes round again upstream of where you are now. (The
+        // host's pieces: the host puts them back.)
+        if (!this.follow && (heightAt(it.x, it.z) > -0.3 || !this.hubs().some(o => this.inReach(it.x, it.z, o)))) this.respawn(it);
       }
 
       it.yaw += it.spin * dt;

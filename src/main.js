@@ -683,8 +683,8 @@ class Game {
       this.debris.harvest(it);                   // gone here at once; what it gives comes from the host
       return;
     }
-    it.takenAt = this.time;
-    it.takenBy = null;
+    const [x, z] = it.hookedAt || [it.x, it.z];
+    it.took = { x, z, at: this.time, by: this.net.name };
     it.hookedAt = null;
     this.together.world.gathered(it);
     const { label, yield: y } = this.debris.harvest(it);
@@ -2088,14 +2088,14 @@ class Game {
     if (e.k === 'claimgather') {
       if (!this.net.isHost) return true;
       const it = this.debris.items[e.i];
-      const near = it && !it.held && Array.isArray(e.p) && Math.hypot(it.x - e.p[0], it.z - e.p[1]) < 6;
-      if (!near || this.time - (it.takenAt ?? -99) < 2) {
-        const who = near ? it.takenBy ?? this.net.name : null;
-        this.net.event({ k: 'grant', none: true, items: {}, note: `${who || 'Someone else'} got to it first.` }, r.id);
+      const at = (x, z) => Array.isArray(e.p) && Math.hypot(x - e.p[0], z - e.p[1]) < 6;
+      // Taken there a moment ago: the slot floats in somewhere else now, but it was that piece.
+      const gone = it?.took && this.time - it.took.at < 2 && at(it.took.x, it.took.z);
+      if (!it || it.held || gone || !at(it.x, it.z)) {
+        this.net.event({ k: 'grant', none: true, items: {}, note: `${(gone && it.took.by) || 'Someone else'} got to it first.` }, r.id);
         return true;
       }
-      it.takenAt = this.time;
-      it.takenBy = r.name;
+      it.took = { x: e.p[0], z: e.p[1], at: this.time, by: r.name };
       this.together.world.gathered(it);
       const { label, yield: y } = this.debris.harvest(it);
       this.net.event({ k: 'grant', items: y, note: `${label}: ${Object.entries(y).map(([id, n]) => `${n} ${ITEMS[id].name}`).join(', ')}` }, r.id);

@@ -31,6 +31,7 @@ import { DAY_SECONDS } from './sky.js';
 const EVERY = 1 / 3;           // the host tells the others how things stand this often…
 const SAME_SEA = 30;           // m: a fish taken this near the one in its slot here is that one
 const SLOW = 3;                // …and where the flotsam and the fish schools are, every this many
+const NOBODY = [];
 
 export const WORLD_EVENTS = ['world', 'gather', 'fish', 'spear', 'sk', 'spearBack', 'bite', 'kill', 'spears', 'paddle',
                              'statue', 'unstatue', 'plant', 'chop', 'flint', 'felled'];
@@ -67,6 +68,7 @@ export class SharedWorld {
     for (const s of this.thrown.values()) this.ghosts.drop(s);
     this.thrown.clear();
     g.fish.others.length = 0;
+    g.debris.others = NOBODY;
     g.wildlife.others.length = 0;
   }
 
@@ -108,7 +110,7 @@ export class SharedWorld {
   follow(on) {
     const g = this.game;
     this.following = on;
-    if (!on) this.nearHost = false;
+    if (!on) this.nearHost = g.debris.follow = false;
     g.wildlife.follow = on;
     g.fish.follow = on;
   }
@@ -165,7 +167,7 @@ export class SharedWorld {
       // apart, each of you has your own flotsam, fish and whale.
       const host = this.net.remotes.get(this.net.host);
       const near = !!host && Math.hypot(host.pose.pos.x - g.player.pos.x, host.pose.pos.z - g.player.pos.z) < 160;
-      g.fish.follow = near;
+      g.fish.follow = g.debris.follow = near;
       this.nearHost = near;
       if (near) {
         if (e.w) g.whale.adopt(e.w);
@@ -277,6 +279,7 @@ export class SharedWorld {
     }
     eyes.length = n;
     g.fish.others = eyes;
+    g.debris.others = net.isHost ? eyes : NOBODY;      // (a guest's pieces, near the host, are the host's)
     if (g.reef) g.reef.others = eyes;
     g.wildlife.others = net.isHost ? others : [];
 

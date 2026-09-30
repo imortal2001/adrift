@@ -241,7 +241,7 @@ pause screen starts over.
 | `src/together.js` | Playing together on one raft, the host's: your own put by while you are away from it, each change sent as it happens, and the host's copy settling anything contested. |
 | `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
-| `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current. |
+| `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current — past each of you, playing together, and round an island up the current. |
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
 | `src/whale.js` | One humpback, ambient: cruises, surfaces to blow, sounds flukes-up. Not catchable. |
@@ -1259,13 +1259,25 @@ bite on a guest is sent to that guest — as is the warning that one has
 turned on them, so a guest is told to run just as the host would be. The host
 has the trees only round itself, though, so round a guest far from it the
 guest's own copy of each animal is kept out of the trunks and rocks there —
-it used to walk through one a tenth of the time. The flotsam, the whale and the
-schools go on moving everywhere and are eased back onto the host's — kept
-round everyone in the host's sea, not round the host alone (a guest a hundred
+it used to walk through one a tenth of the time. The whale and the schools
+go on moving everywhere and are eased back onto the host's — kept round
+everyone in the host's sea, not round the host alone (a guest a hundred
 metres off, still taking the host's schools, used to swim in empty water;
 a school put back goes to whichever of you has the fewest near, and when one
 moves, its fish come in from just out of sight rather than appearing in front
-of you); each school's fish are every machine's own, swimming round it and shying from
+of you). Schools are put back only when they stray out of everyone's range,
+and round whoever has the raft they never do, so every few seconds the host
+also moves one from whoever has the most round them to whoever has the
+fewest — one no one can see, every fish of it 50 m from all of you — and only
+a kind that has somewhere to live there (a reef school sent to someone out
+over the deep used to sit stranded, gone from the host's reef too). The
+flotsam comes down the current past each of you in the host's sea the same
+way, and a guest's copy of it there takes the host's word for where every
+piece is: it used to recycle them round the guest, so pieces popped in and
+out as the host's word put them back, and one hooked there was refused as
+taken. With land up the current (an island), a piece comes out in its lee
+rather than sitting on the island — it used to be put back there every
+frame, and none came by. Each school's fish are every machine's own, swimming round it and shying from
 whoever is nearest — and from how fast each of you comes at them, the others
 too, so a guest stalking a shoal is not given away by the host's schools
 running from them at the full distance — and a fish someone catches is gone
