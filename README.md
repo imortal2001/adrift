@@ -545,7 +545,11 @@ wet forested plain.
 Detail falls off with distance: ground cover and ferns within ~100 m (fading out
 rather than stopping), full trees within ~100 m and a cheap build of each out
 to ~220 m, the far canopy beyond; landmarks — crags and spires — to the edge
-of the chunks. Foliage sways in the wind in the vertex shader. Trunks, stumps
+of the chunks. Foliage sways in the vertex shader in the wind that fills
+the sail (`setFloraWind()`): every tree leans downwind — the whole tree, a
+bend that grows up the trunk — as gust fronts cross the island, harder the
+stronger the wind, with the leaves fluttering on top in step with their
+branches. Trunks, stumps
 and rocks are solid; you walk round them. Anything with a harvest can be
 taken, and stays gone — through a rebuild or a reload of its chunk, and
 through a reload of the game (it is saved) — until it grows back.
@@ -598,6 +602,17 @@ The sea bed comes out of the same `heightAt(x, z)` as the land — there is one
 surface, and the waterline is just where it crosses zero. Out from the beach it
 shelves to a sand floor at about 18m, ridged noise piles coral heads up to 8m
 off that, and past the shelf edge it drops into a basin at 42m.
+
+**The waves die on the shore.** The sea knows how deep it is: `setSeabed()`
+hands the ocean the same `heightAt`, and a 900 m depth texture that follows
+the player lets the shader read it. Over a shelving bottom the swell calms —
+full height in 4 m of water and more, a fifth of it at the waterline, none
+over land — so the surface flattens as it comes up the beach instead of
+rolling on through the sand. The water turns from deep blue to turquoise over
+the shallows, with the sand showing through, the glare and the whitecaps
+going as it shoals, and where it meets the beach there is only a thin wash
+line of broken foam, lapping. `waveHeight()` is calmed the same way, so a
+barrel in the shallows rides the swell you see there.
 
 The depths are set against the **air supply**, not against a reference photo.
 You have about 18 seconds and you descend at 2.4 m/s, so coral tops at ~10m are
@@ -1418,7 +1433,9 @@ Something fleeing a hunter will wade out into a river or lake to a third of
 its own height — a sauropod out of a tyrannosaur's reach — and comes back to
 the shallows when the danger is past. Nothing follows you into the sea, which
 makes the water a genuine escape.
-A kill falls where it was made and lies there for half a minute, the hunter
+A kill falls where it was made — brought down onto its belly, level with the
+ground it lies on, down a slope as the slope goes, resting on the ground
+rather than propped on a jaw or sunk into it — and lies there for half a minute, the hunter
 feeding at it, before the carcass is gone; fed, it lies up a few minutes
 before it hunts again.
 
@@ -1432,7 +1449,9 @@ where it was placed, the others following a leader. Every few minutes each
 animal walks down to the water to drink — to the nearest bank or shore it can
 get to on its own side (nothing wades a river past its knees, so it does not
 pick the far bank), straight there without stopping to graze, and it drinks
-with its head at the water's edge. If it cannot get there in time enough for
+with its head at the water's edge: it turns to face the water, stops short by
+about a quarter of its length, and a grazer too short in the neck to reach
+leans down into it from the shoulders. If it cannot get there in time enough for
 the distance, it gives up for a while and tries again. Nothing picks
 somewhere to wander on the far side of a river either, and an animal fleeing
 and cornered against the water bolts along the bank rather than freezing.
@@ -1441,7 +1460,7 @@ and cornered against the water bolts along the bank rather than freezing.
 |---|---|
 | Tyrannosaur | wherever its prey is — its bones turn up as often in floodplain beds as in river channels (Lyson & Longrich 2011) — so the river margins, forest edges and open plain; alone, or a pair |
 | Raptor | dromaeosaurs come from dune margins, deltas and forested plains alike: the forest edge, drier araucaria woodland, the edges of the fern plains; the one that goes up onto broken ground; loose mobs, not packs (Roach & Brinkman 2007) |
-| Parasaur | hadrosaurs keep to the coasts and river channels — 15:1 in channel sands (Lyson & Longrich; Butler & Barrett 2008): the river banks and lakes, the wet forest by them, the coastal lowland; herds of eight |
+| Parasaur | hadrosaurs keep to the coasts and river channels — 15:1 in channel sands (Lyson & Longrich; Butler & Barrett 2008): the river banks and lakes, the wet forest by them, the coastal lowland and the backs of the beaches; herds of eight |
 | Stegosaur | the Morrison's seasonally green floodplain: open fern plain and river flats near water, the forest edges; a low feeder in small groups (the one stegosaur herd trackway, Cobos et al. 2024); it stands its ground, tail to a hunter |
 | Sauropod | high browsers of the conifers, ranging far from the rivers and back (Engelmann et al. 2004): the araucaria woods and their edges, the river corridors and lakeshores, the gentle hills; herds of five (the Purgatoire trackways) |
 
@@ -1485,6 +1504,14 @@ The rest is in `wildlife.js`:
   stands.
 - **It stands on the ground as a body does**: pitched to the slope between its
   fore and hind feet, rolled a little across it, at their average height.
+- **Its feet stay where they are put** (`plantFeet()` in `models.js`). A foot
+  the clip has on the ground is held there — its spot on the ground, at the
+  ground's height beneath it — for as long as the clip keeps it down, the leg
+  bent to reach it by a two-bone IK solve (knee kept to the side the clip
+  bends it), and let go smoothly as it lifts. Uneven ground no longer shows a
+  foot hanging in the air or pushed into a slope, and a turning or slowing
+  animal does not slide its planted feet. Only near you: past 70 m the clip
+  plays as it is.
 - **It stops**: grazers to feed, everything now and then to stand and look.
 
 **As the animals were, not as the films have them.** The five models share

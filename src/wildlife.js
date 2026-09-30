@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { heightAt, isLand, coastDistance, freshWaterAt, landAt, slopeAt, moistureAt, forestAt, TREELINE } from './terrain.js';
 import { caveAt } from './caves.js';
-import { ModelLibrary, playState, driveGait } from './models.js';
+import { ModelLibrary, playState, driveGait, plantFeet } from './models.js';
 import { MOTION, prepareDino, poseDino } from './dinopose.js';
 
 const TAU = Math.PI * 2;
@@ -104,8 +104,10 @@ const HABITAT = {
   tyrannosaur: s => 0.3 + near(s.edge, 90) * 1.3 + s.edgeForest * 0.8 + s.open * 0.5 + s.beach * 0.3 - s.closed * 0.6,
   raptor:      s => 0.3 + s.edgeForest * 1.0 + s.dryForest * 0.8 + s.open * (1 - s.wet) * 0.5 + near(s.edge, 40) * 0.4 +
                     s.mesa * 0.3 - s.beach * 0.5,
-  parasaur:    s => 0.1 + near(s.edge, 25) * 1.6 + s.wetForest * 0.9 + s.beach * 0.5 + s.open * near(s.edge, 80) * 0.4 -
-                    s.upland * 0.8,
+  // (The coastal lowland only where a river or a lake is near it: a herd
+  // lives within reach of fresh water, not a trek of half a kilometre.)
+  parasaur:    s => 0.1 + near(s.edge, 25) * 1.6 + s.wetForest * 0.9 + s.beach * near(s.edge, 150) * 0.5 +
+                    s.open * near(s.edge, 80) * 0.4 - s.upland * 0.8,
   stegosaur:   s => 0.2 + s.open * 0.8 + near(s.edge, 90) * 1.5 + s.edgeForest * 0.6 + s.beach * 0.3 - s.closed * 0.8 -
                     s.upland * 0.6,
   sauropod:    s => 0.2 + s.dryForest * 1.1 + s.edgeForest * 0.8 + near(s.edge, 80) * 0.7 + s.open * 0.4 +
@@ -491,17 +493,40 @@ export class Wildlife {
   }
 
   /** Somewhere to drink from: a river bank or a lake shore, the nearest it can walk to, up to half a kilometre off. */
+  /** How near the water it stands to drink: its mouth reaches that far ahead of it, head down. */
+  drinkReach(a) { return THREE.MathUtils.clamp((a.len || 3) * 0.26, 0.8, 3.5); }
+
   waterNear(a) {
+    const reach = this.drinkReach(a);
     for (let d = 15; d <= 480; d += d < 240 ? 15 : 30) {
       const off = Math.random() * TAU;
       for (let k = 0; k < 16; k++) {
-        const ang = off + (k / 16) * TAU;
-        const x = a.pos.x + Math.cos(ang) * d, z = a.pos.z + Math.sin(ang) * d;
+        const ang = off + (k / 16) * TAU, cx = Math.cos(ang), cz = Math.sin(ang);
+        const x = a.pos.x + cx * d, z = a.pos.z + cz * d;
         const L = landAt(x, z);
-        if (L.edge > 0.5 && L.edge < 3 && this.footing(x, z) && this.walkable(a.pos.x, a.pos.z, x, z)) return { x, z };
+        // (The band to stand in is narrow: a look near water walks back
+        // along the line toward the animal to find it.)
+        if (L.edge > 12) continue;
+        for (let back = 0; back <= 14; back += 0.5) {
+          const bx = x - cx * back, bz = z - cz * back, e = landAt(bx, bz).edge;
+          if (e > reach) break;
+          if (e > 0.3 && this.footing(bx, bz) && this.walkable(a.pos.x, a.pos.z, bx, bz)) return { x: bx, z: bz };
+        }
       }
     }
     return null;
+  }
+
+  /** The way to the nearest water from where it stands, if any is close: to face it and drink. */
+  waterWay(a) {
+    let best = null, bestD = Infinity;
+    for (let k = 0; k < 16; k++) {
+      const ang = (k / 16) * TAU, sx = Math.sin(ang), sz = Math.cos(ang);
+      for (let r = 0.5; r <= 6; r += 0.5) {
+        if (freshWaterAt(a.pos.x + sx * r, a.pos.z + sz * r)) { if (r < bestD) { bestD = r; best = ang; } break; }
+      }
+    }
+    return best;
   }
 
   /** Can it get from one spot to the other in a straight line without wading anything deep — not across the river to the far bank? */
@@ -621,12 +646,13 @@ export class Wildlife {
     if (a.drinkAt) {
       // There, or at the water's edge anywhere on the way: that will do.
       const edge = landAt(a.pos.x, a.pos.z).edge;
-      if ((edge > -0.5 && edge < 3.5) || Math.hypot(a.pos.x - a.drinkAt.x, a.pos.z - a.drinkAt.z) < 1.5) {
+      if ((edge > -0.5 && edge < this.drinkReach(a)) || Math.hypot(a.pos.x - a.drinkAt.x, a.pos.z - a.drinkAt.z) < 1.5) {
         a.drinkAt = null;
         a.drinkFor = 0;
         a.thirst = rnd(180, 420);
         a.state = 'graze';
         a.drinking = true;             // head down to the water (dinopose.js), even a sauropod's
+        a.faceTo = this.waterWay(a);   // turned to the water first, not drinking from the sand
         a.timer = rnd(8, 14);
         a.drinkUntil = this.clock + a.timer;   // (its own clock: a hunter's timer is its prey-scan's too)
         a.target.set(a.pos.x, 0, a.pos.z);
@@ -743,6 +769,7 @@ export class Wildlife {
           a.corpse = 0;
           a.sink = 0;
           a.settled = false;
+          a.lay = a.layWas = undefined; a.laid = false;
           a.settleAt = 0;
           a.roll = a.pitch = a.yawVel = a.speed = 0;
           a.rig.group.visible = true;
@@ -786,6 +813,7 @@ export class Wildlife {
         a.dead = false;
         a.corpse = a.sink = 0;
         a.settled = false;
+        a.lay = a.layWas = undefined; a.laid = false;
         a.settleAt = 0;
         a.roll = a.pitch = a.yawVel = 0;
         a.rig.group.visible = true;
@@ -839,7 +867,7 @@ export class Wildlife {
       if (a.state === 'wander' && (a.drinkLook = (a.drinkLook || 0) - dt) <= 0) {
         a.drinkLook = 1;
         const e = landAt(a.pos.x, a.pos.z).edge;
-        if (e > -0.5 && e < 3.5) this.roam(a);
+        if (e > -0.5 && e < this.drinkReach(a)) this.roam(a);
       }
     }
     if (a.drinking && a.state !== 'graze') a.drinking = false;
@@ -1016,6 +1044,10 @@ export class Wildlife {
       // Pivot on the spot, the tail toward the threat (facing away from it).
       want = Math.atan2(a.pos.x - a.threat.pos.x, a.pos.z - a.threat.pos.z);
       goal = Math.abs(wrap(want - a.heading)) > 0.5 ? sp.walk * 0.35 : 0;
+    } else if (a.state === 'graze' && a.drinking && a.faceTo != null) {
+      // Turning about where it stands to face the water, head going down.
+      want = a.faceTo;
+      if (Math.abs(wrap(want - a.heading)) > 0.2) a.stall = Math.max(a.stall || 0, 0.5);
     } else if (a.state === 'feed' && a.feedAt) {
       const dx = a.feedAt.x - a.pos.x, dz = a.feedAt.z - a.pos.z, d = Math.hypot(dx, dz);
       want = Math.atan2(dx, dz);
@@ -1147,6 +1179,20 @@ export class Wildlife {
       if (a.dead) {
         playState(rig, 'death', 0.2);
         if (rig.mixer) rig.mixer.update(dt);
+        // The clip folds the legs and curls the body round, but leaves it
+        // pitched onto its nose with the tail up in the air — balanced on its
+        // head. A body comes down on its belly: brought level, head and tail
+        // tip alike — level with the ground it lies on, down a slope as the
+        // slope goes — and settled (below) till it lies on the ground.
+        const death = rig.actions.death;
+        if (!death || death.time > death.getClip().duration * 0.35) {
+          const line = this.bodyLine(a);
+          if (line) {
+            const lay = THREE.MathUtils.clamp(Math.atan2(line.y, line.z), -0.9, 0.9);
+            a.lay = (a.lay ?? 0) + (lay - (a.lay ?? 0)) * Math.min(1, dt * 1.8);
+          } else a.lay ??= 0;
+          rig.group.rotation.set((a.lay ?? 0) - a.pitch, a.heading, a.roll, 'YXZ');
+        }
         this.settle(a);
         return;
       }
@@ -1158,6 +1204,9 @@ export class Wildlife {
       });
       // What the clips get wrong about the animal, put right (dinopose.js).
       poseDino(a, dt, time);
+      // And the feet that are down, held on the ground — near enough to see.
+      if (dist < 70) plantFeet(rig, dt, heightAt);
+      else rig.locks?.clear();
       return;
     }
     if (a.dead) return;
@@ -1188,22 +1237,71 @@ export class Wildlife {
   settle(a) {
     const rig = a.rig;
     const death = rig.actions.death;
-    const falling = death && death.time < death.getClip().duration;
+    // (Still going down while the clip plays, and while it rolls over.)
+    const falling = (death && death.time < death.getClip().duration) || !a.laid;
+    // (Laid: brought level — lay no longer moving.)
+    a.laid = a.lay !== undefined && Math.abs(a.lay - (a.layWas ?? 99)) < 0.002;
+    a.layWas = a.lay;
     a.settleAt = (a.settleAt ?? 0) - 1;
     // The skinned body itself, as posed — bones alone would leave the torso
-    // floating, since its skin hangs well below the spine. A few looks while
-    // it falls, and one when it has come to rest; then the drop is fixed.
+    // floating, since its skin hangs well below the spine. Every few frames
+    // while it falls, and once when it has come to rest; then the drop is
+    // fixed — resting on the ground, neither in it nor above it.
     if ((falling && a.settleAt <= 0) || (!falling && !a.settled)) {
-      a.settleAt = 12;
+      a.settleAt = 6;
       if (!falling) a.settled = true;
       rig.group.position.y = a.y + liftOf(a);
       rig.group.updateMatrixWorld(true);
-      const box = this._box || (this._box = new THREE.Box3());
-      box.setFromObject(rig.root, true);
-      const ground = heightAt(a.pos.x, a.pos.z);
-      a.sink = Math.max(a.sink || 0, box.min.y - ground);
+      // Its lowest point over the ground beneath that point, not beneath the
+      // animal's middle: on a slope the downhill end is the lower, and the
+      // uphill side would go into the hill.
+      const v = this._tv ||= new THREE.Vector3();
+      let drop = Infinity;
+      rig.root.traverse(o => {
+        if (!o.isSkinnedMesh || !o.visible) return;
+        const n = o.geometry.attributes.position.count, step = Math.max(1, Math.floor(n / 400));
+        for (let i = 0; i < n; i += step) {
+          o.getVertexPosition(i, v);
+          o.localToWorld(v);
+          drop = Math.min(drop, v.y - heightAt(v.x, v.z));
+        }
+      });
+      if (drop === Infinity) {
+        const box = this._box || (this._box = new THREE.Box3());
+        box.setFromObject(rig.root, true);
+        drop = box.min.y - heightAt(a.pos.x, a.pos.z);
+      }
+      // Down onto its belly, not propped on its lowest point — a jaw, a knee:
+      // the torso as low as its own thickness allows, a head or a limb let
+      // into the ground a little if that is what it takes — only a little:
+      // a tenth of its width, past which the carcass reads as half buried.
+      a.torso ??= Object.values(rig.gait?.bones || {}).filter(b => /^bip_(pelvis|spine)/i.test(b.name));
+      if (a.torso.length) {
+        const r = a.width * 0.42;
+        let spine = Infinity;
+        for (const b of a.torso) { b.getWorldPosition(v); spine = Math.min(spine, v.y - heightAt(v.x, v.z)); }
+        drop += THREE.MathUtils.clamp(spine - r - drop, 0, a.width * 0.1);
+      }
+      a.sink = falling ? (a.sink || 0) + (drop - (a.sink || 0)) * 0.6 : drop;
     }
     rig.group.position.y = a.y + liftOf(a) - (a.sink || 0);
+  }
+
+  /** Tail tip to head, in the body's own frame (as the clip poses it now): how the body lies. */
+  bodyLine(a) {
+    const b = a.rig.gait?.bones;
+    if (!b) return null;
+    const all = Object.values(b);
+    a.lineBones ??= [all.filter(x => /^bip_tail/i.test(x.name)).pop(), all.find(x => /^bip_head/i.test(x.name))];
+    const [pelvis, head] = a.lineBones;
+    if (!pelvis || !head) return null;
+    const g = a.rig.group, M = this._line ||= new THREE.Matrix4();
+    // (Without the turn the body is given as it lies — only the clip's pose.)
+    g.updateMatrixWorld(true);
+    M.copy(g.matrixWorld).invert();
+    const p = pelvis.getWorldPosition(this._lp ||= new THREE.Vector3()).applyMatrix4(M);
+    const h = head.getWorldPosition(this._lh ||= new THREE.Vector3()).applyMatrix4(M);
+    return h.sub(p);
   }
 
   /** Called by the game each frame so hunters can chase the player. */

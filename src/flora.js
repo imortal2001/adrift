@@ -735,8 +735,18 @@ export function barkTextures(kind = 'furrowed') {
 }
 
 // ── wind ─────────────────────────────────────────────────────────────────────
-export const WIND = { uTime: { value: 0 }, uGust: { value: 1 } };
+export const WIND = { uTime: { value: 0 }, uGust: { value: 1 }, uDir: { value: new THREE.Vector2(0.8, 0.6) } };
 export function setFloraTime(t) { WIND.uTime.value = t; }
+
+/**
+ * The wind the plants bend to: which way it blows (world x, z — the one the
+ * sail takes, raft.js windAt()) and how hard (0..1).
+ */
+export function setFloraWind(x, z, strength) {
+  const l = Math.hypot(x, z) || 1;
+  WIND.uDir.value.set(x / l, z / l);
+  WIND.uGust.value = 0.55 + 0.6 * strength;
+}
 
 /**
  * Sway: the higher up a plant and the further out along a frond, the more it
@@ -747,36 +757,53 @@ export function setFloraTime(t) { WIND.uTime.value = t; }
  * 2021), a shrub or a fern much quicker — and how much its leaves flutter:
  * broad leaves and fern pinnae a lot, a cycad's rigid leaflets, an
  * araucaria's scales and a horsetail's silica-stiff stems hardly at all.
+ *
+ * It is the world's wind (setFloraWind): every plant leans away from it and
+ * swings about that lean — further with it than across it — whichever way
+ * the plant happens to be turned, and gusts run through a stand downwind.
+ * The bend (`amount`) is the same for bark and foliage, so a frond stays on
+ * its stalk and a crown on its branches; only the leaves' flutter is their own.
  */
-function addWind(material, { amount = 1, flutter = 1, fade = 0 } = {}) {
+function addWind(material, { amount = 0.5, flutter = 1, fade = 0 } = {}) {
   const prev = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
     if (prev) prev(shader, renderer);
     shader.uniforms.uWindTime = WIND.uTime;
     shader.uniforms.uGust = WIND.uGust;
+    shader.uniforms.uWindDir = WIND.uDir;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         attribute float aSway;
         attribute vec2 aWind;
         uniform float uWindTime;
-        uniform float uGust;`)
+        uniform float uGust;
+        uniform vec2 uWindDir;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         {
           vec4 root = vec4(0.0, 0.0, 0.0, 1.0);
+          mat3 toWorld = mat3(modelMatrix);
           #ifdef USE_INSTANCING
             root = instanceMatrix * root;
+            toWorld = toWorld * mat3(instanceMatrix);
           #endif
           root = modelMatrix * root;
+          // The wind's way in the plant's own frame (it is turned, and may lean).
+          vec3 down = normalize(transpose(toWorld) * vec3(uWindDir.x, 0.0, uWindDir.y));
+          vec3 side = normalize(vec3(-down.z, 0.0, down.x));
           float ph = root.x * 0.043 + root.z * 0.037;
           float t = uWindTime;
-          float w = aSway * ${amount.toFixed(3)} * uGust;
+          // A gust, passing through the stand the way the wind blows.
+          float front = sin(dot(root.xz, uWindDir) * 0.021 - t * 0.55);
+          float gust = uGust * (1.0 + 0.45 * smoothstep(0.2, 1.0, front));
           // A geometry built without the attribute reads (0, 0): as it always was.
           float fq = aWind.x > 0.0 ? aWind.x : 1.0, fl = aWind.x > 0.0 ? aWind.y : 1.0;
           float slow = sin(t * 0.9 * fq + ph) * 0.6 + sin(t * 1.7 * fq + ph * 1.9) * 0.3;
+          float across = sin(t * 1.25 * fq + ph * 1.3) * 0.3;
           float quick = sin(t * 5.3 * max(1.0, fq * 0.6) + ph * 4.0 + position.y * 1.7 + position.x) * ${(0.12 * flutter).toFixed(3)} * fl;
-          transformed.x += w * (slow + quick);
-          transformed.z += w * (slow * 0.6 + quick * 0.8) * 0.7;
-          transformed.y -= w * abs(slow) * 0.12;
+          float bend = aSway * ${amount.toFixed(3)} * gust;
+          float lean = 0.45 * gust + slow * 0.6;
+          transformed += down * bend * lean + side * bend * across + (down * 0.8 + side * 0.6) * aSway * quick * gust;
+          transformed.y -= bend * abs(lean) * 0.12;
           ${fade ? `
           // Grass fades into the ground with distance rather than stopping
           // at a line: shrink each clump to nothing over the last stretch.
@@ -806,7 +833,7 @@ export function floraMaterials() {
     return addWind(new THREE.MeshStandardMaterial({
       map: b.map, normalMap: b.normalMap, normalScale: new THREE.Vector2(1.4, 1.4),
       vertexColors: true, roughness: kind === 'smooth' ? 0.8 : 0.93, metalness: 0,
-    }), { amount: 0.35, flutter: 0 });
+    }), { flutter: 0 });
   };
   const bark = {};
   for (const kind of ['furrowed', 'scaly', 'rings', 'fibre', 'armour', 'smooth']) bark[kind] = barkOf(kind);
@@ -814,11 +841,11 @@ export function floraMaterials() {
   const leafMat = addWind(new THREE.MeshStandardMaterial({
     map: leafAtlas(), vertexColors: true, roughness: 0.92, metalness: 0,
     side: THREE.DoubleSide, alphaTest: 0.5, alphaToCoverage: true,
-  }), { amount: 1, flutter: 1 });
+  }), { flutter: 1 });
   const grassMat = addWind(new THREE.MeshStandardMaterial({
     map: leafAtlas(), vertexColors: true, roughness: 0.9, metalness: 0,
     side: THREE.DoubleSide, alphaTest: 0.5, alphaToCoverage: true,
-  }), { amount: 1, flutter: 1.6, fade: 95 });
+  }), { flutter: 1.6, fade: 95 });
   const rockMat = applyGroundDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94, metalness: 0 }), { rock: 0.6, bump: 1.4 });
   mats = { tree: [barkMat, leafMat], grass: [barkMat, grassMat], rock: rockMat, bark, leaf: leafMat, grassLeaf: grassMat };
   return mats;
@@ -1695,7 +1722,8 @@ function palm(lod, seed) {
     const end = top.clone().addScaledVector(dir, stalkLen);
     b.tube([top, top.clone().addScaledVector(dir, stalkLen * 0.5), end], {
       sides: 3, k: 0, radius: f => lerp(0.05, 0.025, f), color: () => new THREE.Color(dead ? 0x7d6a4a : 0x7a7a42),
-      sway: f => 0.3 + f * 0.4,
+      // (On from the trunk's top, as the fan goes on from the stalk: they move as one.)
+      sway: f => 0.4 + f * 0.3,
     });
     // The fan: its base at the stalk's end, spreading on along it and across.
     const side = V3(-Math.sin(yaw), 0, Math.cos(yaw));
@@ -1703,7 +1731,7 @@ function palm(lod, seed) {
     // (The costa arches the blade down along its length.)
     b.strip([end, end.clone().addScaledVector(on, 0.6), end.clone().addScaledVector(on, 1.15).add(V3(0, -0.28, 0))], side, 1.4,
       CELL.palmfan, { color: () => col(tint, r, 0.1), normals: () => UP.clone().addScaledVector(dir, 0.4).normalize(),
-                      sway: t => 0.5 + t * 0.5 });
+                      sway: t => 0.7 + t * 0.3 });
   };
   for (let i = 0; i < leaves; i++) frond(i * 2.399 + r() * 0.3, lerp(-0.1, 0.9, r()), 0x6f9048, false);
   // The dead skirt.

@@ -2,9 +2,10 @@
 // Ocean raft survival prototype. Gather → craft → build → upgrade the raft.
 
 import * as THREE from 'three';
-import { Ocean, waveHeight } from './ocean.js';
+import { Ocean, waveHeight, setSeabed } from './ocean.js';
 import { Sky, DAY_SECONDS } from './sky.js';
-import { Rafts } from './raft.js';
+import { Rafts, windAt } from './raft.js';
+import { setFloraWind } from './flora.js';
 import { DebrisField, CURRENT } from './debris.js';
 import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
@@ -138,6 +139,8 @@ class Game {
     this.eye = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 3200);
 
     this.ocean = new Ocean(this.scene);
+    // The sea knows the ground under it: calm in the shallows, still over the land.
+    setSeabed(landHeight);
     this.sky = new Sky(this.scene, this.ocean);
     // Every raft in the world (raft.js Rafts); `raft` is the one you are on
     // or by, which everything below is pointed at (setRaft).
@@ -2455,6 +2458,9 @@ class Game {
     const eye = this.eye.position;
     const dir = this.player.forward(this.tmpDir);
     // Stream terrain around whoever is looking at it, then run the ecosystem.
+    // The plants bend to the wind the sail takes.
+    const wind = windAt(this.time, this._wind ||= { x: 0, z: 0, strength: 0 });
+    setFloraWind(wind.x, wind.z, wind.strength);
     this.terrain.update(dt, this.player.pos, this.time, this.sky.night);
     this.caves.update(dt, this.player.pos);
     this.wildlife.setPlayerPos(this.player.pos);

@@ -230,8 +230,9 @@ export function poseDino(a, dt, time) {
 
   // ── the sauropod's neck: raised, not upright; lower on the move, higher to feed.
   if (m.neck && b.neck.length > 2 && b.head) {
-    // Browsing, the neck goes up to the crowns; drinking, all the way down to the water.
-    const goal = THREE.MathUtils.lerp(THREE.MathUtils.lerp(m.neck.rest, m.neck.walk, w.walk), drinking ? -10 : m.neck.feed, w.graze);
+    // Browsing, the neck goes up to the crowns; drinking, all the way down to
+    // the water — from shoulders six or seven metres up, a good way below level.
+    const goal = THREE.MathUtils.lerp(THREE.MathUtils.lerp(m.neck.rest, m.neck.walk, w.walk), drinking ? -34 : m.neck.feed, w.graze);
     const now = elevation(b.neck[0], b.head, fwd);
     const delta = (now - goal) * THREE.MathUtils.DEG2RAD;
     // Most of it at the base, the rest along the neck; the head kept near level.
@@ -244,7 +245,8 @@ export function poseDino(a, dt, time) {
   const down = Math.max(w.graze * (m.neck && !drinking ? 0 : 1), w.feed);
   if (down > 0.01 && b.neck.length && b.head) {
     const head = b.head.getWorldPosition(new THREE.Vector3());
-    const reachTo = a.y + (a.rig.size?.y ?? 2) * (m.graze === 'snip' ? 0.12 : 0.18);
+    // (To the plants: a hand or two up. To drink: right down, the mouth at the water.)
+    const reachTo = a.y + (a.rig.size?.y ?? 2) * (drinking ? 0.06 : m.graze === 'snip' ? 0.12 : 0.18);
     const drop = Math.max(0, head.y - reachTo);
     const neckLen = b.neck[0].getWorldPosition(new THREE.Vector3()).distanceTo(head) || 1;
     const bow = Math.min(1.25, Math.asin(Math.min(1, drop / (neckLen * 1.4)))) * down;
@@ -267,6 +269,18 @@ export function poseDino(a, dt, time) {
       if (b.arm[0].upper) turn(b.arm[0].upper, fwd, -flap);
       if (b.arm[1].upper) turn(b.arm[1].upper, fwd, flap);
     }
+  }
+
+  // ── drinking: the mouth has to reach the water. What the neck cannot do,
+  // the body does — tipped forward from the hips (a tyrannosaur's neck is
+  // short, and its head four metres up). The sauropod's neck does it all.
+  if (drinking && !m.neck && b.head && b.spine.length && w.graze > 0.01) {
+    const head = b.head.getWorldPosition(new THREE.Vector3());
+    const from = b.spine[0].getWorldPosition(new THREE.Vector3());
+    const reachTo = a.y + (a.rig.size?.y ?? 2) * 0.06;
+    const arm = head.distanceTo(from) || 1;
+    const extra = Math.min(0.75, Math.asin(THREE.MathUtils.clamp((head.y - reachTo) / arm, 0, 1))) * w.graze;
+    turn(b.spine[0], side, extra);
   }
 
   // ── the jaw: shut at rest; working as it feeds.
