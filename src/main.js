@@ -1300,7 +1300,7 @@ class Game {
     if (!this.inv.remove('wood', 1)) return;
     const was = o.fuel;
     o.fuel = Math.min(FIRE.max, o.fuel + FIRE.perWood);
-    this.together.touched(o);
+    this.together.fed(o);
     this.hud.log(was <= 0 ? 'You lay fresh wood in the ashes. It will need lighting.' : 'You feed the fire.', 'good');
     this.hud.refreshInventory(this.inv);
   }
@@ -1312,7 +1312,7 @@ class Game {
     this.hotbar.refillFish(this.inv);
     this.hang(o, id);
     this.layoutSpit(o);
-    this.together.touched(o);
+    this.together.hung(o, id);
     this.hud.log(`You hang the ${sp.name} over the fire.`, 'good');
     this.hud.refreshInventory(this.inv);
   }

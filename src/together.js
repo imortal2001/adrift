@@ -12,15 +12,17 @@
 //
 // Every change goes to the others as it happens, naming its raft: a piece
 // built (the first of a new raft carries where that raft is), a piece taken
-// away, and the state of a deck object (a collector drunk from, a fire fed,
-// lit, or given a fish to cook, a sail raised). Each copy applies it to its
-// own raft of that name. The host's rafts are the ones that count: shortly
+// away, a fish hung on a fire or a log fed to it (as what was done, so two at
+// once both count), and the state of a deck object (a fire lit, a sail
+// raised — a guest's word only on that much: what is on a spit, in a fire
+// and in a collector is the host's). Each copy applies it to its own raft of
+// that name. The host's rafts are the ones that count: shortly
 // after any change, and now and then regardless, the host sends them whole,
 // and the others bring theirs into line — settling two people building on
 // one spot at once, and fires burning down at slightly different rates.
 
 import { Raft } from './raft.js';
-import { BUILDABLE_BY_ID, salvaged } from './items.js';
+import { BUILDABLE_BY_ID, ITEMS, FIRE, fishOf, salvaged } from './items.js';
 import { SharedWorld, WORLD_EVENTS } from './sharedworld.js';
 
 const SETTLE = 1.5;     // the host sends the rafts this long after a change…
@@ -28,7 +30,7 @@ const EVERY = 20;       // …and this often regardless
 const OWN = 1.2;        // a copy arriving this soon after your own change is already out of date
 
 /** Events that change the world rather than a player: they come here, not to a Remote. */
-const RAFT = new Set(['raft', 'place', 'take', 'obj']);
+const RAFT = new Set(['raft', 'place', 'take', 'obj', 'hang', 'feed']);
 export const WORLD = new Set([...RAFT, ...WORLD_EVENTS]);
 
 const now = () => performance.now() / 1000;
@@ -62,6 +64,10 @@ export class Together {
     this.send({ k: 'take', ri: this.raft.id, at });
   }
   touched(o, r = this.raft) { this.send({ k: 'obj', ri: r.id, o: r.objState(o) }); }
+  // A fish hung on a fire, a log on it: said as what was done, not as how the
+  // fire now stands — two of you at once each add theirs.
+  hung(o, id, r = this.raft) { this.send({ k: 'hang', ri: r.id, cx: o.cx, cz: o.cz, id }); }
+  fed(o, r = this.raft) { this.send({ k: 'feed', ri: r.id, cx: o.cx, cz: o.cz }); }
 
   send(e) {
     if (!this.net.connected) return;
@@ -164,7 +170,23 @@ export class Together {
       }
     } else if (e.k === 'obj' && Array.isArray(e.o)) {
       const r = this.raftFor(e);
-      r?.setObj(r.objs.get(`${e.o[0]},${e.o[1]}`), e.o, spit);
+      r?.setObj(r.objs.get(`${e.o[0]},${e.o[1]}`), e.o, spit, from === this.net.host);
+    } else if (e.k === 'hang' && typeof e.id === 'string') {
+      const r = this.raftFor(e), o = r?.objs.get(`${e.cx},${e.cz}`), g = this.game;
+      if (o?.type !== 'campfire' || !ITEMS[e.id] || !fishOf(e.id)) return;
+      if (o.spitFish.length >= FIRE.spit) {
+        // Full: the last place went to someone a moment ahead. Their fish back.
+        if (this.net.isHost && from !== undefined) {
+          this.net.event({ k: 'grant', items: { [e.id]: 1 }, note: `Someone was quicker to the last place on the spit — your ${ITEMS[e.id].name.toLowerCase()} is back.` }, from);
+        }
+        return;
+      }
+      g.hang(o, e.id);
+      g.layoutSpit(o);
+    } else if (e.k === 'feed') {
+      const o = this.raftFor(e)?.objs.get(`${e.cx},${e.cz}`);
+      if (o?.type !== 'campfire') return;
+      o.fuel = Math.min(FIRE.max, o.fuel + FIRE.perWood);
     } else return;
     if (this.net.isHost && e.k !== 'raft') this.settle = SETTLE;
     this.afterChange();

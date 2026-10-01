@@ -1231,7 +1231,11 @@ Cooked fish, likewise, go to whoever takes them off the fire. But a statue
 someone wakes at cannot be lifted or taken apart from under them
 (`src/together.js`, `src/main.js`).
 
-Each change goes to the others as it happens. The host's raft settles
+Each change goes to the others as it happens — a fish hung on a fire or a
+log fed to it as what was done, so two of you at one fire at once each add
+yours (sent as how the fire then stood, the second undid the first, and a
+fish went with it; the last place on a full spit goes to whoever the host
+hears first, and the other has theirs back). The host's raft settles
 anything contested: shortly after each change, and every twenty seconds
 regardless, the host sends it whole and the others' copies are brought into
 line with it — so fires burning down and collectors filling at slightly

@@ -1114,8 +1114,20 @@ export class Raft {
    * Set a deck object's state from objState(). The fish on a spit are the
    * game's to hang (they are fish.js bodies): `spit(o, [[raw, t], …])`.
    */
-  setObj(o, [, , , water, fuel, lit, fish], spit) {
+  /**
+   * `whole` false — a guest's word on it: only what they can do to it
+   * outright (light it, raise or furl it). What is on the spit, how much
+   * wood is in it and how much water: the host's, which hears every fish
+   * hung and every log fed (together.js) — a guest's copy of those, sent a
+   * moment behind someone else's, undid theirs.
+   */
+  setObj(o, [, , , water, fuel, lit, fish], spit, whole = true) {
     if (!o) return;
+    if (!whole) {
+      if (o.type === 'sail') o.raised = !!lit;
+      if (o.type === 'campfire' && lit && o.fuel > 0) o.lit = true;
+      return;
+    }
     if (o.type === 'collector') { o.water = Math.min(o.capacity, water || 0); this.refreshCollector(o); }
     if (o.type === 'sail') o.raised = !!lit;
     if (o.type === 'campfire') {
