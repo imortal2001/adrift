@@ -68,7 +68,7 @@ export const CELL = {
 // Base greens: dark and cool in the shade-tolerant, lighter in the open.
 const BACKING = {
   needles: '#2d4526', scales: '#33492b', leaves: '#3d5a2c', ivy: '#35522a', fern: '#48692f',
-  cycad: '#39562b', gleichenia: '#557a33', treefern: '#4f7133', vine: '#3a5a2c', reeds: '#5f6e3c',
+  cycad: '#39562b', gleichenia: '#4a692e', treefern: '#4f7133', vine: '#3a5a2c', reeds: '#5f6e3c',
   spikemoss: '#3f5c2b', horsetail: '#4c6a33', flower: '#efe6cf', palmfan: '#4f7036',
 };
 
@@ -281,34 +281,66 @@ const PAINTERS = {
       }
     }
   },
-  // A pinnate frond: a rachis, and pinnae all the way up it, each one lobed.
+  // A pinnate frond: a rachis, and pinnae all the way up it, alternate, each
+  // one narrow, scalloped and tapering, with daylight between them — not a
+  // solid mass, or a carpet of them reads as one sheet.
   fern(ctx, r, c, x, y, w, h, light = 30) {
     const cx = x + w / 2;
+    const rachisAt = t => cx + Math.sin(t * 3.1) * 6;
     ctx.strokeStyle = c('#5b6b33');
     ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.moveTo(cx, y + h);
     ctx.quadraticCurveTo(cx + 10, y + h * 0.5, cx, y + 6);
     ctx.stroke();
-    const n = 30;
-    for (let i = 2; i < n; i++) {
-      const t = i / n;
-      const py = y + h - t * (h - 10);
-      const px = cx + Math.sin(t * 3.1) * 6;
-      const reach = w * 0.46 * Math.sin(Math.PI * Math.min(1, 0.12 + t * 0.95)) * (1 - t * 0.35);
-      for (const side of [-1, 1]) {
-        const ang = side * (1.25 - t * 0.35);
-        const lobes = 7;
-        for (let k = 0; k < lobes; k++) {
-          const kt = k / lobes;
-          const lx = px + Math.sin(ang) * reach * kt, ly = py - Math.cos(ang) * reach * kt;
-          const ll = (reach / lobes) * 2.1 * (1 - kt * 0.5);
-          for (const s2 of [-1, 1]) {
-            leafShape(ctx, lx, ly, ll, ll * 0.42, ang + s2 * 0.9,
-                      c(green(r, 96, 44, light + r() * 12 - kt * 6)), null);
-          }
-        }
+    const n = 22, step = (h - 10) / n;
+    for (let i = 1; i < n * 2 - 1; i++) {
+      const side = i % 2 ? 1 : -1;
+      const t = 0.04 + (i / (n * 2)) * 0.94;
+      const py = y + h - t * (h - 10), px = rachisAt(t);
+      const reach = w * 0.47 * Math.sin(Math.PI * Math.min(1, 0.12 + t * 0.95)) * (1 - t * 0.35);
+      if (reach < 6) continue;
+      const hw = Math.min(step * 0.3, reach * 0.16);
+      const ang = side * (1.18 - t * 0.3), bend = -side * 0.22;
+      // Along the pinna, curving up toward the frond's tip as it goes.
+      const along = u => {
+        const a = ang + bend * u;
+        return [Math.sin(a), -Math.cos(a)];
+      };
+      const pts = [];
+      let ax = px, ay = py;
+      const m = 14, lobes = 7 + Math.floor(r() * 3);
+      const mid = [[ax, ay]];
+      for (let k = 1; k <= m; k++) {
+        const [dx, dy] = along(k / m);
+        ax += dx * reach / m; ay += dy * reach / m;
+        mid.push([ax, ay]);
       }
+      for (const s of [1, -1]) {
+        const half = [];
+        for (let k = 0; k <= m * 2; k++) {
+          const u = k / (m * 2), f = u * m, j = Math.min(m - 1, Math.floor(f)), e = f - j;
+          const ox = mid[j][0] + (mid[j + 1][0] - mid[j][0]) * e, oy = mid[j][1] + (mid[j + 1][1] - mid[j][1]) * e;
+          const [dx, dy] = along(u);
+          const scallop = 1 - 0.4 * Math.abs(Math.sin(u * lobes * Math.PI));
+          const wd = hw * (1 - u) ** 0.75 * scallop * (s > 0 ? 1 : 0.92);
+          half.push([ox - dy * wd * s, oy + dx * wd * s]);
+        }
+        pts.push(...(s > 0 ? half : half.reverse()));
+      }
+      ctx.fillStyle = c(green(r, 102, 40, light - 2 + r() * 6 - t * 4));
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (const q of pts) ctx.lineTo(q[0], q[1]);
+      ctx.closePath();
+      ctx.fill();
+      // The midrib, a shade darker.
+      ctx.strokeStyle = c(green(r, 96, 38, light - 10));
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(mid[0][0], mid[0][1]);
+      for (const q of mid.slice(1, -2)) ctx.lineTo(q[0], q[1]);
+      ctx.stroke();
     }
   },
   treefern(ctx, r, c, x, y, w, h) { PAINTERS.fern(ctx, r, c, x, y, w, h, 34); },
@@ -344,27 +376,51 @@ const PAINTERS = {
   // A Gleichenia frond: its stalk forking and forking again, a comb of
   // narrow leaflets down every last branch — the fern thickets' leaf.
   gleichenia(ctx, r, c, x, y, w, h) {
+    // The pinnules: narrow, straight-sided, blunt, set close but each one
+    // apart from the next — a comb, not a row of overlapping leaves, which
+    // a floor of them reads as solid bands of colour.
+    const pinnule = (px, py, len, wid, a, fill) => {
+      const dx = Math.sin(a), dy = -Math.cos(a), nx = -dy, ny = dx;
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.moveTo(px + nx * wid, py + ny * wid);
+      ctx.lineTo(px + dx * len * 0.85 + nx * wid * 0.8, py + dy * len * 0.85 + ny * wid * 0.8);
+      ctx.quadraticCurveTo(px + dx * len, py + dy * len, px + dx * len * 0.85 - nx * wid * 0.8, py + dy * len * 0.85 - ny * wid * 0.8);
+      ctx.lineTo(px - nx * wid, py - ny * wid);
+      ctx.closePath();
+      ctx.fill();
+    };
     const pinnae = (x0, y0, x1, y1, a, size) => {
-      const n = 16;
+      const n = Math.max(6, Math.floor(Math.hypot(x1 - x0, y1 - y0) / 6.5));
       for (let k = 1; k <= n; k++) {
-        const f = k / n, px = x0 + (x1 - x0) * f, py = y0 + (y1 - y0) * f, s = size * (1 - f * 0.4);
-        for (const side of [-1, 1]) leafShape(ctx, px, py, s, s * 0.34, a + side * 1.15, c(green(r, 92, 46, 28 + r() * 14)), null);
+        const f = k / n, px = x0 + (x1 - x0) * f, py = y0 + (y1 - y0) * f, s = size * (1 - f * 0.45);
+        for (const side of [-1, 1]) pinnule(px, py, s, 2.6, a + side * 1.3, c(green(r, 100, 38, 25 + r() * 9)));
       }
     };
-    const comb = (x0, y0, a, len, depth) => {
+    const comb = (x0, y0, a, len, depth, next = len * 0.78) => {
       const x1 = x0 + Math.sin(a) * len, y1 = y0 - Math.cos(a) * len;
       ctx.strokeStyle = c('#4a5a2c');
       ctx.lineWidth = Math.max(2, 6 - depth * 1.3);
       ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
       // Leaflets down every branch but the bare stalk, long and close-set:
       // the card must read as a mass of frond at a distance, not a twig.
-      if (depth >= 1) pinnae(x0, y0, x1, y1, a, 78 - depth * 12);
+      if (depth >= 1) pinnae(x0, y0, x1, y1, a, 50 - depth * 6);
       if (depth < 4) {
-        comb(x1, y1, a - 0.62 - r() * 0.2, len * 0.78, depth + 1);
-        comb(x1, y1, a + 0.62 + r() * 0.2, len * 0.78, depth + 1);
+        comb(x1, y1, a - 0.56 - r() * 0.18, next, depth + 1);
+        comb(x1, y1, a + 0.56 + r() * 0.18, next, depth + 1);
       }
     };
-    comb(x + w / 2, y + h * 0.99, 0, h * 0.16, 0);
+    // Drawn round, the frond filled only the cell's lower half — the outer
+    // half of every leaf of the thicket empty, and the thicket thin — and the
+    // leaf, half as long as the cell is tall for its width, squashed it. So
+    // it is drawn stretched up the cell, to fill it and come out true.
+    ctx.save();
+    ctx.translate(0, y + h);
+    ctx.scale(1, 1.9);
+    ctx.translate(0, -(y + h));
+    // (A short bare stalk, the leaf's inner end: then the forks.)
+    comb(x + w / 2, y + h * 0.995, 0, h * 0.07, 0, h * 0.16 * 0.78);
+    ctx.restore();
   },
   // Spike-moss (Selaginella): flat, much-branched sprays of tiny scale
   // leaves, lying over each other in a mat.

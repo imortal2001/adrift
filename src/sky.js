@@ -4,6 +4,16 @@
 
 import * as THREE from 'three';
 
+/**
+ * The light thrown back up off a sunlit deck, as irradiance: what lights the
+ * underside of a roof and the shaded side of a wall on the raft (raft.js adds
+ * it, by how far a face looks down). The sky's own light from below is the
+ * sea's and the land's, far dimmer; under a roof, what is below is planking
+ * in the sun. (Set as the sun moves; the gallery keeps this midday-ish one.)
+ */
+export const DECK_BOUNCE = { value: new THREE.Color(0.3, 0.25, 0.18) };
+const DECK_TINT = new THREE.Color(0.95, 0.78, 0.55);   // sun-bleached planking
+
 const vert = /* glsl */`
 varying vec3 vDir;
 void main(){
@@ -89,6 +99,7 @@ export class Sky {
   constructor(scene, ocean) {
     this.scene = scene;
     this.ocean = ocean;
+    this._sky = new THREE.Color();
 
     this.uniforms = {
       uTop:       { value: new THREE.Color(0x2f7fb5) },
@@ -119,7 +130,10 @@ export class Sky {
     this.sun.shadow.normalBias = 0.035;
     scene.add(this.sun, this.sun.target);
 
-    this.hemi = new THREE.HemisphereLight(0xbfd9e8, 0x0d3b4a, 0.7);
+    // From below, the light thrown back up off the sunlit deck, sand and sea —
+    // a few percent of the sun's. (It was a deep sea-teal, next to nothing in
+    // linear light: the underside of a roof, in the shade, came out black.)
+    this.hemi = new THREE.HemisphereLight(0xbfd9e8, 0x6a6e5e, 0.7);
     scene.add(this.hemi);
 
     this.moon = new THREE.DirectionalLight(0x9fc2e8, 0.16);
@@ -181,7 +195,9 @@ export class Sky {
     o.uSunColor.value.copy(p.sun);
     o.uSunDir.value.copy(this.sunDir);
     o.uNight.value = p.night;
-    o.uDeep.value.setHex(0x05222f).multiplyScalar(0.35 + 0.65 * (1 - p.night));
+    // (A deep ocean blue: at 0x05222f the water under the raft, looked down into
+    // with little of the sky in it, came out black.)
+    o.uDeep.value.setHex(0x0b3a55).multiplyScalar(0.35 + 0.65 * (1 - p.night));
     o.uShallow.value.setHex(0x1d7d91).multiplyScalar(0.28 + 0.72 * (1 - p.night));
     o.uFog.value.copy(p.hor);
     this.scene.fog.color.copy(p.hor);
@@ -197,6 +213,10 @@ export class Sky {
 
     this.hemi.intensity = p.amb;
     this.hemi.color.copy(p.hor);
+    // Planks reflect about a quarter of the light: the sun on them (half the
+    // deck round a roof lies in its shadow) and the sky's.
+    DECK_BOUNCE.value.copy(p.sun).multiplyScalar(this.sun.intensity * above * 0.15)
+      .add(this._sky.copy(p.hor).multiplyScalar(p.amb * 0.22)).multiply(DECK_TINT);
     this.scene.fog.density = 0.00115 + 0.0016 * p.night;
   }
 }

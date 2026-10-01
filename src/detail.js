@@ -108,7 +108,12 @@ export function applyGroundDetail(material, { strength = 1, bump = 1, rock = 0 }
           float fade = 1.0 - smoothstep(40.0, 110.0, length(vDetailPos - cameraPosition));
           float v = mix(1.0, 0.72 + grit * 0.56, fade) * (0.84 + blot * 0.32) * (1.0 - cracks * 0.55);
           diffuseColor.rgb *= mix(1.0, v, ${strength.toFixed(2)});
-          gDetailH = (grit * fade * 0.6 + blot * 0.4 - cracks * 0.8);
+          // The grit's noise has a lattice only a centimetre or two across:
+          // at arm's length its squares showed in the relief, a wall of
+          // blocks. Close to, its colour stays and its relief goes (about
+          // its mean, so the fade itself puts no ring round you).
+          float gritRelief = fade * smoothstep(0.5, 2.0, length(vDetailPos - cameraPosition));
+          gDetailH = ((grit - 0.5) * gritRelief * 0.6 + blot * 0.4 - cracks * 0.8);
         }`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {

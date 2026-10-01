@@ -185,11 +185,14 @@ function seabedAt(x, z, out) {
   const reef = reefMask(x, z, out);
   if (reef > 0.001) {
     const ridge = 1 - Math.abs(fbm(x * 0.019, z * 0.019, 4) * 2 - 1);
-    h += reef * Math.pow(ridge, 2.4) * REEF_HEIGHT;
+    h += reef * Math.pow(ridge, 2.4) * REEF_HEIGHT * smooth(0, 8, out);
   }
 
   h += smooth(4, 44, out) * (fbm(x * 0.012, z * 0.012, 3) - 0.5) * 3.2;  // sand dunes
-  h += (fbm(x * 0.13, z * 0.13, 2) - 0.5) * 0.5;                         // ripples
+  // (Both fade in off the beach: at the water's edge the sea bed is the sand
+  // the beach ran down into, not half a metre under it — the shore was a
+  // little ledge where the ripples and a coral head came up to it.)
+  h += (fbm(x * 0.13, z * 0.13, 2) - 0.5) * 0.5 * smooth(0, 4, out);      // ripples
   return h;
 }
 
@@ -471,8 +474,21 @@ function carveRivers(x, z, h, m, out) {
     const wall = 26 + Math.min(Math.max(0, h - W), 300) * 1.05;
     if (d > half + plainW + wall) continue;
     let floor;
-    if (d < half) floor = W - at.depth * at.open * (1 - (d / half) ** 2);
-    else floor = W + lift * smooth(half, half + 1.5 + lift * 1.5, d) + 0.15 + smooth(half, half + 4, d) * 0.55 + smooth(half + 4, half + plainW, d) * 0.5;
+    // And the river itself comes down to the sea's level over its last few
+    // metres, as its water does (riverGeometry): its valley floor with it.
+    const Wf = W + (Math.min(W, -0.3) - W) * smooth(8, 2, m);
+    // (Its channel shallowing out onto the sea bed at the mouth, too: cut to
+    // full depth to the shore, it ended in a step a metre down into the sea.)
+    if (d < half) floor = Wf - at.depth * at.open * smooth(0, 12, m) * (1 - (d / half) ** 2);
+    else {
+      // The flood plain stands a metre and more over the water — but not at
+      // the sea: there it runs out onto the beach, down to the water's edge.
+      // (Kept up to the shore, the valley ended in a ledge along the coast,
+      // a metre or so straight down into the sea, where castaways come to.)
+      const coast = smooth(0, 24, m);
+      floor = Wf + coast * (lift * smooth(half, half + 1.5 + lift * 1.5, d) + 0.15 +
+                           smooth(half, half + 4, d) * 0.55 + smooth(half + 4, half + plainW, d) * 0.5);
+    }
     // Above the spring the valley closes up into the hillside.
     const k = smooth(half + plainW, half + plainW + wall, d);
     const blend = 1 - (1 - k) * smooth(rv.r0 - 150, rv.r0, r);
@@ -2092,9 +2108,16 @@ export class Terrain {
     // stump's far edge (the side it falls to), its end a face of wood.
     const cut = p.sp.cut ? this.cutOf(p) : null;
     const hinge = new THREE.Vector3(p.x, p.y, p.z);
+    // A clump of canes (a horsetail's, cut hollow) has no one stump to hinge
+    // on: each cane goes over from its own. Turned as one body about a hinge,
+    // the canes behind it rose half a metre off their stubble as they went.
+    // So it leans by shearing instead — every point at the same distance from
+    // the foot of its cane straight under it, swung over — about the cut.
+    const shear = p.sp.cut === 'hollow';
     let plane0 = null, plane = null, end = null, m;
     if (cut) {
-      hinge.set(0, cut.hl, 0).applyMatrix4(p.matrix).addScaledVector(dir, cut.rw * 0.9);
+      hinge.set(0, cut.hl, 0).applyMatrix4(p.matrix);
+      if (!shear) hinge.addScaledVector(dir, cut.rw * 0.9);
       plane0 = new THREE.Plane(new THREE.Vector3(0, 1, 0), -cut.hl).applyMatrix4(p.matrix);
       plane = plane0.clone();
       m = this.clippedCopy(p, plane);
@@ -2118,7 +2141,7 @@ export class Terrain {
       }
     }
     this.falling = this.falling || [];
-    const f = { m, p, t: 0, H, stop, fall: 1.3 + H / 40, dir: dir.clone(), hinge, plane0, plane, end,
+    const f = { m, p, t: 0, H, stop, fall: 1.3 + H / 40, dir: dir.clone(), hinge, plane0, plane, end, shear,
                 axis: new THREE.Vector3(dir.z, 0, -dir.x).normalize(), onLand, landed: false };
     this.falling.push(f);
     return f;
@@ -2159,7 +2182,14 @@ export class Terrain {
         }
       }
       const sink = Math.max(0, f.t - f.fall - 4) * 1.3;
-      R.makeRotationAxis(f.axis, angle);
+      if (f.shear) {
+        // Over along dir by sin, down by cos, of each point's height above the cut.
+        const sn = Math.sin(angle), cs = Math.cos(angle);
+        R.set(1, f.dir.x * sn, 0, 0,
+              0, cs, 0, 0,
+              0, f.dir.z * sn, 1, 0,
+              0, 0, 0, 1);
+      } else R.makeRotationAxis(f.axis, angle);
       // The motion (turned about the hinge, and later sinking), then the tree.
       const move = this._fallMove ||= new THREE.Matrix4(), h = f.hinge;
       move.makeTranslation(h.x, h.y - sink, h.z).multiply(R).multiply(T.makeTranslation(-h.x, -h.y, -h.z));

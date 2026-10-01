@@ -644,6 +644,29 @@ export class Wildlife {
     a.tall = size.y || 2;
   }
 
+  /**
+   * Keep a body (you) out of the animals: each one's trunk a capsule along
+   * its heading — the middle half of it, the neck and the tail being thinner
+   * than that and swinging. One walking into you shoves you aside; you cannot
+   * walk into one. (Nothing kept either out: a sauropod's legs went through
+   * you, and you could stand inside a tyrannosaur.)
+   */
+  keepOff(pos, radius = 0.36) {
+    for (const a of this.all) {
+      if (a.dead || !a.rig.group.visible) continue;
+      const dx = pos.x - a.pos.x, dz = pos.z - a.pos.z, reach = (a.len || 3) * 0.5 + radius;
+      if (dx * dx + dz * dz > reach * reach || pos.y > a.pos.y + (a.tall || 2) * 0.9) continue;
+      const fx = Math.sin(a.heading), fz = Math.cos(a.heading);
+      const half = Math.max(0, (a.len || 3) * 0.25 - a.radius * 0.5);
+      const t = THREE.MathUtils.clamp(dx * fx + dz * fz, -half, half);
+      const ox = pos.x - (a.pos.x + fx * t), oz = pos.z - (a.pos.z + fz * t);
+      const d = Math.hypot(ox, oz), min = a.radius + radius;
+      if (d >= min) continue;
+      if (d > 1e-4) { pos.x += ox * (min - d) / d; pos.z += oz * (min - d) / d; }
+      else { pos.x -= fz * min; pos.z += fx * min; }      // dead centre: out to its side
+    }
+  }
+
   /** Somewhere an animal can stand: land, not too steep, not up in the range. */
   footing(x, z, wade = 0.5) {
     if (coastDistance(x, z) < 8) return false;

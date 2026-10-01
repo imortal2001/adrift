@@ -228,7 +228,7 @@ pause screen starts over.
 
 | File | Responsibility |
 |---|---|
-| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. |
+| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an ocean blue, not the near-black it was under the raft. |
 | `src/sky.js` | Sun, sky dome, stars and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
@@ -241,7 +241,7 @@ pause screen starts over.
 | `src/together.js` | Playing together on one raft, the host's: your own put by while you are away from it, each change sent as it happens, and the host's copy settling anything contested. |
 | `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
-| `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current — past each of you, playing together, and round an island up the current. |
+| `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current — past each of you, playing together, and round an island up the current. A move of more than 10 m in a frame (a new start, a waking) scatters it afresh round you. A palm frond is a rib with leaflets off both sides, lying on the water. |
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
 | `src/whale.js` | One humpback, passing by: a few minutes' company, then gone a while; cruises, surfaces to blow, sounds flukes-up. Not catchable. |
@@ -335,6 +335,11 @@ nothing lines up in rows:
   under the sea, rather than ending in a square slab on top of the waves; and
   a lake's water stops at its shore where the river leaves it over a cascade,
   instead of hanging out over the drop.
+  The land and the sea floor meet at the waterline without a ledge: by a
+  mouth the banks no longer hold the river's level out into the sea, and the
+  bed's reef and ripples come in only past the first few metres of water —
+  the worst step from shore to sea floor round the whole coast was 1.8 m, and
+  is about half a metre now (a few centimetres along most of it).
   They are sized as rivers are: a channel widens downstream as the land it
   drains, to the ~0.4 power of the area (Leopold & Maddock 1953; Hack's law
   for the area), so from ~3 m at the spring to 11–12 m at the mouth — about
@@ -394,7 +399,11 @@ nothing lines up in rows:
     roof heaped against the walls: a cave in sandstone widens by its roof
     coming down, and grows no stalactites — those are limestone's. Round the
     dogleg it is black: the daylight — sun, moon and sky — falls away with how
-    far in you are, and only a **torch** lights it. Low on the
+    far in you are, and only a **torch** lights it. (Its light falls off
+    gentler than the inverse square — `TORCH_LIGHT` and `TORCH_DECAY` in
+    `main.js` — so the wall beside you is plain and the tunnel ahead dim for a
+    dozen metres, rather than the ground at your feet burnt white and the
+    trees three steps off black, as it was at night in the forest.) Low on the
     walls, deep in, is **flint** (**E** chips it out; it comes back in a
     while) — and one face of it a few metres in from the mouth, still in the
     daylight, so that someone who came without a torch can make a fire
@@ -446,7 +455,10 @@ leaf litter and moss under the canopy, mud and pebbles on the river banks,
 sandstone on the escarpments, cobbles under the sea cliffs, moss on the misty
 tops with rock and scree where they are steep — and `detail.js`
 adds grain, blotches and relief in world space on top, triplanar on the
-steep faces.
+steep faces. The grain's noise is only a centimetre or two across, so at arm's
+length — a cave wall at your shoulder — its squares showed in the relief:
+close to, it keeps its colour and gives up its relief, and the rock reads by
+its blotches and cracks.
 
 ### The forest
 
@@ -456,7 +468,13 @@ branches — not geometry but **painted cards**, cut-outs from one leaf atlas
 painted at load time (needle sprays, araucaria ropes shingled in pointed
 scales, glossy leathery broad leaves with their midribs, fern and cycad
 fronds, forked Gleichenia fronds, spike-moss, cattails, magnolia flowers —
-cream cups round a cone of carpels —, palm fans, vine strands). Bark is
+cream cups round a cone of carpels —, palm fans, vine strands). A frond is
+painted with daylight between its leaflets — a fern's pinnae narrow,
+scalloped and apart, a Gleichenia's a fine comb down every fork — for a floor
+carpeted in fronds painted as solid masses of overlapping leaves read as one
+sheet, banded in crescents. (The Gleichenia frond is painted stretched up its
+cell: drawn round, it filled only the lower half, and every leaf of a
+thicket was half empty.) Bark is
 painted too, one kind per kind of trunk, each a relief for the light and the
 normal map: the redwood's deep fibrous furrows, the araucaria's grey flaking
 plates ringed by old branch scars, the palm's leaf-scar rings, the tree
@@ -595,7 +613,10 @@ The face is the trunk's own cross-section at the cut, buttresses and flutes
 and all: the heartwood (a redwood's cherry red, an araucaria's pale
 yellow-brown, a dawn redwood's red-brown), a narrow band of paler sapwood,
 the bark round it, growth rings closer together toward the outside, a few
-checks out from the pith. A horsetail stand leaves a stubble of hollow stems.
+checks out from the pith. A horsetail stand leaves a stubble of hollow stems,
+and its canes go over each from its own: the clump leans by a shear about
+the cut, not turned as one body about a hinge — which lifted the canes behind
+the hinge half a metre off their stubble as they fell.
 A log or a stump is chopped up where it lies, in a burst of chips. Leave one
 half-chopped a minute and you start again.
 
@@ -627,6 +648,16 @@ the shallows, with the sand showing through, the glare and the whitecaps
 going as it shoals, and where it meets the beach there is only a thin wash
 line of broken foam, lapping. `waveHeight()` is calmed the same way, so a
 barrel in the shallows rides the swell you see there.
+
+The water's edge is drawn from that map, too, not left to where the flat sea
+cuts the land: the sheet gives out where it is 5 cm deep over the bed (`EDGE`
+in `ocean.js`), as the swell has it, so the line is smooth and runs a little
+up and down the sand as the waves come and go. Left to the depth test, it was
+wherever the sea cut the ground's metre triangles — and the land's bumps, a
+couple of centimetres off the straight across each, are tens of centimetres
+of beach at a shallow slope: a sawtooth. For that the map is fine and exact:
+1.5 m cells, heights in metres as half floats (at 3 m and 256 steps it was up
+to 15 cm off the ground at the waterline; now within about 3 cm).
 
 The depths are set against the **air supply**, not against a reference photo.
 You have about 18 seconds and you descend at 2.4 m/s, so coral tops at ~10m are
@@ -1561,6 +1592,11 @@ entry on that table, and often not the most convenient one. Herbivores watch
 for predators and bolt. A kill removes an animal and the population tops itself
 back up a minute or so later, so the island does not empty out.
 
+They are solid, too (`Wildlife.keepOff()`): each one's trunk is a capsule
+along its heading, the middle half of its length, as wide as it is. You go
+round one, and one walking into you shoves you aside — before, a sauropod's
+legs went through you and you could stand inside a tyrannosaur.
+
 A raptor takes on nothing its own size or more — not a sauropod, and not a
 stegosaur's spiked tail — though a mob of them will run down a parasaur; a
 tyrannosaur goes for a grown sauropod only if it is right there, taking what
@@ -1719,6 +1755,12 @@ jitters.
 Walls and railings canonicalise to a shared boundary, so a wall between two
 cells exists once. Salvaging a foundation flood-fills to refuse any cut that
 would split the raft in two.
+
+**Lit from the deck.** What is under a roof is planking in the sun, so the raft's
+pieces are lit from below by it as well (`DECK_BOUNCE` in `sky.js`, about a
+quarter of the sun and sky on the deck): a face looking down gets all of it,
+a wall half. The sky's own light from below is the sea's and the land's — and
+was a deep teal next to nothing, so the underside of a roof came out black.
 
 ## Tuning
 

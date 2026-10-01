@@ -66,7 +66,8 @@ function isLocalDev() {
 }
 
 const TORCH_EMBERS = 45;   // seconds a torch put away keeps smouldering, ready to flare again
-const TORCH_LIGHT = 24;    // a lit torch's brightness: the cave wall beside you plain, the far end of the tunnel dim
+const TORCH_LIGHT = 6;     // a lit torch's brightness: the cave wall beside you plain, the far end of the tunnel dim
+const TORCH_DECAY = 1.2;   // …falling off gentler than the inverse square, or the ground at your feet burns white and the trees a few steps off stay black
 
 // ── milestones ───────────────────────────────────────────────────────────────
 // Light guidance instead of a tutorial: one thing to do next, always on screen
@@ -162,7 +163,7 @@ class Game {
     this.plantTakers = new Map();   // hosting: who took each plant, to tell whoever was too slow
     this.takenBy = new Map();       // …and each flint face and statue ('flint:key', 'statue:id')
     this.torchLights = [0, 1, 2].map(() => {
-      const l = new THREE.PointLight(0xffa35a, 0, 26, 2);
+      const l = new THREE.PointLight(0xffa35a, 0, 26, TORCH_DECAY);
       this.scene.add(l);
       return l;
     });
@@ -2619,6 +2620,8 @@ class Game {
     if ((this.lookIn = (this.lookIn ?? 0) - dt) <= 0) { this.lookIn = 0.5; this.lookForStatues(); this.markMine(); }
     this.updateFires(dt);
     this.player.update(dt, this.time, input, panelOpen);
+    // The dinosaurs are solid: you go round one, and one coming through shoves you aside.
+    if (this.player.onLand || this.player.state === 'swim') this.wildlife.keepOff(this.player.pos);
     if (!panelOpen && input.pressed('KeyV')) this.cycleView();
     this.view.update(dt, this.time);
     this.ocean.update(this.time, this.camera.position);

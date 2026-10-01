@@ -4,6 +4,7 @@
 // without ever growing the scene graph.
 
 import * as THREE from 'three';
+import { mergeGeometries } from '../vendor/jsm/utils/BufferGeometryUtils.js';
 import { heightAt } from './terrain.js';
 import { waveHeight, waveNormal } from './ocean.js';
 import { textures } from './textures.js';
@@ -68,13 +69,42 @@ function shapes() {
       }
       return g;
     },
+    // A torn-off palm frond: a rib curving a little along its length, and the
+    // leaflets off both sides of it, long at the base and short at the tip,
+    // lying on the water. (It was two flat green rectangles, one stood up out
+    // of the sea like a sail — its underside, turned from the light, black.)
     palm() {
       const g = new THREE.Group();
-      const q = new THREE.PlaneGeometry(1.9, 0.62);
-      for (let i = 0; i < 2; i++) {
-        g.add(put(q, M.palm, 0, 0.03 + i * 0.03, (i - 0.5) * 0.28,
-                  -Math.PI / 2 + 0.1, (i ? 0.3 : -0.25), 0));
+      const L = 1.9, N = 15, parts = [];
+      const rib = new THREE.CylinderGeometry(0.018, 0.035, L, 5);
+      rib.rotateZ(Math.PI / 2);
+      parts.push(rib);
+      for (let i = 0; i < N; i++) {
+        const t = (i + 0.5) / N, x = -L / 2 + t * L * 0.96;
+        const len = 0.62 * (1 - t * 0.7), w = 0.11 * (1 - t * 0.4);
+        for (const side of [-1, 1]) {
+          const leaf = new THREE.PlaneGeometry(len, w, 3, 1);
+          // Narrowing to its tip, and laid flat, angled forward off the rib.
+          const p = leaf.attributes.position;
+          for (let k = 0; k < p.count; k++) {
+            const u = (p.getX(k) + len / 2) / len;
+            p.setY(k, p.getY(k) * (1 - u * 0.8));
+            p.setZ(k, -0.02 * u * u);                    // the tip dips a touch
+          }
+          leaf.translate(len / 2, 0, 0);
+          leaf.rotateX(-Math.PI / 2);
+          leaf.rotateY(side * (0.95 + ((i * 7) % 5) * 0.05));
+          leaf.translate(x, 0.004 * i, 0);
+          parts.push(leaf);
+        }
       }
+      // (mergeGeometries wants every part indexed alike: none.)
+      const geo = mergeGeometries(parts.map(q => (q.index ? q.toNonIndexed() : q)), false);
+      geo.computeVertexNormals();
+      const frond = put(geo, M.palm, 0, 0.02, 0);
+      // The rib's curve: the whole frond bowed gently.
+      frond.rotation.set(0, 0, 0.04);
+      g.add(frond);
       return g;
     },
     barrel() {
@@ -308,8 +338,12 @@ export class DebrisField {
     const R = this.raftRadius();
     const n = new THREE.Vector3();
     const h = this.hub;
-    // The centre moved further than drifting could take it: start afresh round it.
-    if (!this.lastHub || Math.hypot(h.x - this.lastHub.x, h.z - this.lastHub.z) > 40) this.scatter();
+    // The centre moved further than drifting could take it: start afresh round
+    // it. (Ten metres in a frame is no swim or sail: a new start, a waking. At
+    // forty, the 36 m from where the game loads to a new castaway's wreckage
+    // left the flotsam drifting past 25 m to one side, out of reach for the
+    // first two minutes of every game.)
+    if (!this.lastHub || Math.hypot(h.x - this.lastHub.x, h.z - this.lastHub.z) > 10) this.scatter();
     this.lastHub.x = h.x; this.lastHub.z = h.z;
     const rx0 = this.raft.x ?? this.raft.group.position.x, rz0 = this.raft.z ?? this.raft.group.position.z;
 

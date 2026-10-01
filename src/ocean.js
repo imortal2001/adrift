@@ -25,13 +25,19 @@ export const WAVE_AMPLITUDE = WAVES.reduce((s, w) => s + w.amp, 0);
 // The swell is the open sea's. Coming in over a shelving beach it loses its
 // height, and over the land itself there is none — or the crests would rise
 // up through low sand. So the sea knows the ground under it: a map of the bed
-// round the camera (SHORE_N cells of SHORE_CELL m, one per vertex of the
+// round the camera (SHORE_N cells of SHORE_CELL m, two to each cell of the
 // sheet, wrapping as the camera moves so only the new edge is ever sampled),
 // and the swell is calmed by how deep the water is. The GPU and the CPU read
 // the same map, so what floats rides the sea you see.
-const SEA = 900, SHORE_N = 300, SHORE_CELL = SEA / SHORE_N;
-const BED_LO = -8, BED_SPAN = 12;             // stored: the bed from 8 m down to 4 m up, in 256 steps
-const shoreData = new Uint8Array(SHORE_N * SHORE_N);    // (0: 8 m down or more — the open sea)
+// The water's edge is drawn from it, too (see the shader), so it is fine and
+// exact: 1.5 m cells, and the height in metres as a half float. (At 3 m and
+// 256 steps it was up to 15 cm off the ground at the waterline, and the edge
+// was left to where the water plane cut the land's triangles — a sawtooth.)
+const SEA = 900, SHORE_N = 600, SHORE_CELL = SEA / SHORE_N;
+const BED_LO = -8, BED_HI = 4;                // the bed stored from 8 m down (or more — the open sea) to 4 m up
+const EDGE = 0.05;                            // m of water where the sea's edge is drawn (see the shader)
+const shoreData = new Float32Array(SHORE_N * SHORE_N).fill(BED_LO);  // the bed, metres: for the CPU (open sea till sampled)
+const shoreHalf = new Uint16Array(SHORE_N * SHORE_N).fill(THREE.DataUtils.toHalfFloat(BED_LO));   // …and as half floats, for the GPU
 let seabed = null;
 
 /**
@@ -46,7 +52,7 @@ const shore = { ci: null, cj: null, dirty: true };
 /** The bed height stored for a cell (wrapping, as the texture does). */
 function bedCell(i, j) {
   const a = ((i % SHORE_N) + SHORE_N) % SHORE_N, b = ((j % SHORE_N) + SHORE_N) % SHORE_N;
-  return shoreData[b * SHORE_N + a] / 255 * BED_SPAN + BED_LO;
+  return shoreData[b * SHORE_N + a];
 }
 
 /** How much of the open sea's swell there is here: 1 offshore, less in the shallows, none over land. */
@@ -117,7 +123,7 @@ vec3 waveNormal(vec2 p, float t){
 const SHORE_GLSL = /* glsl */`
 uniform sampler2D uShore;
 float seaDepth(vec2 p){
-  float bed = texture2D(uShore, (p / ${SHORE_CELL.toFixed(4)} + 0.5) / ${SHORE_N.toFixed(1)}).r * ${BED_SPAN.toFixed(1)} + ${BED_LO.toFixed(1)};
+  float bed = texture2D(uShore, (p / ${SHORE_CELL.toFixed(4)} + 0.5) / ${SHORE_N.toFixed(1)}).r;
   return -bed;
 }
 float calm(float depth){
@@ -152,6 +158,16 @@ ${SHORE_GLSL}
 void main(){
   // (Per fragment, not the vertex's: the beach line is finer than the mesh.)
   float depth = seaDepth(vWorld.xz);
+  // The water's edge: where it is no longer EDGE deep — over the bed as the
+  // map has it, smooth and exact, and moving in and out with the swell. Left
+  // to the depth test, the edge was wherever the sheet cut the ground's metre
+  // triangles, and the land's bumps, a couple of centimetres off the straight
+  // across each, are tens of centimetres of beach at a shallow slope: teeth.
+  // (The land must come up through the water a little short of where the
+  // sheet gives out, or the line is the triangles' again: EDGE is the map's
+  // worst error at the waterline, and a hair more.)
+  float water = depth + vHeight;
+  if (water < ${EDGE.toFixed(3)}) discard;
   float k = calm(depth);
   vec3 N = waveNormal(vWorld.xz, uTime);
   N = normalize(vec3(N.x * k, N.y, N.z * k));
@@ -165,9 +181,12 @@ void main(){
   // ── seen from underneath ──
   // Without this the surface is invisible from below and deep water reads as
   // empty void. Away from vertical the underside mirrors the water; looking
-  // steeply up you see out through Snell's window.
-  if (dot(N, V) < 0.0) {
-    N = -N;
+  // steeply up you see out through Snell's window. Which side you are on is
+  // the sheet's own (it faces up): not the ripple's normal, which on a wave
+  // face turned away from you, seen low across the water, tilts past your
+  // eye — and that face was drawn as the underside, a black hole in the sea.
+  if (!gl_FrontFacing) {
+    if (dot(N, V) < 0.0) N = -N;
     // V runs fragment → camera, so a surface overhead gives V.y < 0: how
     // steeply we are looking up is -V.y.
     float upness = clamp(-V.y, 0.0, 1.0);
@@ -192,6 +211,9 @@ void main(){
     return;
   }
 
+  // From above, a face turned just away from you is still the water's top, at
+  // the grazing angle: the sky in it, as the faces either side have.
+  if (dot(N, V) < 0.02) N = normalize(N + V * (0.02 - dot(N, V)));
   float fres = 0.04 + 0.96 * pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 4.5);
   // (Less of the sky in the shallowest water: you see down into it.)
   fres *= mix(0.3, 1.0, smoothstep(0.0, 2.0, depth));
@@ -223,7 +245,7 @@ void main(){
   float foam = smoothstep(0.80, 0.99, crest) * 0.5 * smoothstep(0.3, 2.5, depth);
   float lap = 0.5 + 0.5 * sin(uTime * 0.8 + dot(vWorld.xz, vec2(0.071, 0.053)) + vHeight * 6.0);
   // (A thin, broken line: the last few centimetres, where the wash runs out.)
-  float edge = (1.0 - smoothstep(0.0, 0.05 + 0.1 * lap, depth)) * smoothstep(-0.12, 0.0, depth);
+  float edge = 1.0 - smoothstep(${EDGE.toFixed(3)}, ${EDGE.toFixed(3)} + 0.05 + 0.1 * lap, water);
   float broken = 0.55 + 0.45 * sin(vWorld.x * 0.83 + uTime * 0.35) * sin(vWorld.z * 1.07 - uTime * 0.27);
   foam = max(foam, edge * broken * (0.3 + 0.35 * lap));
   col = mix(col, vec3(0.86, 0.94, 0.98) * (1.0 - uNight * 0.75), foam);
@@ -233,7 +255,7 @@ void main(){
   gl_FragColor = vec4(col * uShade, 1.0);
 }`;
 
-const shoreTexture = new THREE.DataTexture(shoreData, SHORE_N, SHORE_N, THREE.RedFormat, THREE.UnsignedByteType);
+const shoreTexture = new THREE.DataTexture(shoreHalf, SHORE_N, SHORE_N, THREE.RedFormat, THREE.HalfFloatType);
 shoreTexture.wrapS = shoreTexture.wrapT = THREE.RepeatWrapping;
 shoreTexture.magFilter = shoreTexture.minFilter = THREE.LinearFilter;
 shoreTexture.generateMipmaps = false;
@@ -245,8 +267,9 @@ function sampleShore(i0, i1, j0, j1) {
     const b = ((j % SHORE_N) + SHORE_N) % SHORE_N;
     for (let i = i0; i < i1; i++) {
       const a = ((i % SHORE_N) + SHORE_N) % SHORE_N;
-      const h = seabed(i * SHORE_CELL, j * SHORE_CELL);
-      shoreData[b * SHORE_N + a] = Math.round(Math.min(1, Math.max(0, (h - BED_LO) / BED_SPAN)) * 255);
+      const h = Math.min(BED_HI, Math.max(BED_LO, seabed(i * SHORE_CELL, j * SHORE_CELL)));
+      shoreData[b * SHORE_N + a] = h;
+      shoreHalf[b * SHORE_N + a] = THREE.DataUtils.toHalfFloat(h);
     }
   }
 }
@@ -283,7 +306,7 @@ export class Ocean {
       uSunColor:   { value: new THREE.Color(1, 0.96, 0.86) },
       uSkyTop:     { value: new THREE.Color(0x2f7fb5) },
       uSkyHorizon: { value: new THREE.Color(0xbfd9e8) },
-      uDeep:       { value: new THREE.Color(0x05222f) },
+      uDeep:       { value: new THREE.Color(0x0b3a55) },
       uShallow:    { value: new THREE.Color(0x1d7d91) },
       uFog:        { value: new THREE.Color(0xbfd9e8) },
       // Set by src/underwater.js while the camera is under the surface.

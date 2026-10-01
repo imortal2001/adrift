@@ -19,6 +19,7 @@ import { heightAt } from './terrain.js';
 import { archLegsNear } from './caves.js';
 import { statueBody } from './statue.js';
 import { mergeGeometries } from '../vendor/jsm/utils/BufferGeometryUtils.js';
+import { DECK_BOUNCE } from './sky.js';
 
 export const CELL = 2;
 export const DECK_Y = 0;        // walkable surface, in raft-local space
@@ -71,11 +72,33 @@ function edgeCells(cx, cz, s) {
 const G = {};
 function geo(name, make) { return G[name] || (G[name] = make()); }
 
+/**
+ * Lit from below by the deck as well (DECK_BOUNCE): a face looking straight
+ * down gets all of it, a wall half, the deck none. Without it the underside
+ * of a roof had only the sky's light from below — the sea's, next to nothing
+ * — and came out black.
+ */
+function fromBelow(m) {
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uDeckBounce = DECK_BOUNCE;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uDeckBounce;')
+      .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>
+        {
+          vec3 upView = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+          float below = 0.5 - 0.5 * dot(normal, upView);
+          reflectedLight.indirectDiffuse += uDeckBounce * below * BRDF_Lambert(material.diffuseColor);
+        }`);
+  };
+  m.customProgramCacheKey = () => 'raft-from-below';
+  return m;
+}
+
 let MATS = null;
 function mats() {
   if (MATS) return MATS;
   const t = textures();
-  const std = (map, o = {}) => new THREE.MeshStandardMaterial({ map, roughness: 0.82, metalness: 0.02, ...o });
+  const std = (map, o = {}) => fromBelow(new THREE.MeshStandardMaterial({ map, roughness: 0.82, metalness: 0.02, ...o }));
   MATS = {
     deck:  std(t.deck),
     wall:  std(t.wall),
