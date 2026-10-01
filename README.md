@@ -1172,7 +1172,10 @@ does not push it off, and the line shows the last few things said above it. If
 your connection drops, the game reconnects on its own — you stay on the
 shared raft, in the shared world, and the others see that you lost the
 connection and then that you are back; after 45 seconds of trying, you are
-back on your own raft. Closing the page or pressing **Leave** is leaving, and
+back on your own raft. If the relay itself goes down and comes back, whoever
+is in first is the host, and runs the world from there on as it stood (it
+used to go on following a host that was not there: the fish, the flotsam and
+the dinosaurs stood still for everyone). Closing the page or pressing **Leave** is leaving, and
 the others see you have gone. A game you were in lately has a **Rejoin**
 button on the splash screen.
 

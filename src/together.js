@@ -84,10 +84,18 @@ export class Together {
   // ── coming and going ───────────────────────────────────────────────────────
   /** You are in a game: its world, as the room kept it (main.js). Hosting, it is yours to run. */
   enter(host, stored) {
+    const back = this.game.room === this.net.code;      // back after a drop: the same world, still here
     this.world.enter(host);
     this.game.enterRoom(this.net.code, stored || {}, host);
     // A guest's copy waits for the host's live one.
     this.fresh = !host;
+    // Back to find yourself the host (the relay came back, and you were in
+    // first): the world is yours to run now. Left following, nobody ran the
+    // fish, the flotsam or the dinosaurs — everyone waited on everyone.
+    if (back && host) {
+      this.hosting();
+      queueMicrotask(() => this.net.log('You are the host now.'));     // (after "Back in …")
+    }
   }
 
   /** Hosting: who took a piece apart just now, for anyone a moment behind them. */
