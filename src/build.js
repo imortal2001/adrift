@@ -182,8 +182,12 @@ export class BuildMode {
     return p;
   }
 
-  /** Salvage whatever piece the ray hits. Works in or out of build mode. */
-  salvage(raycaster) {
+  /**
+   * Salvage whatever piece the ray hits. Works in or out of build mode.
+   * `keep` false: it comes off, but what it gives is someone else's to hand
+   * over (a guest's, the host's — main.js).
+   */
+  salvage(raycaster, keep = true) {
     const hits = raycaster.intersectObjects(this.raft.pickables, false);
     if (!hits.length || hits[0].distance > REACH) return null;
     const piece = hits[0].object.userData.piece;
@@ -198,7 +202,7 @@ export class BuildMode {
     if (blocked) return { blocked };
     const refund = this.raft.removePiece(piece);
     if (!refund) return { blocked: 'That piece cannot come out' };
-    this.inv.refund(refund);
+    if (keep) this.inv.refund(refund);
     this.clearGhost();
     return { name: BUILDABLE_BY_ID[piece.id].name, refund, piece };
   }

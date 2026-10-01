@@ -192,6 +192,9 @@ export const BUILDABLE_BY_ID = Object.fromEntries(BUILDABLES.map(b => [b.id, b])
 BUILDABLE_BY_ID.statue = { id: 'statue', name: 'Statue', kind: 'object', cost: { statue: 1 },
                            desc: 'Set up on the deck, it sails with the raft; register at it to wake aboard.' };
 
+/** What taking a piece apart says (yours, or — a guest's — the host, handing over what it gave). */
+export const salvaged = id => (id === 'statue' ? 'You unlash the statue and lift it.' : `Salvaged ${BUILDABLE_BY_ID[id]?.name || 'it'}.`);
+
 /** What each kind of flotsam gives up when gathered. */
 export const DEBRIS_KINDS = {
   log:     { label: 'Driftwood', yield: { wood: 2 },            weight: 30 },

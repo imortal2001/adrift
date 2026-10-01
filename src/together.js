@@ -6,8 +6,8 @@
 // costs your planks, whatever you salvage is yours, whoever built it, and
 // cooked fish go in the bag of whoever takes them off the fire. Two of you at one thing at once (the same spot
 // to build on, the same crate, the same fish on a fire, the last drink in a
-// collector) is the host's to settle: one gets it, and the other is told (or
-// paid back).
+// collector, the same piece to take apart) is the host's to settle: one gets
+// it, and the other is told (or paid back).
 //
 // Every change goes to the others as it happens, naming its raft: a piece
 // built (the first of a new raft carries where that raft is), a piece taken
@@ -19,7 +19,7 @@
 // one spot at once, and fires burning down at slightly different rates.
 
 import { Raft } from './raft.js';
-import { BUILDABLE_BY_ID } from './items.js';
+import { BUILDABLE_BY_ID, salvaged } from './items.js';
 import { SharedWorld, WORLD_EVENTS } from './sharedworld.js';
 
 const SETTLE = 1.5;     // the host sends the rafts this long after a change…
@@ -55,7 +55,11 @@ export class Together {
     this.built.set(r.id, now());
     this.send(e);
   }
-  took(piece) { this.send({ k: 'take', ri: this.raft.id, at: Raft.where(piece) }); }
+  took(piece) {
+    const at = Raft.where(piece);
+    if (this.net.isHost) this.noteTaken(this.raft, at, this.net.name);
+    this.send({ k: 'take', ri: this.raft.id, at });
+  }
   touched(o, r = this.raft) { this.send({ k: 'obj', ri: r.id, o: r.objState(o) }); }
 
   send(e) {
@@ -77,6 +81,13 @@ export class Together {
     this.game.enterRoom(this.net.code, stored || {}, host);
     // A guest's copy waits for the host's live one.
     this.fresh = !host;
+  }
+
+  /** Hosting: who took a piece apart just now, for anyone a moment behind them. */
+  noteTaken(r, at, by) {
+    const taken = this.taken ||= new Map();
+    if (taken.size > 200) taken.clear();
+    taken.set(`${r.id}:${at.join(',')}`, { by, at: now() });
   }
 
   /** Someone arrived: the host hands them the rafts. */
@@ -136,7 +147,20 @@ export class Together {
     } else if (e.k === 'take' && Array.isArray(e.at)) {
       const r = this.raftFor(e);
       const piece = r?.pieceAt(...e.at);
-      if (piece) r.removePiece(piece, true);
+      const got = piece && r.removePiece(piece, true);
+      // Hosting: what came off is whoever took it apart's — the host's copy
+      // says what that was — or, gone already, they are told who was quicker.
+      // (Each paying themselves, two of you at one piece both had it.)
+      if (this.net.isHost && from !== undefined && r) {
+        if (got) {
+          this.noteTaken(r, e.at, this.net.remotes.get(from)?.name);
+          this.net.event({ k: 'grant', items: got, note: salvaged(piece.id) }, from);
+        } else {
+          const t = this.taken?.get(`${r.id}:${e.at.join(',')}`);
+          const who = t && now() - t.at < 5 ? t.by : null;
+          this.net.event({ k: 'grant', none: true, items: {}, note: `${who || 'Someone else'} took it apart first.` }, from);
+        }
+      }
     } else if (e.k === 'obj' && Array.isArray(e.o)) {
       const r = this.raftFor(e);
       r?.setObj(r.objs.get(`${e.o[0]},${e.o[1]}`), e.o, spit);

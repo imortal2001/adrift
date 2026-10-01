@@ -30,7 +30,7 @@ import { Player } from './player.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { BuildMode } from './build.js';
-import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, TORCH, CHOP_TIME, CHOP_HIT, fishItem, fishOf, foodOf, cookedItem, isCooked } from './items.js';
+import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, TORCH, CHOP_TIME, CHOP_HIT, fishItem, fishOf, foodOf, cookedItem, isCooked, salvaged } from './items.js';
 import { Hotbar, SLOTS } from './hotbar.js';
 
 // A tab given a player of its own (sessionStorage 'adrift.pid' — net.js: for
@@ -1385,6 +1385,14 @@ class Game {
     this.settleDrink(this.raft, c, null);
   }
 
+  /** Hosting: what a guest reached for on a deck is not there now — they are told, not left waiting. */
+  notThere(raft, e, r, what) {
+    const t = raft && this.together.taken?.get(`${raft.id}:object,${e.cx},${e.cz}`);
+    const who = t && performance.now() / 1000 - t.at < 5 ? t.by : null;
+    this.net.event({ k: 'grant', none: true, items: {},
+                     note: who ? `${who} took the ${what} apart first.` : `The ${what} is not there any more.` }, r.id);
+  }
+
   /** Hosting, or alone: a drink from a collector for `taker` (a Remote), or null for you — if there is one. */
   settleDrink(raft, c, taker) {
     if (!(c.water >= 1)) {
@@ -2101,6 +2109,7 @@ class Game {
       const raft = this.rafts.byId(e.ri);
       const o = raft?.objs.get(`${e.cx},${e.cz}`);
       if (o?.type === 'collector') this.settleDrink(raft, o, r);
+      else this.notThere(raft, e, r, 'collector');
       return true;
     }
     if (e.k === 'drank') {
@@ -2112,6 +2121,7 @@ class Game {
       const raft = this.rafts.byId(e.ri);
       const o = raft?.objs.get(`${e.cx},${e.cz}`);
       if (o?.type === 'campfire') this.settleCooked(raft, o, r);
+      else this.notThere(raft, e, r, 'fire');
       return true;
     }
     // A guest took a plant: theirs, if nobody had it first — it is gone for
@@ -2623,13 +2633,16 @@ class Game {
         this.hud.refreshInventory(this.inv);
       } else if (input.pressed('KeyX')) {
         this.ray.set(eye, dir);
-        const r = this.build.salvage(this.ray);
+        // A guest's comes off at once, and what it gives comes from the host
+        // (together.js), which knows if someone else had it apart first.
+        const asks = this.net.connected && !this.net.isHost;
+        const r = this.build.salvage(this.ray, !asks);
         if (r?.blocked) this.hud.log(r.blocked, 'bad');
         else if (r) {
           this.together.took(r.piece);
           // A statue comes back to your hands (its "cost" is itself); yours no longer is.
           if (r.refund.statue && this.registered?.raft && !this.myStatue()) { this.registered = null; this.setWake(null); }
-          this.hud.log(r.piece.id === 'statue' ? 'You unlash the statue and lift it.' : `Salvaged ${r.name}.`, 'good');
+          if (!asks) this.hud.log(salvaged(r.piece.id), 'good');
           this.hud.refreshInventory(this.inv);
         }
       }

@@ -1239,8 +1239,10 @@ different rates on each machine never leave you on different rafts. Two of
 you at one thing at once is the host's to settle too: two people building
 on one spot get one piece, and whoever lost is paid back; two hooks on one
 crate, or two hands at one fire, get one crate and one lot of fish — and
-two of you at a collector with one drink left in it, one drink — and
-whoever was slower is told who was quicker. If the host leaves, the next player in takes
+two of you at a collector with one drink left in it, one drink; two taking
+one piece apart, one lot of what it was made of (a guest's comes off at
+once, and what it gives comes from the host's copy) — and whoever was
+slower is told who was quicker. If the host leaves, the next player in takes
 over — everyone is told who — and the raft goes on.
 
 One sea, too. Every machine's waves come from how long it has been running,
