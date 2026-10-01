@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import { mergeParts } from './meshkit.js';
+import { mergeVertices } from '../vendor/jsm/utils/BufferGeometryUtils.js';
 import { applyCaustics } from './underwater.js';
 
 const col = h => new THREE.Color(h);
@@ -34,10 +35,76 @@ const PALETTE = {
   shell:   col(0xcfc3a8), shellB:  col(0x9d9178), mantleA: col(0x2f9fb0), mantleB: col(0x5fd0a0),
 };
 
+// ── surfaces ─────────────────────────────────────────────────────────────────
+// The solid pieces — rock, brain coral, a sponge's barrel — are smooth-shaded
+// lumps with their surfaces worked: welded, displaced along the normal by a
+// little noise, and lit across their curve. Flat-shaded raw polyhedra (a rock
+// was two twelve-faced dodecahedra) showed every face as a facet, a low-poly
+// prop dropped on the smooth, textured sea bed and among textured fish.
+
+const hash3 = (x, y, z) => {
+  const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453;
+  return h - Math.floor(h);
+};
+const fade = t => t * t * (3 - 2 * t);
+/** Value noise, 0..1, smooth in all three directions. */
+function noise3(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const xf = fade(x - xi), yf = fade(y - yi), zf = fade(z - zi);
+  const l = (a, b, t) => a + (b - a) * t;
+  const c = (dx, dy, dz) => hash3(xi + dx, yi + dy, zi + dz);
+  return l(l(l(c(0, 0, 0), c(1, 0, 0), xf), l(c(0, 1, 0), c(1, 1, 0), xf), yf),
+           l(l(c(0, 0, 1), c(1, 0, 1), xf), l(c(0, 1, 1), c(1, 1, 1), xf), yf), zf);
+}
+const fbm3 = (x, y, z) => noise3(x, y, z) * 0.62 + noise3(x * 2.1, y * 2.1, z * 2.1) * 0.27 + noise3(x * 4.3, y * 4.3, z * 4.3) * 0.11;
+
+/**
+ * A primitive made one welded, smooth surface: its seams joined, every vertex
+ * pushed out along its normal by `push(p, n)` (metres), and coloured by
+ * `paint(p, n, out)`. Returns an indexed geometry with position, normal and
+ * colour, ready for mergeColoured().
+ */
+function worked(geo, push, paint) {
+  geo.deleteAttribute('uv');
+  geo.deleteAttribute('normal');
+  const g = mergeVertices(geo);
+  g.computeVertexNormals();
+  const pos = g.attributes.position, nrm = g.attributes.normal;
+  const p = new THREE.Vector3(), n = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    p.fromBufferAttribute(pos, i); n.fromBufferAttribute(nrm, i);
+    p.addScaledVector(n, push(p, n));
+    pos.setXYZ(i, p.x, p.y, p.z);
+  }
+  g.computeVertexNormals();
+  const colour = new Float32Array(pos.count * 3), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    p.fromBufferAttribute(pos, i); n.fromBufferAttribute(g.attributes.normal, i);
+    paint(p, n, c);
+    colour[i * 3] = c.r; colour[i * 3 + 1] = c.g; colour[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colour, 3));
+  return g;
+}
+
+/** mergeParts for worked pieces (their own colour per vertex) and plain ones ({geo, color}) together. */
+function mergeColoured(parts) {
+  const merged = mergeParts(parts.map(q => (q.isBufferGeometry ? { geo: q, color: WHITE } : q)));
+  const col = merged.attributes.color;
+  let at = 0;
+  for (const q of parts) {
+    const g = q.isBufferGeometry ? q : q.geo, n = g.attributes.position.count;
+    if (q.isBufferGeometry) for (let i = 0; i < n; i++) col.setXYZ(at + i, g.attributes.color.getX(i), g.attributes.color.getY(i), g.attributes.color.getZ(i));
+    at += n;
+  }
+  return merged;
+}
+const WHITE = new THREE.Color(1, 1, 1);
+
 // ── species ──────────────────────────────────────────────────────────────────
 
 /** A dome of fused lobes. The workhorse of the reef floor. */
-function brainCoral() {
+function brainCoral(lod = 0) {
   const parts = [];
   const lobes = [
     { r: 1.00, x: 0, z: 0, y: 0.00, c: PALETTE.brainA },
@@ -45,17 +112,28 @@ function brainCoral() {
     { r: 0.54, x: -0.46, z: 0.68, y: -0.16, c: PALETTE.brainA },
     { r: 0.40, x: 0.12, z: -0.78, y: -0.22, c: PALETTE.brainB },
   ];
-  for (const l of lobes) {
-    const g = new THREE.IcosahedronGeometry(l.r, 1);
+  // The meandering ridges of a brain coral: bands along the contours of a
+  // noise field, raised a little off the dome, the valleys between darker.
+  const ridge = (p, k) => {
+    const t = fbm3(p.x * 2.6 + k, p.y * 2.6, p.z * 2.6) * 9;
+    return 1 - Math.abs(2 * (t - Math.floor(t)) - 1);
+  };
+  lobes.forEach((l, k) => {
+    // (Fine enough to carry the ridges: 2000 triangles the main dome, 720 each lobe.)
+    // (Out past the chunk you are in, a lighter one: there the ridges are a texture in the haze.)
+    const g = new THREE.IcosahedronGeometry(l.r, lod ? (k === 0 ? 5 : 3) : (k === 0 ? 9 : 5));
     g.scale(1, 0.66, 1);                 // domed, not spherical
     g.translate(l.x, l.r * 0.58 + l.y, l.z);
-    parts.push({ geo: g, color: l.c });
-  }
-  return mergeParts(parts);
+    const dark = l.c.clone().multiplyScalar(0.5);
+    parts.push(worked(g,
+      p => (Math.pow(ridge(p, k), 0.6) - 0.5) * 0.085 * l.r + (fbm3(p.x * 3, p.y * 3, p.z * 3) - 0.5) * 0.06 * l.r,
+      (p, n, c) => c.copy(dark).lerp(l.c, THREE.MathUtils.smoothstep(ridge(p, k), 0.15, 0.7))));
+  });
+  return mergeColoured(parts);
 }
 
 /** Branching coral. Three generations, each thinner and more splayed. */
-function staghorn() {
+function staghorn(lod = 0) {
   const parts = [];
   const up = new THREE.Vector3(0, 1, 0);
   const dir = new THREE.Vector3();
@@ -64,12 +142,20 @@ function staghorn() {
   // Lay one branch from `from` along `dir` and recurse off its tip.
   const branch = (from, pitch, yaw, len, rad, depth) => {
     dir.set(Math.sin(pitch) * Math.cos(yaw), Math.cos(pitch), Math.sin(pitch) * Math.sin(yaw));
-    const g = new THREE.CylinderGeometry(rad * 0.62, rad, len, 5);
+    const g = new THREE.CylinderGeometry(rad * 0.62, rad, len, lod ? 6 : 8);
     g.translate(0, len / 2, 0);
     q.setFromUnitVectors(up, dir);
     g.applyQuaternion(q);
     g.translate(from.x, from.y, from.z);
     parts.push({ geo: g, color: depth > 1 ? PALETTE.stagB : PALETTE.stagA });
+    // A rounded knuckle where it forks, and a rounded tip: cut flat, every
+    // joint and end showed as a faceted stub.
+    if (!lod) {
+      const knob = new THREE.SphereGeometry(rad * (depth === 0 ? 0.66 : 0.9), 8, 6);
+      const end = from.clone().addScaledVector(dir, len * (depth === 0 ? 1 : 0.92));
+      knob.translate(end.x, end.y, end.z);
+      parts.push({ geo: knob, color: depth > 1 ? PALETTE.stagB : PALETTE.stagA });
+    }
 
     if (depth === 0) return;
     const tip = from.clone().addScaledVector(dir, len * 0.92);
@@ -113,18 +199,23 @@ function seaFan() {
 }
 
 /** Barrel sponge — a fat tube with a dark mouth sunk into the top. */
-function barrelSponge() {
-  const body = new THREE.CylinderGeometry(0.46, 0.30, 0.95, 10);
+function barrelSponge(lod = 0) {
+  // Ribbed up its sides, as a barrel sponge is, the ridges paler.
+  const body = new THREE.CylinderGeometry(0.46, 0.30, 0.95, lod ? 16 : 24, lod ? 3 : 6, true);
   body.translate(0, 0.475, 0);
-  const rim = new THREE.CylinderGeometry(0.46, 0.42, 0.10, 10);
+  const rib = p => Math.max(0, Math.cos(Math.atan2(p.z, p.x) * 9 + p.y * 1.5));
+  const pale = PALETTE.spongeA.clone().lerp(new THREE.Color(1, 0.9, 0.78), 0.25);
+  const wall = worked(body, p => rib(p) * 0.035 + (fbm3(p.x * 4, p.y * 4, p.z * 4) - 0.5) * 0.03,
+                      (p, n, c) => c.copy(PALETTE.spongeA).lerp(pale, rib(p)));
+  const rim = new THREE.CylinderGeometry(0.46, 0.42, 0.10, 24);
   rim.translate(0, 0.95, 0);
   // Recessed disc: cheaper than an open-ended tube with an inner wall, and at
   // reef distances it reads the same.
-  const mouth = new THREE.CircleGeometry(0.34, 10);
+  const mouth = new THREE.CircleGeometry(0.34, 24);
   mouth.rotateX(-Math.PI / 2);
   mouth.translate(0, 0.90, 0);
-  return mergeParts([
-    { geo: body, color: PALETTE.spongeA },
+  return mergeColoured([
+    wall,
     { geo: rim, color: PALETTE.spongeA },
     { geo: mouth, color: PALETTE.mouth },
   ]);
@@ -133,7 +224,7 @@ function barrelSponge() {
 /** Anemone: a squat column under a crown of tentacles that catch the surge. */
 function anemone() {
   const parts = [];
-  const foot = new THREE.CylinderGeometry(0.17, 0.22, 0.20, 8);
+  const foot = new THREE.CylinderGeometry(0.17, 0.22, 0.20, 16);
   foot.translate(0, 0.10, 0);
   parts.push({ geo: foot, color: PALETTE.anemB });
 
@@ -170,17 +261,21 @@ function seagrass() {
 }
 
 /** Bare rock, for the stretches of sand where nothing has taken hold. */
-function boulder() {
-  const a = new THREE.DodecahedronGeometry(0.62, 0);
+function boulder(lod = 0) {
+  // Weathered stone: lumpy, not cut — and moss, or a skin of algae, over
+  // whatever faces up to the light.
+  const stone = (geo, k) => worked(geo,
+    // (Broad lumps, and a finer pitting over them: weathered, not tumbled smooth.)
+    p => (fbm3(p.x * 2.2 + k, p.y * 2.2, p.z * 2.2) - 0.5) * 0.34 + (noise3(p.x * 9, p.y * 9 + k, p.z * 9) - 0.5) * 0.05,
+    (p, n, c) => c.copy(PALETTE.rock).multiplyScalar(0.85 + fbm3(p.x * 6, p.y * 6, p.z * 6) * 0.3)
+      .lerp(PALETTE.rockMoss, THREE.MathUtils.smoothstep(n.y, 0.45, 0.85) * 0.85));
+  const a = new THREE.IcosahedronGeometry(0.62, lod ? 3 : 5);
   a.scale(1.15, 0.72, 0.95);
   a.translate(0, 0.40, 0);
-  const b = new THREE.DodecahedronGeometry(0.34, 0);
+  const b = new THREE.IcosahedronGeometry(0.34, lod ? 1 : 2);
   b.scale(1.0, 0.8, 1.2);
   b.translate(0.42, 0.22, -0.28);
-  return mergeParts([
-    { geo: a, color: PALETTE.rock },
-    { geo: b, color: PALETTE.rockMoss },
-  ]);
+  return mergeColoured([stone(a, 0), stone(b, 5.3)]);
 }
 
 /**
@@ -339,17 +434,22 @@ export const REEF = [
 ];
 
 // ── geometry + material ──────────────────────────────────────────────────────
-let GEO = null;
+// Built once each: [near, far]. The far set (lod 1) is for the reef past the
+// chunk you are in, 32 m and more off, where the detail is lost in the haze.
+const GEO = [null, null];
+const LIGHTER = new Set(['brain', 'staghorn', 'barrel', 'rock']);
 
 /**
  * Build every species once. Each gets a `sway` attribute — how far that vertex
  * is allowed to move in the surge — derived from its height up the plant, so
  * the base stays planted and the tips travel.
  */
-export function reefGeometry() {
-  if (GEO) return GEO;
-  GEO = REEF.map(sp => {
-    const g = sp.make();
+export function reefGeometry(lod = 0) {
+  if (GEO[lod]) return GEO[lod];
+  GEO[lod] = REEF.map((sp, f) => {
+    // The far set: lighter only where it is worth it; the rest are the near ones.
+    if (lod && !LIGHTER.has(sp.name)) return reefGeometry(0)[f];
+    const g = sp.make(lod);
     if (sp.soft > 0) {
       const p = g.attributes.position;
       let top = 0;
@@ -364,7 +464,7 @@ export function reefGeometry() {
     }
     return g;
   });
-  return GEO;
+  return GEO[lod];
 }
 
 let MAT = null;
@@ -378,7 +478,7 @@ export function reefMaterial() {
   if (MAT) return MAT;
   MAT = new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 0.82, metalness: 0,
-    flatShading: true, side: THREE.DoubleSide,
+    side: THREE.DoubleSide,
   });
   MAT.userData.time = { value: 0 };
   MAT.onBeforeCompile = shader => {

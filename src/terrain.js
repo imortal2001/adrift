@@ -1131,7 +1131,7 @@ export class Terrain {
     this._reefProps = null;
     this._landProps = null;
     const trees = this.buildFlora(i, j, band, group, grid);
-    const coral = ring <= REEF_LOD ? this.buildReef(i, j, group) : 0;
+    const coral = ring <= REEF_LOD ? this.buildReef(i, j, group, ring) : 0;
     if (band <= 2) this.buildDrapes(i, j, group, grid);
     if (this._reefProps || this._landProps) this.reefDirty = true;
 
@@ -1649,12 +1649,13 @@ export class Terrain {
    * slope and moisture — a colony grows on rock, the grass grows on the sand
    * between colonies, and neither crosses into the other's ground.
    */
-  buildReef(i, j, group) {
-    const geos = reefGeometry();
+  buildReef(i, j, group, ring = 0) {
+    // The chunk you are in gets the fine reef, the ring round it the lighter one.
+    const geos = reefGeometry(ring > 0 ? 1 : 0);
     // How tall each species stands and how wide it spreads, measured once from
     // the geometry rather than guessed from the table.
     if (!this._reefBounds) {
-      this._reefBounds = geos.map(g => {
+      this._reefBounds = reefGeometry(0).map(g => {
         g.computeBoundingBox();
         const b = g.boundingBox;
         return { top: b.max.y, rad: Math.max(b.max.x, -b.min.x, b.max.z, -b.min.z) };
@@ -1715,11 +1716,30 @@ export class Terrain {
         // wallpaper.
         const g = Math.pow(hash(t.s, f * 23), 1.7);
         const sc = THREE.MathUtils.lerp(sp.scale[0], sp.scale[1], g);
+        const bounds = this._reefBounds[f];
+        const sx = sc * (0.85 + hash(t.s, f * 59) * 0.3), sz = sc * (0.85 + hash(t.s, f * 83) * 0.3);
+        // Down onto the lowest of the bed under its rim, not the height at its
+        // middle: the reef floor is lumpy — coral heads stand metres up off it
+        // — and a head set on a knoll's crown overhung the drop all round,
+        // floating, by as much as two and a half metres. One that would go
+        // more than half under like that grows somewhere else.
+        const rim = bounds.rad * (sx + sz) / 2 * 0.8;
+        let low = t.y;
+        for (let a = 0; a < 8; a++) {
+          const th = a * Math.PI / 4;
+          low = Math.min(low, heightAt(t.x + Math.cos(th) * rim, t.z + Math.sin(th) * rim));
+        }
+        // (A rim a few centimetres proud of the bed is nothing; a starfish
+        // flat on the sand stays where it is.)
+        if (t.y - low > 0.1) {
+          if (t.y - low > Math.max(0.25, bounds.top * sc * 0.5)) { inst.setMatrixAt(k, HIDDEN); continue; }
+          t.y = low;
+        }
         d.position.set(t.x, t.y - 0.08, t.z);
         // A little tilt off vertical: nothing on a reef grew plumb.
         d.rotation.set((hash(t.s, f * 41) - 0.5) * 0.30, hash(t.s, f * 31) * Math.PI * 2,
                        (hash(t.s, f * 53) - 0.5) * 0.30);
-        d.scale.set(sc * (0.85 + hash(t.s, f * 59) * 0.3), sc, sc * (0.85 + hash(t.s, f * 83) * 0.3));
+        d.scale.set(sx, sc, sz);
         d.updateMatrix();
         inst.setMatrixAt(k, d.matrix);
 
@@ -1735,7 +1755,6 @@ export class Terrain {
         // Remember what this one occupies. The fish steer off this; without it
         // they only know about the ground, and a boulder is three metres of
         // geometry the ground function has never heard of.
-        const bounds = this._reefBounds[f];
         const base = t.y - 0.08;
         footprints.push({
           x: t.x, z: t.z, base,
@@ -1749,6 +1768,9 @@ export class Terrain {
           hit: sc * 0.78 * bounds.rad,
           // Anything that bends in the surge bends around you too.
           solid: sp.soft < 0.5,
+          // Its shape across, for the fish: a barrel sponge is a column, the
+          // rest are mounds — highest at the middle, down to the bed at the rim.
+          column: sp.name === 'barrel',
         });
       }
       inst.instanceMatrix.needsUpdate = true;
@@ -1791,6 +1813,10 @@ export class Terrain {
           const bucket = this.reefSolids.get(key);
           if (bucket) bucket.push(p); else this.reefSolids.set(key, [p]);
         }
+        // What bends in the surge — kelp, fans, anemones, seagrass — a fish
+        // swims in among, not over: stamped as solid, a kelp stand's 8 m
+        // canopy was a floor they hovered on, nine metres off the sand.
+        if (!p.solid) continue;
         const i0 = Math.floor((p.x - p.rad) / REEF_CELL), i1 = Math.floor((p.x + p.rad) / REEF_CELL);
         const j0 = Math.floor((p.z - p.rad) / REEF_CELL), j1 = Math.floor((p.z + p.rad) / REEF_CELL);
         for (let i = i0; i <= i1; i++) {
@@ -1799,10 +1825,15 @@ export class Terrain {
             // prop actually overlaps, not its whole bounding square.
             const nx = Math.min(Math.max(p.x, i * REEF_CELL), (i + 1) * REEF_CELL);
             const nz = Math.min(Math.max(p.z, j * REEF_CELL), (j + 1) * REEF_CELL);
-            if ((nx - p.x) ** 2 + (nz - p.z) ** 2 > p.rad * p.rad) continue;
+            const r2 = (nx - p.x) ** 2 + (nz - p.z) ** 2;
+            if (r2 > p.rad * p.rad) continue;
+            // How high it stands over this cell: a column its full height, a
+            // mound less toward its rim. (Its full height over every cell it
+            // touched, the fish beside a coral head hovered at its crown.)
+            const top = p.column ? p.top : p.base + (p.top - p.base) * Math.sqrt(1 - r2 / (p.rad * p.rad));
             const key = reefCell(i, j);
             const cur = this.reefTops.get(key);
-            if (cur === undefined || p.top > cur) this.reefTops.set(key, p.top);
+            if (cur === undefined || top > cur) this.reefTops.set(key, top);
           }
         }
       }

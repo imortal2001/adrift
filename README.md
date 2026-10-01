@@ -639,6 +639,24 @@ the colonies while the seagrass takes the sand between them, and the reef fish
 school over ground the mask likes. Species are picked by **weighted lottery**
 among everything that could live at that spot rather than first-match-wins,
 which is the difference between a reef and one coral repeated 800 times.
+Each prop is set down onto the lowest of the bed under its rim rather than the
+height at its middle — the reef floor is lumpy, and a brain coral set on a
+knoll's crown overhung the drop all round, floating by as much as two and a
+half metres (a third of them by more than 0.3 m). One that would go more than
+half under that way grows somewhere else; a starfish flat on the sand stays
+put.
+
+The solid pieces are smooth-shaded and their surfaces worked (`worked()` in
+`reef.js`): a brain coral's dome carries the meandering ridges of the real
+thing, raised off it with the valleys between darker; a rock is weathered
+stone, lumped and pitted, with moss over whatever faces up to the light; a
+barrel sponge is ribbed up its sides; the staghorn's branches have rounded
+knuckles and tips. They were flat-shaded raw polyhedra — a rock two
+twelve-faced dodecahedra — and every face showed as a facet, low-poly
+props on a smooth, textured sea bed among textured fish. Past the chunk you
+are in, 32 m and more off where the detail is lost in the haze, the reef is
+built from a lighter set of the same shapes (about 0.8 million triangles in
+view on the reef, against 1.4 million all fine).
 
 Besides the corals there is golden **kelp**, standing four and five metres tall
 in the shallower water and swaying in the surge; **sea urchins** and **giant
@@ -660,7 +678,12 @@ that reads `heightAt` knows they exist — which is how the first cut had a thir
 of the reef fish swimming through boulders. `Terrain.clearanceAt(x, z)` answers
 the question they actually need: the height of the sea bed *or the top of
 whatever is standing on it*. It is backed by a 1.5m obstacle field stamped as
-the props are scattered, rebuilt whole whenever the reef chunk set changes
+the props are scattered — each by its shape, a mound highest at its middle
+and down to the bed at its rim, a barrel sponge a column (stamped at full
+height over every cell it touched, the fish beside a coral head hovered at its
+crown); and not the kelp, fans, anemones and seagrass, which bend in the surge
+and a fish swims in among (stamped too, a kelp stand's canopy was a floor
+they hovered on, nine metres off the sand) — rebuilt whole whenever the reef chunk set changes
 (props near a chunk edge stamp cells on both sides, and unpicking one chunk's
 contribution from a shared maximum costs more than the rebuild). One lookup per
 fish per frame, about 0.05ms for the lot.
