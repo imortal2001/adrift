@@ -28,6 +28,7 @@ import { SharedWorld, WORLD_EVENTS } from './sharedworld.js';
 const SETTLE = 1.5;     // the host sends the rafts this long after a change…
 const EVERY = 20;       // …and this often regardless
 const OWN = 1.2;        // a copy arriving this soon after your own change is already out of date
+const SPLIT = 24 * 1024;  // characters: the rafts bigger than this go one to a message (the relay passes on 32 KB)
 
 /** Events that change the world rather than a player: they come here, not to a Remote. */
 const RAFT = new Set(['raft', 'place', 'take', 'obj', 'hang', 'feed']);
@@ -76,6 +77,21 @@ export class Together {
     if (this.net.isHost) this.settle = SETTLE;
   }
 
+  /**
+   * Every raft, whole, to the others (or `to` one of them): in one message —
+   * or, too big for the relay to pass on, one raft to each, every one saying
+   * which rafts there are, so none is taken for gone for not being in it. (A
+   * crew's rafts built out, all in one, came to more than the relay passes
+   * on, and it dropped them without a word: a newcomer got no raft at all.)
+   */
+  sendRafts(to) {
+    const rs = this.snapshot(), st = this.game.statues.toJSON(), wk = this.game.wakersJSON();
+    const one = { k: 'raft', rs, st, wk };
+    if (rs.length < 2 || JSON.stringify(one).length < SPLIT) { this.net.event(one, to); return; }
+    const all = rs.map(r => r.id);
+    rs.forEach((r, i) => this.net.event(i ? { k: 'raft', rs: [r], all } : { k: 'raft', rs: [r], all, st, wk }, to));
+  }
+
   /** Every raft there is, whole, for the others. */
   snapshot() {
     return this.rafts.list.filter(r => r.size).map(r => ({ id: r.id, ...r.snapshot() }));
@@ -107,7 +123,7 @@ export class Together {
 
   /** Someone arrived: the host hands them the rafts. */
   joined(id) {
-    if (this.net.isHost) this.net.event({ k: 'raft', rs: this.snapshot(), st: this.game.statues.toJSON(), wk: this.game.wakersJSON() }, id);
+    if (this.net.isHost) this.sendRafts(id);
     this.world.joined(id);
   }
 
@@ -141,10 +157,12 @@ export class Together {
       // The host's word; but a copy sent before your own change reached them
       // would undo it, so that one waits for the next.
       if (this.net.isHost || !Array.isArray(e.rs) || (!this.fresh && now() - this.edited < OWN)) return;
-      this.adoptRafts(e.rs, spit);
+      const all = Array.isArray(e.all) ? e.all : null;
+      this.adoptRafts(e.rs, spit, all);
       if (Array.isArray(e.st)) this.adoptStatues(e.st);
       if (e.wk) this.game.loadWakers(e.wk);
-      if (this.fresh) {
+      // Sent in parts: aboard once the last is here, with every raft there is.
+      if (this.fresh && (!all || e.rs[0]?.id === all.at(-1))) {
         this.fresh = false;
         const g = this.game, p = g.player;
         const on = g.rafts.under(p.pos.x, p.pos.z);
@@ -205,9 +223,10 @@ export class Together {
    * new here), and any it no longer has gone — though never the one you are
    * standing on until you are off it.
    */
-  adoptRafts(list, spit) {
+  adoptRafts(list, spit, all = null) {
     const g = this.game;
-    const want = new Set();
+    // (One raft of several, sent apart: `all` says which there are.)
+    const want = new Set(all ? all.filter(id => typeof id === 'string') : []);
     for (const snap of list) {
       if (!snap?.id) continue;
       want.add(snap.id);
@@ -280,7 +299,7 @@ export class Together {
     this.every -= dt;
     if (this.settle !== null) this.settle -= dt;
     if (this.every <= 0 || (this.settle !== null && this.settle <= 0)) {
-      this.net.event({ k: 'raft', rs: this.snapshot(), st: this.game.statues.toJSON(), wk: this.game.wakersJSON() });
+      this.sendRafts();
       this.settle = null;
       this.every = EVERY;
     }

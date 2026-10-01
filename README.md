@@ -1240,8 +1240,10 @@ yours (sent as how the fire then stood, the second undid the first, and a
 fish went with it; the last place on a full spit goes to whoever the host
 hears first, and the other has theirs back). The host's raft settles
 anything contested: shortly after each change, and every twenty seconds
-regardless, the host sends it whole and the others' copies are brought into
-line with it — so fires burning down and collectors filling at slightly
+regardless, the host sends it whole (every raft there is, in one message —
+or, a crew's rafts built out coming to more than the relay passes on, one
+raft to a message: all in one, it was dropped without a word, and a newcomer
+had no raft) and the others' copies are brought into line with it — so fires burning down and collectors filling at slightly
 different rates on each machine never leave you on different rafts. Two of
 you at one thing at once is the host's to settle too: two people building
 on one spot get one piece, and whoever lost is paid back; two hooks on one
