@@ -25,7 +25,7 @@ import { Terrain, heightAt as landHeight, coastDistance, CHUNK, landAt, freshWat
 import { Caves, CAVES } from './caves.js';
 import { FLAME } from './viewmodel.js';
 import * as sound from './sound.js';
-import { Wildlife } from './wildlife.js';
+import { Wildlife, RANGES } from './wildlife.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
@@ -179,8 +179,8 @@ class Game {
     this.wakers = new Map();
     this.player.onDeath = () => this.respawn();
     this.debris = new DebrisField(this.scene, this.raft);
-    // Seed the wildlife around a point well inland from the nearest coast.
-    this.wildlife = new Wildlife(this.scene, { x: 210, z: -150 }, this.terrain);
+    // The wildlife, in its ranges: round each river and its lakes (wildlife.js RANGES).
+    this.wildlife = new Wildlife(this.scene, RANGES, this.terrain);
     this.fish = new FishSchools(this.scene, this.terrain, this.raft);
     this.whale = new Whale(this.scene, this.terrain, this.raft, this.fish);
     // Turtles, stingrays, octopus and crabs (reeflife.js); crab and octopus are catches, as fish are.

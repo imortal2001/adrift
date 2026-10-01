@@ -36,7 +36,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from '../vendor/jsm/utils/BufferGeometryUtils.js';
 import { waveHeight } from './ocean.js';
-import { heightAt, reefMask, coastDistance, slopeAt, freshWaterAt, LAKES, lakeShore } from './terrain.js';
+import { heightAt, reefMask, coastDistance, slopeAt, freshWaterAt, LAKES, lakeShore, landAt, moistureAt, forestAt } from './terrain.js';
 import { ModelLibrary } from './models.js';
 import { octopusModel, rayModel, shelledModel, seaTurtleModel, stillOf } from './reefmodels.js';
 import { Approach } from './fish.js';
@@ -475,7 +475,7 @@ export const REEF_ANIMALS = {
   octopus: { name: 'octopus', count: 3, where: 'on the coral, 3–18 m down', length: [0.5, 0.8], catch: 'spear' },
   crab:    { name: 'crab', count: 7, where: 'on the reef, 1–14 m down — and on the beaches', length: [0.18, 0.26], catch: 'hand' },
   // Models only (reefmodels.js): with no file, there are none.
-  tortoise:    { name: 'tortoise', count: 3, where: 'on the land near you, off the beach and below the trees\' end',
+  tortoise:    { name: 'tortoise', count: 3, where: 'on the dry, open lowland near you: the scrub and grass behind the beaches, not the wet forest or the hills',
                  length: [0.4, 0.6], catch: false, model: 'tortoise', land: true },
   pond_turtle: { name: 'pond turtle', count: 4, where: 'in the lakes, tarns and plunge pools, and basking on their banks',
                  length: [0.17, 0.24], catch: false, model: 'pond_turtle', land: true },
@@ -580,11 +580,37 @@ export class ReefLife {
   /** The floor an animal lives on at (x, z): the coral's top on the reef, the sand elsewhere. */
   floor(x, z) { return this.terrain ? this.terrain.clearanceAt(x, z) : heightAt(x, z); }
 
+  /** How many of a land kind the country round you carries: by how much of it fits them (kept a while, as you go). */
+  carrying(a) {
+    const [hub] = this.home(a), c = this._carry ||= {};
+    const key = `${a.kind}:${Math.round(hub.x / 25)},${Math.round(hub.z / 25)}`;
+    if (c[key] === undefined) {
+      let fit = 0;
+      const N = 20;
+      for (let k = 0; k < N; k++) {
+        const r = LAND_RANGE * Math.sqrt((k + 0.5) / N), th = k * 2.39996;        // spread evenly over the disc
+        if (this.fits(a, hub.x + Math.cos(th) * r, hub.z + Math.sin(th) * r)) fit++;
+      }
+      if (Object.keys(c).length > 200) for (const k in c) delete c[k];
+      c[key] = Math.min(a.sp.count, Math.round(a.sp.count * (fit / N) / 0.6));
+    }
+    return c[key];
+  }
+
   /** Is (x, z) somewhere this animal can be? */
   fits(a, x, z) {
     const h = heightAt(x, z);
     if (a.kind === 'crab' && a.beach) return h > 0.15 && h < 2.4 && coastDistance(x, z) < 30;
-    if (a.kind === 'tortoise') return h > 2 && h < 150 && slopeAt(x, z) < 0.12 && !freshWaterAt(x, z);
+    if (a.kind === 'tortoise') {
+      // Dry, open country — scrub and grass, the backs of the beaches — not
+      // the wet forest floor or up in the hills. (Anywhere on land, there
+      // were three within reach wherever you walked: in the rainforest, on
+      // the cliff tops, at a hundred metres up.)
+      const slope = slopeAt(x, z);
+      if (!(h > 2 && h < 70 && slope < 0.12) || freshWaterAt(x, z)) return false;
+      const wet = moistureAt(x, z);
+      return wet < 0.55 && forestAt(x, z, landAt(x, z), wet, slope) < 0.5;
+    }
     if (a.kind === 'pond_turtle') { const w = freshWaterAt(x, z); return !!w && w.kind !== 'river' && w.depth > 0.35; }
     const reef = reefMask(x, z, -coastDistance(x, z));
     if (a.kind === 'turtle') return h < -4;
@@ -673,6 +699,12 @@ export class ReefLife {
       if (!a.placed || a.pos.distanceTo(hub) > range) {
         if (a.obj) a.obj.visible = false;
         if ((a.away -= dt) > 0) continue;
+        // As many tortoises about as the country carries: three where it
+        // is their kind of ground, fewer where only a corner of it is, none
+        // in the wet forest. (Always three, a dry corner of a wet valley had
+        // all of them, crowded into it.)
+        if (a.kind === 'tortoise' && this.animals.filter(o => o !== a && o.kind === 'tortoise' && o.placed &&
+            o.pos.distanceTo(hub) <= range).length >= this.carrying(a)) { a.away = 5; continue; }
         if (!this.place(a)) { a.away = 3; continue; }
       }
       if (a.caught > 0) { if ((a.caught -= dt) <= 0) this.place(a); else { if (a.obj) a.obj.visible = false; continue; } }

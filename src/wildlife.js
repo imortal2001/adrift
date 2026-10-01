@@ -29,11 +29,14 @@ const rnd = (a, b) => a + Math.random() * (b - a);
 
 /** How far above the ground a body's origin sits. A glTF rig is already at
  *  world scale; the procedural one is scaled by its group. */
-const liftOf = a => (a.rig.model ? a.rig.stand : a.rig.stand * a.sp.scale);
+const liftOf = a => (a.rig.model ? a.rig.stand : a.rig.stand * a.sp.scale * (a.grow ?? 1));
 
 export const SPECIES = {
   sauropod: {
     label: 'Sauropod', habitat: 'the araucaria woods and their edges, the river corridors and lakeshores, the gentle hills; a herd round a leader', count: 5, diet: 'plants', scale: 3.0,
+    // (Drawn at 0.8 of that: its back stood 8 m up and its head 19 — a
+    // Brachiosaurus stands ~6 m at the shoulder, its head ~13 m up.)
+    size: 0.8,
     speed: 2.0, walk: 1.1, accel: 0.35, turn: 0.32, sight: 40, hp: 400, flee: 26,
     body: 0x6b7a58, belly: 0x93a279,
     build: { legs: 4, neck: 3.4, tail: 3.6, head: 0.55, plates: false, crest: false, arms: null },
@@ -50,6 +53,9 @@ export const SPECIES = {
   },
   parasaur: {
     label: 'Parasaur', habitat: 'the river banks and lakes, the wet forest by them, the coastal lowland; herds round a leader', count: 8, diet: 'plants', scale: 1.25, herd: true,
+    // (Drawn at 1.3 of that: 7 m long and 2.2 m at the hip, it was smaller
+    // than the stegosaur — Parasaurolophus is ~9.5 m, ~2.8 m at the hip.)
+    size: 1.3,
     speed: 4.6, walk: 1.0, accel: 2.6, turn: 1.4, sight: 44, hp: 90, flee: 34,
     body: 0x8a7b52, belly: 0xc0ae7d,
     build: { legs: 4, neck: 1.2, tail: 2.2, head: 0.55, plates: false, crest: true, arms: null },
@@ -69,6 +75,34 @@ export const SPECIES = {
     build: { legs: 2, neck: 1.1, tail: 2.8, head: 1.25, plates: false, crest: false, arms: 'tiny' },
   },
 };
+
+// ── where each herd ranges ───────────────────────────────────────────────────
+// Each animal keeps to the country round its range's centre (ROAM). Every
+// range has fresh water in it: the herds drink, and one with none trekked to
+// the nearest river and was drawn back again, over and over. The western
+// river and its lakes, where castaways come ashore, have every species at its
+// full count; the south-eastern river valley, with its two lakes, a smaller
+// community of its own. (All of them seeded round one point, the valley had
+// none.) The dry lowlands beyond the range, far from any river, are left to
+// themselves.
+export const RANGES = [
+  { x: 210, z: -150, name: 'the western river' },
+  { x: 800, z: -950, name: 'the south-eastern river valley',
+    counts: { sauropod: 5, stegosaur: 3, parasaur: 6, raptor: 3, tyrannosaur: 1 } },
+];
+const ROAM = 420;              // m from its range's centre before an animal is drawn back toward it
+/** How many of a species the world has, every range together. */
+export const population = key => RANGES.reduce((n, r) => n + (r.counts ? r.counts[key] ?? 0 : SPECIES[key].count), 0);
+/**
+ * How much larger or smaller than its kind one animal is: a herd or group is
+ * mixed in age, its leader and a lone hunter full grown. The same on every
+ * machine (`seed` is where it is in the list), so playing together a youngster
+ * is a youngster for everyone.
+ */
+function sizeOf(key, leads, seed) {
+  const u = Math.abs(Math.sin(seed * 12.9898 + key.length * 78.233) * 43758.5453) % 1;
+  return leads || key === 'tyrannosaur' ? 0.94 + u * 0.12 : 0.78 + u * 0.24;
+}
 
 // ── where each lives ─────────────────────────────────────────────────────────
 // Where on the continent each one is at home, from where its fossils lie and
@@ -136,7 +170,11 @@ function siteAt(x, z) {
     wetForest: forest * wet,
     beach: L.m < 45 && L.h < 5 ? 1 : 0,
     upland: Math.max(0, Math.min(1, (L.h - 60) / 60)),
-    cliff: L.cliff, mountain: L.mountain,
+    // (A sea cliff is the coast's: the face itself, at the shore. L.cliff says
+    // what kind of coast that stretch is, all the way in — taken as "a cliff"
+    // here, every flat field behind a cliffed shore was barred, and with it
+    // the whole of the south-eastern river valley.)
+    cliff: L.m < 20 ? L.cliff : 0, mountain: L.mountain,
   };
 }
 
@@ -381,7 +419,7 @@ export class Wildlife {
    * @param terrain  the live Terrain, for the trunks and rocks animals steer
    *                 round; without it they only know the ground.
    */
-  constructor(scene, homeHint, terrain = null) {
+  constructor(scene, ranges = RANGES, terrain = null) {
     this.scene = scene;
     this.terrain = terrain;
     this._near = [];
@@ -390,16 +428,20 @@ export class Wildlife {
     this.upgraded = [];        // species that swapped to a glTF body
     this.events = [];          // damage dealt to the player
     this.kills = [];           // "X brought down a Y", for flavour near the player
-    this.home = homeHint;      // a point on land to seed around
+    // Where they range: a list (RANGES), or one point on land to seed round.
+    this.ranges = Array.isArray(ranges) ? ranges : [ranges];
+    this.home = this.ranges[0];
     // Playing together (sharedworld.js). The host's animals hunt the others
     // too — {id, pos, onLand}, a bite on one of them is an event `to` them —
     // and everyone else's follow the host's rather than think for themselves.
     this.others = [];
     this.follow = false;
 
-    for (const key in SPECIES) {
-      const sp = SPECIES[key];
-      for (let i = 0; i < sp.count; i++) this.spawn(key, sp);
+    for (const range of this.ranges) {
+      for (const key in SPECIES) {
+        const sp = SPECIES[key], n = range.counts ? range.counts[key] ?? 0 : sp.count;
+        for (let i = 0; i < n; i++) this.spawn(key, sp, range, this.all.length + 1);
+      }
     }
     this._v = new THREE.Vector3();
     this.loadModels();
@@ -418,7 +460,7 @@ export class Wildlife {
         for (const a of this.all) {
           if (a.key !== key) continue;
           try {
-            const rig = this.library.instantiate(entry, a.rig.length * a.sp.scale);
+            const rig = this.library.instantiate(entry, a.rig.length * a.sp.scale * a.grow);
             prepareDino(rig);
             this.scene.remove(a.rig.group);
             this.scene.add(rig.group);
@@ -437,15 +479,19 @@ export class Wildlife {
     }
   }
 
-  spawn(key, sp) {
+  spawn(key, sp, range = this.home, seed = this.all.length + 1) {
     const rig = buildBody(sp);
     this.scene.add(rig.group);
-    // Every GROUP[key]-th of a kind leads; the rest keep with it.
-    const same = this.all.filter(o => o.key === key);
+    // Every GROUP[key]-th of a kind in a range leads; the rest keep with it.
+    const same = this.all.filter(o => o.key === key && o.home === range);
     const size = GROUP[key] || 1;
     const leader = same.length % size === 0 ? null : same[same.length - (same.length % size)];
+    // Its own size: the kind's, drawn (sp.size), and its age's. A herd of
+    // eight of exactly one size read as one animal copied.
+    const grow = (sp.size ?? 1) * sizeOf(key, !leader, seed);
+    rig.group.scale.multiplyScalar(grow);
     const a = {
-      key, sp, rig,
+      key, sp, rig, grow, home: range,
       pos: new THREE.Vector3(),
       heading: Math.random() * TAU,
       speed: 0, state: 'wander', timer: rnd(1, 6),
@@ -483,16 +529,24 @@ export class Wildlife {
     let total = 0;
     for (let i = 0; i < 90; i++) {
       const ang = Math.random() * TAU, r = rnd(20, 380);
-      const x = this.home.x + Math.cos(ang) * r, z = this.home.z + Math.sin(ang) * r;
+      const x = a.home.x + Math.cos(ang) * r, z = a.home.z + Math.sin(ang) * r;
       if (!this.footing(x, z)) continue;
       const w = habitat(a.key, x, z) ** 2;
       if (w > 0) { picks.push([x, z, w]); total += w; }
     }
-    let pick = Math.random() * total;
-    for (const [x, z, w] of picks) {
-      if ((pick -= w) <= 0) { a.pos.set(x, heightAt(x, z), z); return; }
+    // Drawn by how well each suits it — but only where it can walk down to
+    // fresh water from: a herd put on a plateau above the river, with an
+    // escarpment between, never drank.
+    for (let draw = 0; draw < 8 && picks.length; draw++) {
+      let pick = Math.random() * total, chosen = picks.length - 1;
+      for (let i = 0; i < picks.length; i++) if ((pick -= picks[i][2]) <= 0) { chosen = i; break; }
+      const [x, z] = picks[chosen];
+      a.pos.set(x, heightAt(x, z), z);
+      if (draw === 7 || this.waterNear(a)) return;
+      total -= picks[chosen][2];
+      picks.splice(chosen, 1);
     }
-    a.pos.set(this.home.x, heightAt(this.home.x, this.home.z), this.home.z);
+    if (!picks.length) a.pos.set(a.home.x, heightAt(a.home.x, a.home.z), a.home.z);
   }
 
   /** Somewhere to drink from: a river bank or a lake shore, the nearest it can walk to, up to half a kilometre off. */
@@ -561,12 +615,22 @@ export class Wildlife {
     return best;
   }
 
-  /** Can it get from one spot to the other in a straight line without wading anything deep — not across the river to the far bank? */
+  /**
+   * Can it get from one spot to the other in a straight line without wading
+   * anything deep — not across the river to the far bank — or going down (or
+   * up) a slope too steep for it? (A bank's lip, a step or two, it takes.
+   * Water at the foot of an escarpment was "within reach" without that, and a
+   * herd on the plateau above walked at the drop for minutes on end, its
+   * steering turning it back from the edge each time.)
+   */
   walkable(x0, z0, x1, z1) {
     const d = Math.hypot(x1 - x0, z1 - z0), n = Math.ceil(d / 3);
+    let steep = 0;
     for (let i = 1; i < n; i++) {
-      const w = freshWaterAt(x0 + (x1 - x0) * i / n, z0 + (z1 - z0) * i / n);
+      const x = x0 + (x1 - x0) * i / n, z = z0 + (z1 - z0) * i / n;
+      const w = freshWaterAt(x, z);
       if (w && w.depth > 0.5) return false;
+      if (this.steepness(x, z) > MAX_SLOPE * 1.1) { if (++steep > 1) return false; } else steep = 0;
     }
     return true;
   }
@@ -740,11 +804,11 @@ export class Wildlife {
       // (Somewhere on its own side of the water: it does not wade a river.)
       if (!this.footing(x, z) || !this.walkable(a.pos.x, a.pos.z, x, z)) continue;
       // Drawn back toward the home range if it has strayed far out of it.
-      const out = Math.max(0, Math.hypot(x - this.home.x, z - this.home.z) - 420) / 200;
+      const out = Math.max(0, Math.hypot(x - a.home.x, z - a.home.z) - ROAM) / 200;
       const score = habitat(a.key, x, z) - out + Math.random() * 0.35;
       if (score > bestScore) { bestScore = score; best = [x, z]; }
     }
-    if (!best) best = [a.pos.x + (this.home.x - a.pos.x) * 0.4, a.pos.z + (this.home.z - a.pos.z) * 0.4];
+    if (!best) best = [a.pos.x + (a.home.x - a.pos.x) * 0.4, a.pos.z + (a.home.z - a.pos.z) * 0.4];
     a.target.set(best[0], 0, best[1]);
   }
 

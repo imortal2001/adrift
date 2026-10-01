@@ -27,7 +27,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from '/vendor/jsm/utils/BufferGeometryUtils.js';
 import { ModelLibrary } from '/src/models.js';
-import { SPECIES as DINOS, Wildlife } from '/src/wildlife.js';
+import { SPECIES as DINOS, Wildlife, RANGES, population } from '/src/wildlife.js';
 import { FishSchools, normalise, BODY_LENGTH, BIG } from '/src/fish.js';
 import { swimMaterial, styleFor, Swimmer, skinOf } from '/src/swim.js';
 import { statueBody } from '/src/statue.js';
@@ -237,7 +237,8 @@ export async function loadRegistry() {
       facts: [
         ['Diet', sp.diet === 'meat' ? 'carnivore' : 'herbivore'],
         ['Lives', `${sp.habitat}; every few minutes down to the water to drink — never on the cliffs, the misty tops or in the caves`],
-        ['In the world', `${sp.count}${sp.pack ? ', hunts in packs' : ''}`],
+        ['In the world', `${population(key)}, in ${RANGES.filter(r => !r.counts || r.counts[key]).map(r => r.name).join(' and ')}${sp.pack ? '; hunts in packs' : ''}`],
+        ['Size', key === 'tyrannosaur' ? 'each one full grown' : 'mixed ages: a group\'s young from about four-fifths of its leader'],
         ['Top speed', `${sp.speed} m/s`], ['Sight', `${sp.sight} m`], ['Health', sp.hp],
         ...(sp.damage ? [['Bite', `${sp.damage} damage every ${sp.biteEvery} s`]] : []),
       ],
@@ -248,7 +249,7 @@ export async function loadRegistry() {
           const entry = await lib.get(key);
           if (entry) {
             // Sized exactly as the game sizes it: to the procedural body.
-            const rig = lib.instantiate(entry, a.rig.length * sp.scale);
+            const rig = lib.instantiate(entry, a.rig.length * sp.scale * a.grow);
             rig.group.position.y = rig.stand;
             const clips = entry.clips.map(c => c.name);
             let action = null;
@@ -269,7 +270,7 @@ export async function loadRegistry() {
           }
         }
         const g = a.rig.group.clone(true);
-        g.position.set(0, a.rig.stand * sp.scale, 0);
+        g.position.set(0, a.rig.stand * sp.scale * a.grow, 0);
         g.rotation.set(0, 0, 0);
         g.visible = true;
         return { object: shadows(g) };
@@ -447,7 +448,7 @@ export async function loadRegistry() {
   add({
     id: 'tortoise', name: 'Tortoise', category: 'animals', group: 'Land animals',
     ...modelled('tortoise', 'tortoise.glb'),
-    facts: [['Lives', REEF_ANIMALS.tortoise.where], ['Round you', `${REEF_ANIMALS.tortoise.count} at a time`],
+    facts: [['Lives', REEF_ANIMALS.tortoise.where], ['Round you', `up to ${REEF_ANIMALS.tortoise.count} at a time — as many as the ground round you suits, none in the wet forest`],
       ['Size', '40–60 cm long'],
       ['Behaviour', 'plods a little way, stops to graze, plods on; come within 3 m and it stops and draws in its head and legs until you have gone'],
       ['Moves by', 'its legs, head and tail found in the mesh and moved in the vertex shader'],
@@ -477,7 +478,8 @@ export async function loadRegistry() {
     id: 'whale', name: 'Humpback whale', category: 'animals', group: 'Aquatic',
     kind: 'glTF model', files: ['whale_humpback.glb', 'reef_fish.glb'], backdrop: 'underwater',
     source: 'assets/models/whale_humpback.glb (tools/build_whale.py; fallback reef_fish.glb "whale") · src/whale.js',
-    facts: [['Lives', '50–95 m from the raft'], ['Behaviour', 'cruises at 9 m, surfaces to blow, sounds flukes-up'],
+    facts: [['Lives', 'passing by: 50–110 m from you for seven to twelve minutes, then it moves on out of sight, and is gone twelve to twenty-five before it comes by again'],
+            ['Behaviour', 'cruises at 9 m, surfaces to blow, sounds flukes-up'],
             ['Caught with', 'nothing — scenery only']],
     async build() {
       const w = new Whale(scratch, null, raftStub, { library: lib });

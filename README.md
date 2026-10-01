@@ -244,7 +244,7 @@ pause screen starts over.
 | `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current — past each of you, playing together, and round an island up the current. |
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
-| `src/whale.js` | One humpback, ambient: cruises, surfaces to blow, sounds flukes-up. Not catchable. |
+| `src/whale.js` | One humpback, passing by: a few minutes' company, then gone a while; cruises, surfaces to blow, sounds flukes-up. Not catchable. |
 | `src/reeflife.js` | The animals that move, other than fish and dinosaurs: sea turtles, stingrays, octopus and crabs on the reef, tortoises on land and pond turtles in the lakes — each with its own way of moving and of reacting to you; crab and octopus as catches. |
 | `src/reefmodels.js` | Their glTF bodies, when the models are here: the octopus's arm chains curled in code, the stingray's clip, and the tortoise's and pond turtle's limbs found in the mesh and moved in the vertex shader. |
 | `src/reef.js` | What lives on the sea bed: coral, sponges, anemones, seagrass, kelp, urchins, starfish, giant clams and rock, plus the surge that bends the soft ones. |
@@ -1441,8 +1441,11 @@ same focus the fish do — and on the beaches when you are ashore:
 
 And away from the sea:
 
-- **Tortoises** (3) plod about the land near you — off the beach, on ground
-  that is not too steep, below the trees' end — a little way at a time,
+- **Tortoises** (up to 3) plod about the dry, open lowland near you — the
+  scrub and grass behind the beaches, on ground that is not too steep, below
+  70 m — as many as the country round you suits, and none in the wet forest
+  (anywhere on land, there were three within reach wherever you walked, and a
+  dry corner of a wet valley had all three crowded into it), a little way at a time,
   stopping to graze with their heads down. Come within 3 m and one stops
   where it is and draws in its head and legs, and stays that way until you
   have been gone a while.
@@ -1486,8 +1489,13 @@ crabs three instanced meshes), and there are no tortoises or pond turtles.
 
 ### The whale
 
-One humpback (`src/whale.js`), about 12 m long, keeps to a ring 50-110 m out
-from the raft — in deep water only. The beach is ~80 m away on one side, so
+One humpback (`src/whale.js`), about 12 m long, passes by: for seven to twelve
+minutes it keeps to a ring 50-110 m out from you, then moves on — out of
+sight, under water, 360 m off — and is gone twelve to twenty-five minutes
+before it comes by again from somewhere else, its first blow out on the
+water how you know. (Kept within 110 m for good, wherever you went, the same
+whale swam every voyage at your side.) Playing together, its comings and
+goings are the host's. It keeps to deep water only. The beach is ~80 m away on one side, so
 it picks goals where the bed is at least 15 m down with deep water all the
 way there, looks 40 m ahead as it swims, and swings off anything shallower
 than 12.5 m; it is never lifted out of the water, whatever is under it. It
@@ -1560,14 +1568,28 @@ before it hunts again.
 Each species has a habitat rule (`HABITAT` in `wildlife.js`), from where its
 fossils lie and what it ate, and where each animal is placed and where it
 wanders next are weighted by it. Nothing lives on the cliffs, up on the
-cloud-forest tops, or in the caves. Each herd keeps to a home range round
-where it was placed, the others following a leader. Every few minutes each
+cloud-forest tops, or in the caves. They live in two ranges, each round a
+river and its lakes (`RANGES`): the western river, where castaways come
+ashore, with every species at its full count, and the south-eastern river
+valley with a smaller community of its own — 44 animals in all. Each animal
+keeps within about 420 m of its range's centre, a herd following its leader,
+and is put somewhere it can walk down to fresh water from. (All of them
+seeded round one point, the south-eastern valley had none; and a sea-cliff
+coast was taken for a cliff kilometres inland, so the whole valley, flat and
+watered, was barred. The dry lowlands beyond the range, with no river or
+lake for half a kilometre, are left to themselves.) A herd or group is of
+mixed ages — its young from about four-fifths the size of its leader — and a
+lone tyrannosaur is full grown; every machine draws the same animal the same
+size. Every few minutes each
 animal walks down to the water to drink — to the nearest bank or shore it can
 get to on its own side (nothing wades a river past its knees, so it does not
 pick the far bank), straight there without stopping to graze, and it drinks
 with its head at the water's edge: it turns to face the water, stops short by
 about a quarter of its length, and a grazer too short in the neck to reach
-leans down into it from the shoulders. If it cannot get there in time enough for
+leans down into it from the shoulders. The way there is one it can walk —
+not across deep water, and not down an escarpment too steep for it: water at
+the foot of a drop was "within reach" without that, and a herd on the
+plateau above walked at the edge for minutes on end. If it cannot get there in time enough for
 the distance, it gives up for a while and tries again; and one with no water
 within reach at all, time and again, sets off for the nearest river or lake a
 stretch at a time, its herd following. Nothing picks
@@ -1578,9 +1600,9 @@ and cornered against the water bolts along the bank rather than freezing.
 |---|---|
 | Tyrannosaur | wherever its prey is — its bones turn up as often in floodplain beds as in river channels (Lyson & Longrich 2011) — so the river margins, forest edges and open plain; alone, or a pair |
 | Raptor | dromaeosaurs come from dune margins, deltas and forested plains alike: the forest edge, drier araucaria woodland, the edges of the fern plains; the one that goes up onto broken ground; loose mobs, not packs (Roach & Brinkman 2007) |
-| Parasaur | hadrosaurs keep to the coasts and river channels — 15:1 in channel sands (Lyson & Longrich; Butler & Barrett 2008): the river banks and lakes, the wet forest by them, the coastal lowland and the backs of the beaches; herds of eight |
+| Parasaur | hadrosaurs keep to the coasts and river channels — 15:1 in channel sands (Lyson & Longrich; Butler & Barrett 2008): the river banks and lakes, the wet forest by them, the coastal lowland and the backs of the beaches; herds of eight (six in the south-east); ~9 m long, as Parasaurolophus is (it was drawn at 7, smaller than the stegosaur) |
 | Stegosaur | the Morrison's seasonally green floodplain: open fern plain and river flats near water, the forest edges; a low feeder in small groups (the one stegosaur herd trackway, Cobos et al. 2024); it stands its ground, tail to a hunter |
-| Sauropod | high browsers of the conifers, ranging far from the rivers and back (Engelmann et al. 2004): the araucaria woods and their edges, the river corridors and lakeshores, the gentle hills; herds of five (the Purgatoire trackways) |
+| Sauropod | high browsers of the conifers, ranging far from the rivers and back (Engelmann et al. 2004): the araucaria woods and their edges, the river corridors and lakeshores, the gentle hills; herds of five (the Purgatoire trackways); ~6 m at the shoulder and the head ~15 m up on the move (drawn larger, its head rode at 19 m — a Brachiosaurus's is ~13) |
 
 ### How they move
 
