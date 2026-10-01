@@ -6,8 +6,9 @@
 // costs your planks, whatever you salvage is yours, whoever built it, and
 // cooked fish go in the bag of whoever takes them off the fire. Two of you at one thing at once (the same spot
 // to build on, the same crate, the same fish on a fire, the last drink in a
-// collector, the same piece to take apart) is the host's to settle: one gets
-// it, and the other is told (or paid back).
+// collector, the same piece to take apart — and, ashore, the same plant,
+// flint face or statue: main.js) is the host's to settle: one gets it, and
+// the other is told (or paid back).
 //
 // Every change goes to the others as it happens, naming its raft: a piece
 // built (the first of a new raft carries where that raft is), a piece taken

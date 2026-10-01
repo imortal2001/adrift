@@ -160,6 +160,7 @@ class Game {
     this.chops = new Map();
     this.plantClaims = new Map();   // a guest's plants, taken and waiting on the host's word (takeShared)
     this.plantTakers = new Map();   // hosting: who took each plant, to tell whoever was too slow
+    this.takenBy = new Map();       // …and each flint face and statue ('flint:key', 'statue:id')
     this.torchLights = [0, 1, 2].map(() => {
       const l = new THREE.PointLight(0xffa35a, 0, 26, 2);
       this.scene.add(l);
@@ -1235,16 +1236,55 @@ class Game {
   /** Chip a flint face off a cave wall. */
   chipFlint(f) {
     const n = this.caves.chip(f);
+    this.useAnim('eat');
+    // A guest's is gone at once; the flint itself comes when the host says
+    // nobody had it first (two of you at one face used to get a lot each).
+    if (this.asksHost()) { this.net.event({ k: 'claimflint', key: f.key, n }, this.net.host); return; }
+    this.takenBy.set(`flint:${f.key}`, this.net.name || 'Someone');
     this.together.world.chipped(f.key);
+    this.gotFlint(n);
+  }
+
+  /** Flint out of the rock, into the pack. */
+  gotFlint(n) {
+    n = Math.max(1, Math.min(2, n | 0));
     this.inv.add('flint', n);
     this.hotbar.autoAssign('flint');
-    this.useAnim('eat');
     this.hud.log(`You work ${n === 1 ? 'a nodule of flint' : 'two nodules of flint'} out of the rock.` +
                  (this.inv.count('flint') === n && !this.inv.has('striker') ? ' Struck on scrap iron, flint makes fire — see crafting (C).' : ''), 'good');
     this.hud.refreshInventory(this.inv);
     this.hud.refreshHotbar(this.hotbar, this.inv);
     this.hud.refreshCraft(this.inv);
   }
+
+  /**
+   * A statue taken up off the land, to set up somewhere else. Playing
+   * together that is the host's to settle, as a plant is: a guest's is gone
+   * at once, and comes to their hands when the host says nobody had it first
+   * (two of you lifting one had a statue each) — and nobody else wakes there.
+   */
+  liftStatue(s) {
+    this.statues.remove(s.id);
+    if (this.asksHost()) {
+      (this.statueClaims ||= new Map()).set(s.id, { id: s.id, x: s.x, z: s.z, yaw: s.yaw });
+      this.net.event({ k: 'claimstatue', id: s.id }, this.net.host);
+      return;
+    }
+    this.takenBy.set(`statue:${s.id}`, this.net.name || 'Someone');
+    this.together.world.statueDown(s);
+    this.gotStatue(s.id);
+  }
+
+  gotStatue(id) {
+    this.inv.add('statue', 1);
+    this.hotbar.autoAssign('statue');
+    if (this.registered?.id === id) { this.registered = null; this.setWake(null); }
+    this.hud.log('You lift the statue. Carry it, and click to set it down somewhere else — on land, or on the raft.', 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  /** Playing together as a guest: what is the host's to settle is asked for, not taken. */
+  asksHost() { return this.net.connected && !this.net.isHost; }
 
   /** The ember catches: the fire is lit, and the tinder is gone. */
   lightFire(o) {
@@ -1875,11 +1915,11 @@ class Game {
   // ── who is who, playing together ───────────────────────────────────────────
   deckKey(raft, cx, cz) { return `r:${raft.id}:${cx},${cz}`; }
 
-  /** Who else (not you) wakes at this statue: a name, or null. */
-  otherWaker(key) {
+  /** Who else (not you — or not `me`, someone else asking) wakes at this statue: a name, or null. */
+  otherWaker(key, me = PUB) {
     const w = key && this.wakers.get(key);
     if (!w) return null;
-    for (const [tag, name] of w) if (tag !== PUB) return name || 'Someone';
+    for (const [tag, name] of w) if (tag !== me) return name || 'Someone';
     return null;
   }
 
@@ -2102,6 +2142,56 @@ class Game {
       this.hud.refreshInventory(this.inv);
       this.hud.refreshHotbar(this.hotbar, this.inv);
       this.hud.refreshCraft(this.inv);
+      return true;
+    }
+    // A guest chipped out a flint face, or lifted a statue: theirs, if nobody
+    // had it first — gone for everyone, then — or, a statue someone else
+    // wakes at, it stays.
+    if (e.k === 'claimflint') {
+      if (!this.net.isHost || typeof e.key !== 'string') return true;
+      const k = `flint:${e.key}`;
+      if (this.caves.chipped.has(e.key)) {
+        this.net.event({ k: 'grant', none: true, items: {}, note: `${this.takenBy.get(k) || 'Someone else'} got to it first.` }, r.id);
+        return true;
+      }
+      if (this.takenBy.size > 400) this.takenBy.clear();
+      this.takenBy.set(k, r.name);
+      this.caves.chippedElsewhere(e.key);
+      this.together.world.chipped(e.key);
+      this.net.event({ k: 'flintok', n: e.n }, r.id);
+      return true;
+    }
+    if (e.k === 'flintok') {
+      this.gotFlint(e.n);
+      return true;
+    }
+    if (e.k === 'claimstatue') {
+      if (!this.net.isHost || typeof e.id !== 'string') return true;
+      const s = this.statues.find(e.id), keeper = s && this.otherWaker(e.id, r.pub);
+      if (!s || keeper) {
+        this.net.event({ k: 'statueno', id: e.id, keeper: keeper || null,
+                         who: keeper ? null : this.takenBy.get(`statue:${e.id}`) || null }, r.id);
+        return true;
+      }
+      if (this.takenBy.size > 400) this.takenBy.clear();
+      this.takenBy.set(`statue:${e.id}`, r.name);
+      this.statues.remove(e.id);
+      this.together.world.statueDown(s);
+      this.net.event({ k: 'statueok', id: e.id }, r.id);
+      return true;
+    }
+    if (e.k === 'statueok' || e.k === 'statueno') {
+      const s = this.statueClaims?.get(e.id);
+      if (!s) return true;
+      this.statueClaims.delete(e.id);
+      if (e.k === 'statueok') { this.gotStatue(e.id); return true; }
+      const name = v => (typeof v === 'string' ? v.slice(0, 20) : null);
+      if (e.keeper) {
+        // Someone wakes there: it stays — back up here, too.
+        if (!this.statues.find(s.id)) this.statues.add(s);
+        this.markMine();
+        this.hud.log(`${name(e.keeper)} wakes at this statue — it stays.`, 'bad');
+      } else this.hud.log(`${name(e.who) || 'Someone else'} got to it first.`, 'bad');
       return true;
     }
     if (e.k === 'claimdrink') {
@@ -2622,16 +2712,8 @@ class Game {
       const standing = input.pressed('KeyX') && this.statues.pick(eye, dir);
       const keeper = standing && this.otherWaker(standing.id);
       if (keeper) this.hud.log(`${keeper} wakes at this statue — it stays.`, 'bad');
-      else if (standing) {
-        // Taken up again, to set up somewhere else.
-        this.statues.remove(standing.id);
-        this.together.world.statueDown(standing);
-        this.inv.add('statue', 1);
-        this.hotbar.autoAssign('statue');
-        if (this.registered?.id === standing.id) { this.registered = null; this.setWake(null); }
-        this.hud.log('You lift the statue. Carry it, and click to set it down somewhere else — on land, or on the raft.', 'good');
-        this.hud.refreshInventory(this.inv);
-      } else if (input.pressed('KeyX')) {
+      else if (standing) this.liftStatue(standing);
+      else if (input.pressed('KeyX')) {
         this.ray.set(eye, dir);
         // A guest's comes off at once, and what it gives comes from the host
         // (together.js), which knows if someone else had it apart first.

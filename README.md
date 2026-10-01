@@ -1294,7 +1294,9 @@ shudders at every stroke on every screen and comes down on every screen near
 enough to see it, and every stroke counts, whoever makes it: two of you at
 one tree fell it in half the time, and the wood goes to whoever lands the
 last. Two of you taking one plant at once is the host's to settle, as with a
-crate: one gets it, and the other is told who was quicker. A thrown spear flies on every
+crate: one gets it, and the other is told who was quicker — and so are two
+at one flint face, or lifting one statue (which stays, too, if someone else
+wakes at it). A thrown spear flies on every
 screen and lands in the same place; what it skewers, the thrower's game
 says — a fish, or an octopus (each of you has your own, so the others see
 one like it), on their spear as on yours, and on the spear in the hand of
