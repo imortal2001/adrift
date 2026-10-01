@@ -92,11 +92,12 @@ TOOLS = {
         textures=dict(colour=1024, data=512),
     ),
     # Unzipped as it came (a folder with scene.gltf). Its edge points +X as
-    # authored: turned to lead, as the hammer's face does. Held low on the
+    # authored: turned to -Z, the way the game looks (+Blender Y, which the
+    # Y-up export makes -Z) — at +Z it faced back at you. Held low on the
     # binding, where you would hold it to swing.
     "axe": dict(
         src="axe/scene.gltf",
-        up="+Z", spin=-90, length=0.62, grip=0.2,
+        up="+Z", spin=90, length=0.55, grip=0.2,
         textures=dict(colour=1024, data=512),
     ),
 }

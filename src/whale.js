@@ -28,6 +28,13 @@ const BLOWS = [3, 5];                // breaths per surfacing
 const BLOW_GAP = [9, 14];            // seconds between them
 const SOUND_TIME = 9;                // the dive, flukes and all
 const ROUTE = [48, 110];             // metres from the raft it keeps to
+// It is passing, not a pet: it keeps you company a while, then moves on —
+// out of sight under water — and is gone a good while before it (or another)
+// comes by again, from somewhere else. (Kept within 110 m of you for good,
+// wherever you went, the same humpback swam every voyage at your side.)
+const STAY = [420, 720];             // seconds a passage lasts
+const AWAY = [720, 1500];            // seconds it is gone between them
+const GONE = 360;                    // metres off, under water, where it is out of sight
 // Water it will swim in: a sea bed at least this deep. The back rides at 9m
 // and the body is ~3m deep, so shallower than this and it would be shoved up
 // the beach by the floor — out of the water, or on the sand. The land is only
@@ -66,6 +73,8 @@ export class Whale {
     this.timer = rand(20, 45);       // the first surfacing comes early
     this.blows = 0;
     this.sounds = 0;                 // times it has gone down, for tests
+    this.stay = rand(...STAY);       // how long this passage has left
+    this.leaving = false;            // moving on: swimming off out of sight
 
     this.spout = this.makeSpout();
     scene.add(this.spout.points);
@@ -152,6 +161,12 @@ export class Whale {
   pickGoal() {
     const r = this.hub;
     const here = Math.atan2(this.pos.z - r.z, this.pos.x - r.x);
+    // Moving on: out the way it is, somewhere deep well past sight.
+    if (this.leaving) {
+      const spot = this.deepSpot(here, GONE * 1.4);
+      this.goal.set(spot.x, 0, spot.z);
+      return;
+    }
     for (let tries = 0; tries < 24; tries++) {
       const a = here + rand(0.6, 1.4) * (Math.random() < 0.8 ? 1 : -1);
       const d = rand(...ROUTE);
@@ -245,7 +260,7 @@ export class Whale {
   }
 
   // ── playing together ───────────────────────────────────────────────────────
-  static STATES = ['cruise', 'rise', 'breathe', 'sound'];
+  static STATES = ['cruise', 'rise', 'breathe', 'sound', 'away'];
 
   /** Where it is and what it is doing, for the others: they swim it on from there. */
   snapshot() {
@@ -267,10 +282,34 @@ export class Whale {
     if (far) this.pitch = pitch;
     this.state = Whale.STATES[state] || 'cruise';
     this.timer = timer;
+    // (Coming and going is the host's to say, while the host's word comes.)
+    this.followedAt = performance.now();
     this.goal.set(gx, 0, gz);
     this.blowsLeft = blows;
     this.descent = descent;
     this.steerIn = 0;
+  }
+
+  /** Gone, between passages. */
+  depart() {
+    this.state = 'away';
+    this.timer = rand(...AWAY);
+    this.leaving = false;
+    this.mesh.visible = false;
+  }
+
+  /** Back again, from somewhere else: well out, under water — its first blow is how you know. */
+  arrive() {
+    const r = this.hub;
+    const start = this.deepSpot(Math.random() * Math.PI * 2, ROUTE[1] * 1.3);
+    this.pos.set(start.x, CRUISE_DEPTH, start.z);
+    this.yaw = Math.atan2(r.x - start.x, r.z - start.z) + rand(-0.6, 0.6);
+    this.state = 'cruise';
+    this.timer = rand(15, 40);
+    this.stay = rand(...STAY);
+    this.leaving = false;
+    this.mesh.visible = true;
+    this.pickGoal();
   }
 
   update(dt, time) {
@@ -278,6 +317,19 @@ export class Whale {
     this.updateSpout(dt);
     if (!this.ready) return;
     this.material.userData.time.value = time;
+    // Following the host's whale — while the host's word keeps coming.
+    const led = performance.now() - (this.followedAt ?? -Infinity) < 3000;
+    if (this.state === 'away') {
+      this.mesh.visible = false;
+      if (!led && (this.timer -= dt) <= 0) this.arrive();
+      return;
+    }
+    this.mesh.visible = true;
+    // The passage over: it moves on, once it is down and cruising.
+    if (!led && !this.leaving && (this.stay -= dt) <= 0 && this.state === 'cruise') {
+      this.leaving = true;
+      this.pickGoal();
+    }
 
     const sea = waveHeight(this.pos.x, this.pos.z, time);
     // Its back, not its belly, rides at the depth, and never through a
@@ -296,7 +348,11 @@ export class Whale {
     // goal; and a whale left far behind comes round again near it — while it
     // is down, cruising, out of sight.
     const r = this.hub;
-    if (this.state === 'cruise' && Math.hypot(this.pos.x - r.x, this.pos.z - r.z) > 420) {
+    const off = Math.hypot(this.pos.x - r.x, this.pos.z - r.z);
+    if (this.leaving) {
+      // Far enough, and down: gone.
+      if (!led && this.state === 'cruise' && off > GONE) { this.depart(); return; }
+    } else if (this.state === 'cruise' && off > 420) {
       const start = this.deepSpot(Math.random() * Math.PI * 2, ROUTE[1]);
       this.pos.set(start.x, CRUISE_DEPTH, start.z);
       this.pickGoal();

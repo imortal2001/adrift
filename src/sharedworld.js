@@ -13,7 +13,11 @@
 // are eased back onto the host's. A school's fish are each machine's own,
 // swimming round it and shying from whichever of you is nearest; a fish
 // someone takes is gone for everyone. A spear someone throws flies on every
-// machine — what it catches, the thrower's game says.
+// machine — what it catches, the thrower's game says. What anyone takes on
+// land — a tree cut down, fronds picked, flint chipped out of a cave wall —
+// is gone for everyone, and a tree comes down on every screen near enough to
+// see it; every stroke of an axe counts for whoever lands the last, so two of
+// you fell a tree in half the time. Who got a plant is the host's to settle.
 //
 // Far apart, though, the sea about each of you is your own: the flotsam, the
 // fish and the whale keep near each player (their `focus`), and a guest takes
@@ -25,10 +29,12 @@ import { ThrownSpears } from './spear.js';
 import { DAY_SECONDS } from './sky.js';
 
 const EVERY = 1 / 3;           // the host tells the others how things stand this often…
+const SAME_SEA = 30;           // m: a fish taken this near the one in its slot here is that one
 const SLOW = 3;                // …and where the flotsam and the fish schools are, every this many
+const NOBODY = [];
 
 export const WORLD_EVENTS = ['world', 'gather', 'fish', 'spear', 'sk', 'spearBack', 'bite', 'kill', 'spears', 'paddle',
-                             'statue', 'unstatue'];
+                             'statue', 'unstatue', 'plant', 'chop', 'flint', 'felled'];
 
 export class SharedWorld {
   constructor(game) {
@@ -47,8 +53,12 @@ export class SharedWorld {
   // ── coming and going ───────────────────────────────────────────────────────
   enter(host) {
     const g = this.game;
-    g.fish.onTake = i => this.send({ k: 'fish', i });
-    g.spears.onSkewer = (s, i) => this.send({ k: 'sk', s: s.id, i });
+    // Where it was, as well as which: far apart, each of you has a sea of
+    // your own, and the fish in that slot here is some other fish, maybe in
+    // front of you.
+    const at = p => p && [Math.round(p.x), Math.round(p.z)];
+    g.fish.onTake = (i, p) => this.send({ k: 'fish', i, p: at(p) });
+    g.spears.onSkewer = (s, i, key, p) => this.send(i >= 0 ? { k: 'sk', s: s.id, i, key, p: at(p) } : { k: 'sk', s: s.id, key });
   }
 
   exit() {
@@ -58,6 +68,7 @@ export class SharedWorld {
     for (const s of this.thrown.values()) this.ghosts.drop(s);
     this.thrown.clear();
     g.fish.others.length = 0;
+    g.debris.others = NOBODY;
     g.wildlife.others.length = 0;
   }
 
@@ -82,6 +93,8 @@ export class SharedWorld {
                v: s.vel.toArray().map(r), f: s.catch.map(f => f.key) };
     });
     if (list.length) this.net.event({ k: 'spears', list }, id);
+    // And, hosting, what is gone from the land since the room last kept it.
+    if (this.net.isHost) this.net.event({ k: 'felled', f: this.game.terrain.felledList(), c: this.game.caves.chippedList() }, id);
   }
 
   /** A kill the host's animals made: news to everyone. */
@@ -97,12 +110,15 @@ export class SharedWorld {
   follow(on) {
     const g = this.game;
     this.following = on;
-    if (!on) this.nearHost = false;
+    if (!on) this.nearHost = g.debris.follow = false;
     g.wildlife.follow = on;
     g.fish.follow = on;
   }
 
   send(e) { if (this.net.connected) this.net.event(e); }
+
+  /** Is our fish `f` the one someone took at `p` ([x, z]) — in the same sea? (No `p`: an older game's word; take it as said.) */
+  sameSea(f, p) { return !!f && (!Array.isArray(p) || Math.hypot(f.pos.x - p[0], f.pos.z - p[1]) < SAME_SEA); }
 
   // ── what you do ────────────────────────────────────────────────────────────
   gathered(it) { this.send({ k: 'gather', i: this.game.debris.items.indexOf(it), p: [Math.round(it.x * 10) / 10, Math.round(it.z * 10) / 10] }); }
@@ -113,6 +129,15 @@ export class SharedWorld {
   }
 
   tookBack(s) { this.send({ k: 'spearBack', s: s.id }); }
+
+  /** A plant gone — cut down (falling `a`, the way it goes) or picked — for everyone. */
+  plantTaken(key, a, regrow) { this.send({ k: 'plant', key, a, r: Math.round(regrow) }); }
+
+  /** A stroke of the axe at a tree: the others see it shudder, and it counts toward it coming down. */
+  chopped(key, a) { this.send({ k: 'chop', key, a }); }
+
+  /** A flint face chipped out: gone for everyone. */
+  chipped(key) { this.send({ k: 'flint', key }); }
 
   /** A statue set up, or taken up again: it is the world's, so everyone's. */
   statueUp(s) { this.send({ k: 'statue', s: [s.id, +s.x.toFixed(2), +s.z.toFixed(2), +s.yaw.toFixed(3)] }); }
@@ -142,7 +167,7 @@ export class SharedWorld {
       // apart, each of you has your own flotsam, fish and whale.
       const host = this.net.remotes.get(this.net.host);
       const near = !!host && Math.hypot(host.pose.pos.x - g.player.pos.x, host.pose.pos.z - g.player.pos.z) < 160;
-      g.fish.follow = near;
+      g.fish.follow = g.debris.follow = near;
       this.nearHost = near;
       if (near) {
         if (e.w) g.whale.adopt(e.w);
@@ -169,11 +194,16 @@ export class SharedWorld {
       if (same && !it.held) g.debris.harvest(it);
     } else if (e.k === 'fish') {
       const f = g.fish.fish[e.i];
-      if (f && !(f.caught > 0)) g.fish.take(f, true);
+      if (f && !(f.caught > 0) && this.sameSea(f, e.p)) g.fish.take(f, true);
     } else if (e.k === 'spear' && Array.isArray(e.p) && Array.isArray(e.d)) {
       this.ghosts ||= new ThrownSpears(g.scene, g.terrain, g.raft, g.fish, g.spears.makeBody, true);
       const s = this.ghosts.throw(new THREE.Vector3(...e.p), new THREE.Vector3(...e.d).normalize(), !!e.u, !!e.l);
       this.thrown.set(`${from}:${e.s}`, s);
+    } else if (e.k === 'sk' && typeof e.key === 'string' && !(e.i >= 0 && this.sameSea(g.fish.fish[e.i], e.p))) {
+      // Not one of the shared fish — an octopus, the thrower's own: one like it on their spear.
+      const s = this.thrown.get(`${from}:${e.s}`), sp = g.fish.species(e.key);
+      const body = s && sp && g.fish.displayBody(e.key, (sp.length[0] + sp.length[1]) / 2);
+      if (body) this.ghosts.skewer(s, body);
     } else if (e.k === 'sk') {
       const s = this.thrown.get(`${from}:${e.s}`), f = g.fish.fish[e.i];
       if (!f) return;
@@ -201,6 +231,16 @@ export class SharedWorld {
         }
         this.thrown.set(`${from}:${t.s}`, s);
       }
+    } else if (e.k === 'plant' && typeof e.key === 'string') {
+      g.plantGone(e.key, e.a, e.r);
+    } else if (e.k === 'chop' && typeof e.key === 'string') {
+      g.chopSeen(e.key, e.a);
+    } else if (e.k === 'flint' && typeof e.key === 'string') {
+      g.caves.chippedElsewhere(e.key);
+    } else if (e.k === 'felled') {
+      if (this.net.isHost) return;
+      g.terrain.restoreFelled(Array.isArray(e.f) ? e.f : []);
+      g.caves.restoreChipped(e.c, false);
     } else if (e.k === 'kill' && Array.isArray(e.p)) {
       if (this.net.isHost) return;
       g.wildlife.kills.push({ hunter: String(e.h), victim: String(e.v), pos: new THREE.Vector3(e.p[0], g.player.pos.y, e.p[1]) });
@@ -239,6 +279,7 @@ export class SharedWorld {
     }
     eyes.length = n;
     g.fish.others = eyes;
+    g.debris.others = net.isHost ? eyes : NOBODY;      // (a guest's pieces, near the host, are the host's)
     if (g.reef) g.reef.others = eyes;
     g.wildlife.others = net.isHost ? others : [];
 

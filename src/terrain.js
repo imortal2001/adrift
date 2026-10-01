@@ -185,11 +185,14 @@ function seabedAt(x, z, out) {
   const reef = reefMask(x, z, out);
   if (reef > 0.001) {
     const ridge = 1 - Math.abs(fbm(x * 0.019, z * 0.019, 4) * 2 - 1);
-    h += reef * Math.pow(ridge, 2.4) * REEF_HEIGHT;
+    h += reef * Math.pow(ridge, 2.4) * REEF_HEIGHT * smooth(0, 8, out);
   }
 
   h += smooth(4, 44, out) * (fbm(x * 0.012, z * 0.012, 3) - 0.5) * 3.2;  // sand dunes
-  h += (fbm(x * 0.13, z * 0.13, 2) - 0.5) * 0.5;                         // ripples
+  // (Both fade in off the beach: at the water's edge the sea bed is the sand
+  // the beach ran down into, not half a metre under it — the shore was a
+  // little ledge where the ripples and a coral head came up to it.)
+  h += (fbm(x * 0.13, z * 0.13, 2) - 0.5) * 0.5 * smooth(0, 4, out);      // ripples
   return h;
 }
 
@@ -198,8 +201,8 @@ function seabedAt(x, z, out) {
 // one is built the way land is: a coast of bays and headlands, beaches on the
 // sheltered side and sea cliffs on the exposed one; rolling hills behind the
 // beach, wide open plains, stepped escarpments where harder rock stands up;
-// and in the middle a range of jagged peaks, snow on the tops, that you can
-// see from the raft. Rivers come down off the range and cut valleys to the sea.
+// and in the middle a range of jagged peaks, cloud forest to the tops, that
+// you can see from the raft. Rivers come down off the range and cut valleys to the sea.
 //
 // Every part is noise sampled through a *warped* domain — the coordinates are
 // pushed around by another, slower noise first — which is what stops fbm
@@ -210,7 +213,11 @@ function seabedAt(x, z, out) {
 const LANDING_CLEAR = [320, 520];         // metres from the raft: no cliffs, then cliffs allowed
 const MOUNTAIN_HEIGHT = 330;              // the tallest peaks
 const TERRACE = 16;                       // riser height of the stepped escarpments
-export const SNOWLINE = 250;
+// No snow and no treeline: in the Late Cretaceous greenhouse, with no frost
+// in the lowlands, the treeline would have stood 2.5–4 km up — ten times
+// these peaks. TREELINE is where the lowland forest gives way to the stunted,
+// dripping cloud forest of the tops: araucarias, tree ferns, moss; bare rock
+// only where it is too steep to hold soil.
 export const TREELINE = 185;
 
 /** A mountain range, not a field of bumps: ridged multifractal, each octave's
@@ -261,8 +268,12 @@ export function landAt(x, z, out = _land) {
 
     // The coast: a beach and a low plain behind it, or a cliff straight up.
     const cliff = out.cliff = seaCliff(x, z);
-    const beach = smooth(0, 34, m) * 8;
-    const cliffTop = smooth(0, 7, m) * (24 + fbm(wx * 0.01, wz * 0.01, 2) * 26) + smooth(7, 60, m) * 6;
+    // A sand beach is gentle: a foreshore of 3–5° (tanβ ~0.06 for medium
+    // sand), then the back of the beach rising to the dunes and the land.
+    const beach = smooth(0, 60, m) * 3 + smooth(40, 120, m) * 5;
+    // (The cliff's height varies along the coast, over a few hundred metres —
+    // not in 100 m lumps, which on the land behind it were a field of 40° bumps.)
+    const cliffTop = smooth(0, 7, m) * (24 + fbm(wx * 0.0035, wz * 0.0035, 2) * 26) + smooth(7, 60, m) * 6;
     h = beach + (cliffTop - beach) * cliff;
 
     // Upland: the ground climbs gently the further in you go.
@@ -270,16 +281,22 @@ export function landAt(x, z, out = _land) {
 
     const mountain = out.mountain = smooth(280, 600, m) *
       smooth(0.3, 0.5, fbm(wx * 0.0011 + 3.7, wz * 0.0011 + 8.1, 2) + smooth(380, 760, m) * 0.5);
-    const plain = out.plain = smooth(0.5, 0.64, fbm(wx * 0.0017 + 33.1, wz * 0.0017 - 12.4, 3)) *
+    // (Its edge a long, gentle transition: the hills die away onto the plain
+    // rather than dropping onto it down a scarp.)
+    const plain = out.plain = smooth(0.44, 0.7, fbm(wx * 0.0017 + 33.1, wz * 0.0017 - 12.4, 3)) *
       smooth(70, 170, m) * (1 - mountain);
 
     // Rolling hills, flattened out on the plains to a gentle swell.
+    // A plain is flat — under a couple of degrees — with no more than a
+    // metre or so of swell across it.
     const hills = (fbm(wx * 0.0046, wz * 0.0046, 4) - 0.36) * 74 * smooth(12, 170, m);
-    h += hills * (1 - plain * 0.88) + plain * (fbm(wx * 0.011, wz * 0.011, 2) - 0.5) * 5;
+    h += hills * (1 - plain * 0.985) + plain * (fbm(wx * 0.011, wz * 0.011, 2) - 0.5) * 1.0;
 
     // The range: ridges and peaks, with foothills running down from them.
     if (mountain > 0.001) {
-      const r = ridged(wx * 0.0024, wz * 0.0024);
+      // (Broad enough that its slopes come out at the ~35° a warm, wet range
+      // wears to — landslides cap it there — not 40° and more.)
+      const r = ridged(wx * 0.0019, wz * 0.0019);
       h += mountain * (Math.pow(r, 1.35) * MOUNTAIN_HEIGHT + fbm(wx * 0.009, wz * 0.009, 3) * 30);
     }
 
@@ -289,9 +306,13 @@ export function landAt(x, z, out = _land) {
       smooth(90, 200, m) * (1 - mountain * 0.8) * (1 - plain);
     // Only above the first bench: stepping the low ground as well would
     // flatten it to the waterline and leave ponds behind the beach.
+    // Each step is a bench, nearly level, then a talus slope at ~33° up to
+    // a cap cliff of hard sandstone at ~70°: the profile of a scarp in
+    // horizontal beds, not a ramp with a sharp top edge.
     if (mesa > 0.001 && h > TERRACE) {
       const f = h / TERRACE, k = Math.floor(f), r = f - k;
-      const stepped = (k + Math.pow(r, 5)) * TERRACE;
+      const step = r < 0.8 ? r * 0.025 : r < 0.955 ? 0.02 + 0.44 * Math.pow((r - 0.8) / 0.155, 1.4) : 0.46 + 0.54 * (r - 0.955) / 0.045;
+      const stepped = (k + step) * TERRACE;
       h += (stepped - h) * mesa * smooth(TERRACE, TERRACE * 1.6, h);
     }
 
@@ -308,9 +329,24 @@ export function landAt(x, z, out = _land) {
   }
 
   // Surf-zone detail straddles the waterline, so beach and shallows are one
-  // continuous surface rather than two that meet at a seam.
-  h += smooth(-10, 18, m) * (1 - out.cliff) * (fbm(x * 0.027, z * 0.027, 3) - 0.5) * 8;  // undulation
-  h += smooth(-6, 12, m) * (fbm(x * 0.11, z * 0.11, 2) - 0.5) * 1.6;                     // surface detail
+  // continuous surface rather than two that meet at a seam. Only there:
+  // inland, a swell that size is a field of pits and makes the plains steep.
+  // (Not on a river's valley floor either: that is as the river laid it.)
+  const surf = smooth(-10, 18, m) * (1 - smooth(30, 90, m));
+  const soft = smooth(30, 90, m) * (0.3 - out.plain * 0.22);            // the gentle swell of the country inland
+  h += (surf + soft) * (1 - out.cliff) * (fbm(x * 0.027, z * 0.027, 3) - 0.5) * 8 * (1 - out.bank * 0.92);  // undulation
+  // Fine detail, by landform: rough on the rock, smooth on soil, barely any on
+  // the plains. (Less in a river's bed, or its bumps come up through the water.)
+  const fine = smooth(-6, 12, m) * (0.45 + out.mountain * 0.55 - out.plain * 0.35);
+  h += fine * (fbm(x * 0.11, z * 0.11, 2) - 0.5) * 1.6 * (0.2 + 0.8 * smooth(0, 4, out.edge));  // surface detail
+  // Nor behind the beach: the undulation above dug hollows 20–30 m up the
+  // sand that went below the sea, and the ocean filled them — pools of sea,
+  // waves and all, cut off from the water. Only at the water's edge may the
+  // sand go under; past it a hollow bottoms out dry, pulled up softly.
+  if (m > 0 && !(out.water > 0)) {
+    const lo = 0.5 * smooth(4, 16, m);
+    if (h < lo) h = lo - 0.3 * (1 - Math.exp(-(lo - h) / 0.3));
+  }
   // Lakes last, after the detail, so how deep they are is exactly as dished.
   if (m >= 0 && LAKES.length) h = carveLakes(x, z, h, out);
   // And no river deeper than wading either — the detail above can dig a
@@ -343,14 +379,26 @@ function seaCliff(x, z) {
 // to the sea. Near the channel the land is set to that level — carved down
 // through ridges into gorges, and banked up across hollows into a flood
 // plain — then blends back into the country either side.
+//
+// Sized and shaped as rivers are (Leopold & Maddock 1953; Leopold & Wolman
+// 1960; Langbein & Leopold 1966):
+//   width    grows downstream with the land it drains — as the area to the
+//            ~0.4, and the area as the length to the ~1.7 (Hack's law) — so
+//            quickly at first and then slowly; a catchment of a few square
+//            kilometres in a wet climate makes a river ten-odd metres wide at
+//            the mouth, not twenty. Depth grows too, more slowly.
+//   steps    a river this short, off a range this high, falls ~20% most of
+//            the way: a mountain stream, not a lowland one. So it does not
+//            meander (that takes under ~1.5%: Leopold & Wolman 1957) and runs
+//            straight in its valley, as a staircase of pools (stepRiver).
 const THETA_RAFT = Math.atan2(-WORLD.cz, -WORLD.cx);   // bearing of the raft from the centre
 export const RIVERS = [
   // Mouth a few hundred metres up the coast from the landing beach.
   { bearing: THETA_RAFT + 0.34, wander: [0.14, 0.0062, 1.3, 0.05, 0.017, 4.1],
-    from: 0.3, width: [4, 17], depth: 1.25 },
+    from: 0.3, width: [2.6, 11], depth: [0.55, 1.2] },
   // And one on the far side of the range.
   { bearing: THETA_RAFT + 2.55, wander: [0.18, 0.0055, 0.4, 0.06, 0.014, 2.2],
-    from: 0.28, width: [4, 20], depth: 1.25 },
+    from: 0.28, width: [2.6, 12], depth: [0.55, 1.25] },
 ];
 const RIVER_STEP = 4;                                  // metres between water-level samples
 // The lakes and falls on them (placeWater, below): empty while the rivers are surveyed.
@@ -372,12 +420,19 @@ function riverAt(rv, r) {
   const t = (r - rv.r0) / RIVER_STEP;
   if (t < 0 || t >= rv.level.length - 1) return null;
   const k = Math.floor(t);
-  // Over the lip of a fall the water drops in half a metre, not four: a cliff.
-  const f = k === rv.fallK ? smooth(0.4, 0.52, t - k) : t - k;
-  const along = (r - rv.r0) / (rv.r1 - rv.r0);
+  // Over the lip of a fall the water drops in half a metre, not four: a
+  // cliff; over a step between two pools, in a metre and a half.
+  const f = k === rv.fallK ? smooth(0.4, 0.52, t - k) : rv.step && rv.step[k] ? smooth(0.3, 0.7, t - k) : t - k;
+  const g = t - k, bank = rv.bank ? rv.bank[k] * (1 - g) + rv.bank[k + 1] * g : null;
+  const along = Math.max(0, (r - rv.r0) / (rv.r1 - rv.r0));
   return {
     level: rv.level[k] * (1 - f) + rv.level[k + 1] * f,
-    width: rv.width[0] + (rv.width[1] - rv.width[0]) * along,
+    // The flood plain's level: the smooth fall of the valley, which the
+    // pools of a stepped reach are sunk into.
+    bank,
+    // Width as the area drained to the ~0.42 (the area as the length to ~1.7); depth to the ~0.25.
+    width: rv.width[0] + (rv.width[1] - rv.width[0]) * Math.pow(along, 0.7),
+    depth: rv.depth[0] + (rv.depth[1] - rv.depth[0]) * Math.pow(along, 0.4),
     // A spring, not a pipe: the channel opens out over its first stretch.
     open: smooth(0, 70, r - rv.r0),
   };
@@ -402,19 +457,38 @@ function carveRivers(x, z, h, m, out) {
     // notch the water pours through, not a wall across the country.
     if (rv.fallK >= 0) {
       const rl = rv.r0 + (rv.fallK + 0.46) * RIVER_STEP;
-      if (r > rl - 12 && r < rl + 30) {
+      // (From the lip itself, not before it: beside the fall the banks stand
+      // at the water's height right to the brink — a ledge of rock either
+      // side of the curtain — and then fall away, a talus slope at ~36°.)
+      if (r > rl - 1 && r < rl + 30) {
         const top = rv.level[rv.fallK], bottom = rv.level[rv.fallK + 1];
-        const ramp = top + (bottom - top) * smooth(rl - 12, rl + 30, r);
+        const ramp = top + (bottom - top) * smooth(rl, rl + 30, r);
         W += (ramp - W) * smooth(half + 3, half + 14, d);
       }
     }
     // Deeper cuts need wider valley walls, or they would be sheer everywhere.
     const plainW = 6 + at.width * 1.4;
+    // A stepped reach: its pools are sunk below the valley floor, their
+    // banks coming up to it.
+    const lift = at.bank !== null ? Math.max(0, at.bank - W) : 0;
     const wall = 26 + Math.min(Math.max(0, h - W), 300) * 1.05;
     if (d > half + plainW + wall) continue;
     let floor;
-    if (d < half) floor = W - rv.depth * at.open * (1 - (d / half) ** 2);
-    else floor = W + 0.15 + smooth(half, half + 4, d) * 0.55 + smooth(half + 4, half + plainW, d) * 0.5;
+    // And the river itself comes down to the sea's level over its last few
+    // metres, as its water does (riverGeometry): its valley floor with it.
+    const Wf = W + (Math.min(W, -0.3) - W) * smooth(8, 2, m);
+    // (Its channel shallowing out onto the sea bed at the mouth, too: cut to
+    // full depth to the shore, it ended in a step a metre down into the sea.)
+    if (d < half) floor = Wf - at.depth * at.open * smooth(0, 12, m) * (1 - (d / half) ** 2);
+    else {
+      // The flood plain stands a metre and more over the water — but not at
+      // the sea: there it runs out onto the beach, down to the water's edge.
+      // (Kept up to the shore, the valley ended in a ledge along the coast,
+      // a metre or so straight down into the sea, where castaways come to.)
+      const coast = smooth(0, 24, m);
+      floor = Wf + coast * (lift * smooth(half, half + 1.5 + lift * 1.5, d) + 0.15 +
+                           smooth(half, half + 4, d) * 0.55 + smooth(half + 4, half + plainW, d) * 0.5);
+    }
     // Above the spring the valley closes up into the hillside.
     const k = smooth(half + plainW, half + plainW + wall, d);
     const blend = 1 - (1 - k) * smooth(rv.r0 - 150, rv.r0, r);
@@ -436,8 +510,8 @@ function carveRivers(x, z, h, m, out) {
  */
 function surveyRivers() {
   const probe = {};
+  for (const rv of RIVERS) { rv.level = rv.bank = rv.step = null; rv.fallK = -1; }
   for (const rv of RIVERS) {
-    rv.level = null;
     const R = WORLD.radius;
     rv.r0 = R * rv.from;
     // Walk out to the coast.
@@ -467,6 +541,7 @@ function surveyRivers() {
     rv.level = level;
   }
 }
+
 surveyRivers();
 
 // ── lakes and falls ──────────────────────────────────────────────────────────
@@ -494,9 +569,9 @@ function courseAt(rv, r) {
   return { x, z, level: at?.level ?? 0, width: at ? at.width * at.open : 4, dx: (x2 - x) / len, dz: (z2 - z) / len };
 }
 
-function addLake(kind, c, a, b, level, seed) {
+function addLake(kind, c, a, b, level, seed, river) {
   const k = Math.atan2(c.dz, c.dx);
-  const lake = { kind, x: c.x, z: c.z, a, b, level, depth: LAKE_DEPTH, cos: Math.cos(k), sin: Math.sin(k),
+  const lake = { kind, river, x: c.x, z: c.z, a, b, level, depth: LAKE_DEPTH, cos: Math.cos(k), sin: Math.sin(k),
                  s1: seed * 1.7, s2: seed * 2.9 + 1, s3: seed * 4.3 + 2 };
   lake.reach = Math.max(a, b) * 1.25 + 40;
   LAKES.push(lake);
@@ -507,7 +582,8 @@ function addLake(kind, c, a, b, level, seed) {
 export function lakeShore(L, th) {
   const c = Math.cos(th), s = Math.sin(th);
   const e = 1 / Math.sqrt((c / L.a) ** 2 + (s / L.b) ** 2);
-  if (L.kind === 'pool') return e;
+  // (A plunge pool's back is the foot of the cliff: straight.)
+  if (L.kind === 'pool') return L.back && c < 0 ? Math.min(e, L.back / -c) : e;
   return e * (1 + 0.12 * Math.sin(3 * th + L.s1) + 0.07 * Math.sin(5 * th + L.s2) + 0.04 * Math.sin(9 * th + L.s3));
 }
 
@@ -535,30 +611,34 @@ function placeWater() {
       // straight out from the middle — whichever way the river crosses it.
       const rl = Math.hypot(lip.x - WORLD.cx, lip.z - WORLD.cz);
       const face = { dx: (lip.x - WORLD.cx) / rl, dz: (lip.z - WORLD.cz) / rl };
-      // The pool it falls into, dug a little wider than the river.
-      const pr = Math.min(10, Math.max(5, 3 + lip.width * 0.45));
+      // The pool it falls into: dug by the drop, as wide as about half its
+      // height (Scheingross & Lamb 2016), and wider than the river.
+      const pr = Math.min(12, Math.max(5, H * 0.5, 3 + lip.width * 0.45));
       for (let k = i + 1; k <= i + Math.ceil((pr * 2 + 3) / RIVER_STEP) && k < n; k++) lv[k] = bottom;
       // How wide the curtain is along the cliff: the channel, crossed at an angle.
-      const across = (lip.width + 1) / Math.max(0.5, Math.abs(lip.dx * face.dx + lip.dz * face.dz));
+      const across = lip.width / Math.max(0.5, Math.abs(lip.dx * face.dx + lip.dz * face.dz));
       FALLS.push({ river: ri, x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, flow: { x: lip.dx, z: lip.dz },
                    top, bottom, height: H, width: Math.min(across, lip.width * 1.8 + 1) });
       // Starting just past the foot of the cliff, so it never eats into the lip.
       const pc = courseAt(rv, rAt(i) + RIVER_STEP * 0.46 + pr + 0.4);
       // The cliff is the fall's: the pool's banks leave everything above the lip alone.
-      addLake('pool', pc, pr, pr, bottom, ri * 7 + 3).cut = { x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, side: 1 };
+      const pool = addLake('pool', pc, pr, pr, bottom, ri * 7 + 3, ri);
+      pool.cut = { x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, side: 1 };
+      FALLS.at(-1).pool = pool;
       // And above it, a tarn: flat water right up to the lip.
       let j = i;
       while (j > 0 && lv[j - 1] - top < 3 && i - j < 30) j--;
       const a = Math.min(60, Math.max(14, (i - j) * RIVER_STEP / 2 + 4));
       const from = Math.max(0, i - Math.ceil(2 * a / RIVER_STEP));
       for (let k = from; k <= i; k++) lv[k] = top;
+      cascadeInto(lv, from, top);
       // Its shore a metre short of the lip, whichever way it wobbles; the
       // river carries the water over the last of it.
-      const tarn = addLake('tarn', courseAt(rv, rAt(i) - a), a, Math.min(a * 0.8, Math.max(10, lip.width * 1.6)), top, ri * 7 + 1);
+      const tarn = addLake('tarn', courseAt(rv, rAt(i) - a), a, Math.min(a * 0.8, Math.max(10, lip.width * 1.6)), top, ri * 7 + 1, ri);
       const reachDown = lakeShore(tarn, 0);
       const tc = courseAt(rv, rAt(i) + RIVER_STEP * 0.46 - 1 - reachDown);
       // …and the tarn's leave everything below it.
-      Object.assign(tarn, { x: tc.x, z: tc.z, outlet: true, cut: { x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, side: -1 } });
+      Object.assign(tarn, { x: tc.x, z: tc.z, outlet: true, fall: FALLS.at(-1), cut: { x: lip.x, z: lip.z, dx: face.dx, dz: face.dz, side: -1 } });
       const k = Math.atan2(tc.dz, tc.dx);
       tarn.cos = Math.cos(k); tarn.sin = Math.sin(k);
     }
@@ -573,18 +653,85 @@ function placeWater() {
         const d = lv[i] - lv[i + run];
         if (d < least) { least = d; bi = i; }
       }
-      if (bi >= 0 && least < 4.5) {
+      if (bi >= 0 && least < 7) {
         const e = bi + run, L = lv[e];
         for (let k = bi; k <= e; k++) lv[k] = L;
+        cascadeInto(lv, bi, L);
         const a = run * RIVER_STEP / 2 * 0.95;
         const c = courseAt(rv, rAt(bi) + run * RIVER_STEP / 2);
-        const lake = addLake('lake', c, a, Math.min(a * 0.75, Math.max(18, c.width * 2.4)), L, 11);
+        const lake = addLake('lake', c, a, Math.min(a * 0.75, Math.max(18, c.width * 2.4)), L, 11, ri);
         // Its ends inside the levelled stretch, however its shore wobbles —
         // so the river leaves it at its own level, not from a ledge.
         lake.a /= Math.max(lakeShore(lake, 0), lakeShore(lake, Math.PI)) / lake.a;
       }
     }
+    stepRiver(rv);
   });
+  for (const f of FALLS) {
+    // The pool under it: right in against the foot of the cliff, its
+    // back straight along it and wider than the curtain, so the water lands
+    // in water all the way across — not on a ledge of rock at the foot.
+    const P = f.pool;
+    if (P) {
+      const c = P.a * 0.75;
+      P.x = f.x + f.dx * c; P.z = f.z + f.dz * c;
+      P.cos = f.dx; P.sin = f.dz;
+      // (Its straight back runs ±0.66 b; the curtain spreads ~12% as it falls.)
+      P.b = Math.max(P.a, (f.width / 2 * 1.15 + 1.5) / 0.66);
+      P.back = c - 0.1;
+      P.reach = Math.max(P.a, P.b) * 1.25 + 40;
+    }
+  }
+}
+
+/**
+ * Flat water cut into a steep stream would leave the stream coming into it
+ * off a ledge metres high. It comes in down a cascade instead: the reach
+ * above `from` regraded down to the still water's level, as steep as it must
+ * be to meet the stream again within sixty-odd metres (stepRiver then makes
+ * it steps).
+ */
+function cascadeInto(lv, from, level) {
+  if (from < 2 || lv[from - 1] - level < 1.5) return;
+  let M = 6;
+  while (M < 16 && from - M > 0 && (lv[from - M] - level) / (M * RIVER_STEP) > 0.3) M++;
+  const base = lv[Math.max(0, from - M)];
+  for (let m = 1; m < M && from - m >= 0; m++) lv[from - m] = Math.min(lv[from - m], level + (base - level) * m / M);
+}
+
+/**
+ * A steep stream is not a ramp of water. Over ~6% it goes as a staircase:
+ * pools, each held up by a step of boulders or rock at its lip, the water
+ * dropping over that into the next (Montgomery & Buffington 1997: step-pool
+ * and cascade reaches). The steps are one to two channel widths apart,
+ * each as high as the river would fall over that distance. The pools sit at
+ * the foot of the smooth fall, never above it, so the valley floor is left
+ * as it was and the pools are cut down into it.
+ */
+function stepRiver(rv) {
+  const lv = rv.level, n = lv.length;
+  rv.bank = Float32Array.from(lv);
+  rv.step = new Uint8Array(n);
+  let i = 0;
+  while (i < n - 3) {
+    const along = i / n;
+    const width = rv.width[0] + (rv.width[1] - rv.width[0]) * Math.pow(along, 0.7);
+    // One to two widths between steps — closer where it is steeper, so no
+    // step is much over two and a half metres (a cascade, at the steepest).
+    const s2 = (lv[i] - lv[Math.min(n - 1, i + 2)]) / (2 * RIVER_STEP);
+    const len = Math.min(width * 1.7, s2 > 0 ? 2.5 / s2 : Infinity);
+    const e = Math.min(n - 1, i + Math.max(1, Math.min(4, Math.round(len / RIVER_STEP))));
+    const slope = (lv[i] - lv[e]) / ((e - i) * RIVER_STEP);
+    const nearFall = rv.fallK >= 0 && i > rv.fallK - 6 && i < rv.fallK + 10;
+    let flat = false;
+    for (let k = i; k < e; k++) if (lv[k] === lv[k + 1]) flat = true;     // a lake, a tarn, a pool: already still
+    if (slope > 0.065 && !nearFall && !flat) {
+      // A step at i, down to a pool that runs to e at the level the river had there.
+      for (let k = i + 1; k <= e; k++) lv[k] = lv[e];
+      rv.step[i] = 1;
+      i = e;
+    } else i++;
+  }
 }
 placeWater();
 
@@ -598,12 +745,22 @@ function carveLakes(x, z, h, out) {
     const u = dx * L.cos + dz * L.sin, v = -dx * L.sin + dz * L.cos;
     const rho = Math.hypot(u, v), R = lakeShore(L, Math.atan2(v, u));
     const d = rho - R, W = L.level;
+    // A lake above a fall comes to the lip only where the curtain is: to
+    // either side the rock of the lip stands clear of it, or its water would
+    // reach the brink with nothing to fall over it.
+    const F = L.fall;
+    const ledge = F ? THREE.MathUtils.smoothstep(Math.abs((x - F.x) * -F.dz + (z - F.z) * F.dx), F.width / 2 - 0.5, F.width / 2 + 1) *
+                      THREE.MathUtils.smoothstep((x - L.cut.x) * L.cut.dx + (z - L.cut.z) * L.cut.dz, -4, -1.5) : 0;
+    if (ledge > 0.5 && d < 0) continue;
     let carved;
     if (d < 0) {
       // A shelf round the edge, then down to the deep middle — never deeper
-      // than wading, whatever hollow was here.
-      const floor = W - 0.05 - L.depth * smooth(0, 0.45, 1 - rho / R);
+      // than wading, whatever hollow was here. Where the river comes in it
+      // drops what it carries: a delta, a shallow flat of sand out into the lake.
+      const delta = L.kind === 'lake' || L.kind === 'tarn' ? 1 - 0.75 * smooth(-0.3, -0.85, u / L.a) : 1;
+      const floor = W - 0.05 - L.depth * delta * smooth(0, 0.45, 1 - rho / R);
       carved = Math.max(Math.min(h, floor), W - WADING);
+      carved += (h - carved) * ledge * 2;
     } else {
       const floor = W + 0.15 + smooth(0, 3, d) * 0.45;
       const wall = 14 + Math.min(Math.abs(h - W), 200) * 1.0;
@@ -679,9 +836,42 @@ export function riverGeometry(rv, keep = null) {
     const u = dx * L.cos + dz * L.sin, v = -dx * L.sin + dz * L.cos;
     return Math.hypot(u, v) < lakeShore(L, Math.atan2(v, u)) - 1.5;
   });
-  const pts = riverCourse(rv, 4).map(p => ((keep && !keep(p.x, p.z)) || inLake(p) ? null : p));
+  const falls = FALLS.filter(f => RIVERS[f.river] === rv);
+  // (Nor partway down a fall: a sample that lands in the drop is the
+  // curtain's water, and joined to the pool it would be a slab of it lying
+  // at the foot of the curtain.)
+  const midFall = p => falls.some(f => p.level < f.top - 0.3 && p.level > f.bottom + 0.3 && Math.hypot(p.x - f.x, p.z - f.z) < 25);
+  // Into the sea at the mouth: the river runs a little above the sea to the
+  // last, and carried on at that level its square end lay out on top of the
+  // waves. Over the last few metres of beach it slopes down under the sea's
+  // surface, and stops a little way out.
+  const toSea = p => {
+    const m = coastDistance(p.x, p.z);
+    if (m < -3) return null;
+    if (m < 8) p.level += (-0.3 - p.level) * smooth(8, 2, m);
+    return p;
+  };
+  const pts = riverCourse(rv, 2).map(p => ((keep && !keep(p.x, p.z)) || inLake(p) || midFall(p) ? null : toSea(p)));
   if (pts.filter(Boolean).length < 2) return null;
   const pos = [], uv = [], idx = [];
+  // Above a fall the water stops at the lip, square to the cliff: the
+  // ribbon's end is square to the river, which crosses the cliff at a slant,
+  // so one corner of it would stick out over the drop.
+  const atLip = (x, y, z, fwd = null) => {
+    for (const f of falls) {
+      if (fwd && y >= f.top - 1 && Math.hypot(x - f.x, z - f.z) < 25) {
+        // The last of it before the drop: carried on, the way the river
+        // runs, right to the lip — at a slant, square to the river, it would
+        // stop short of the lip on one side and leave the bed there bare.
+        const gap = -0.2 - ((x - f.x) * f.dx + (z - f.z) * f.dz), k = fwd.x * f.dx + fwd.z * f.dz;
+        if (gap > 0 && gap < 8 && k > 0.2) { x += fwd.x * gap / k; z += fwd.z * gap / k; }
+      }
+      if (y < f.top - 1 || Math.hypot(x - f.x, z - f.z) > 25) continue;
+      const past = (x - f.x) * f.dx + (z - f.z) * f.dz + 0.2;
+      if (past > 0) { x -= f.dx * past; z -= f.dz * past; }
+    }
+    pos.push(x, y, z);
+  };
   let along = 0, n = 0, prev = null;
   pts.forEach((p, k) => {
     if (!p) { prev = null; return; }
@@ -689,8 +879,18 @@ export function riverGeometry(rv, keep = null) {
     const dx = q.x - o.x, dz = q.z - o.z, len = Math.hypot(dx, dz) || 1;
     const sx = -dz / len, sz = dx / len;
     if (prev) along += Math.hypot(p.x - prev.x, p.z - prev.z);
-    const w = p.width / 2 + 2.2;
-    pos.push(p.x - sx * w, p.level, p.z - sz * w, p.x + sx * w, p.level, p.z + sz * w);
+    // Wider than the channel, so its edges tuck under the banks — except
+    // coming up to a lip, where the banks fall away into the notch and the
+    // tuck would hang out over them.
+    let tuck = 2.2;
+    for (const f of falls) {
+      const before = -((p.x - f.x) * f.dx + (p.z - f.z) * f.dz);
+      if (p.level > f.top - 1 && Math.hypot(p.x - f.x, p.z - f.z) < 25) tuck = Math.min(tuck, -0.3 + 2.5 * smooth(2, 12, before));
+    }
+    const w = p.width / 2 + tuck;
+    const last = !pts[k + 1] ? { x: dx / len, z: dz / len } : null;
+    atLip(p.x - sx * w, p.level - 0.02, p.z - sz * w, last);
+    atLip(p.x + sx * w, p.level - 0.02, p.z + sz * w, last);
     uv.push(0, along / 7, w * 2 / 7, along / 7);
     if (prev && prev.level - p.level < 6) { const a = (n - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     prev = p;
@@ -720,9 +920,11 @@ const C = {
   coralB:new THREE.Color(0x7d6494),   // and the cool half of the colony
   algae: new THREE.Color(0x4a6b4c),
   lush:  new THREE.Color(0x3f6b2c),
-  grass: new THREE.Color(0x587a37),
-  dry:   new THREE.Color(0x7d8144),
-  straw: new THREE.Color(0x9a8f52),   // the plains in the dry season
+  // Open ground as it was before there was grass to make a lawn of it: ferns,
+  // spike-moss and moss over dark soil (flora.js: the low-fern cover).
+  grass: new THREE.Color(0x4f6e35),
+  dry:   new THREE.Color(0x747a44),
+  straw: new THREE.Color(0x8b7350),   // the plains in the dry season: fern fronds dying back russet
   litter:new THREE.Color(0x4a4128),   // forest floor: needles and rot
   moss:  new THREE.Color(0x3d5a26),
   mud:   new THREE.Color(0x5a4a34),   // river banks
@@ -731,7 +933,6 @@ const C = {
   rock:  new THREE.Color(0x6e6962),
   sandstone: new THREE.Color(0x8f6f55), // the escarpments
   scree: new THREE.Color(0x8b857b),
-  snow:  new THREE.Color(0xe8ecef),
 };
 
 /**
@@ -756,18 +957,22 @@ function groundColour(h, slope, wet, jitter, L, forest, out) {
     out.lerp(C.rock, L.cliff * smooth(-2, -12, h) * 0.6);
     return out.multiplyScalar(0.88 + jitter * 0.24);
   }
-  if (h < 2.8 && L.m < 90 && L.bank < 0.3) return out.copy(C.sand).lerp(C.rock, L.cliff * smooth(0.3, 0.6, slope));
+  // Under the cliffs the beach is cobbles and shingle, worn from the cliff; sand is for the bays.
+  if (h < 2.8 && L.m < 90 && L.bank < 0.3) return out.copy(C.sand).lerp(C.pebble, L.cliff * 0.85).lerp(C.rock, L.cliff * smooth(0.3, 0.6, slope));
 
-  // Above the treeline: rock, scree, snow on the tops and in the gullies.
+  // The tops: moss and low ferns in the cloud, rock and scree where it is steep.
   if (h > TREELINE - 25) {
-    out.copy(C.rock).lerp(C.scree, jitter * 0.6);
-    out.lerp(C.grass, smooth(TREELINE + 20, TREELINE - 25, h) * 0.6 * (1 - smooth(0.4, 0.6, slope)));
-    const snow = smooth(SNOWLINE - 35, SNOWLINE + 10, h + jitter * 30) * (1 - smooth(0.5, 0.78, slope));
-    return out.lerp(C.snow, snow).multiplyScalar(0.92 + jitter * 0.14);
+    const bare = smooth(0.34, 0.58, slope);
+    out.copy(jitter > 0.5 ? C.moss : C.grass).lerp(C.litter, forest * 0.5);
+    out.lerp(C.soil, smooth(0.75, 0.95, jitter) * 0.3 * (1 - forest));
+    out.lerp(C.rock, bare).lerp(C.scree, bare * jitter * 0.5);
+    return out.multiplyScalar(0.9 + jitter * 0.14);
   }
 
   out.copy(C.grass).lerp(C.lush, wet).lerp(C.dry, (1 - wet) * 0.75);
   out.lerp(C.straw, L.plain * (0.55 + jitter * 0.3));
+  // Fern and moss cover is patchy, not a sward: bare soil shows between.
+  out.lerp(C.soil, smooth(0.72, 0.95, jitter) * 0.35 * (1 - forest));
   // Under the canopy the floor is needles, rot and moss, and dark.
   out.lerp(jitter > 0.55 ? C.moss : C.litter, forest * 0.62);
   out.lerp(C.sand, smooth(4.6, 2.8, h) * 0.8 * (1 - L.bank));     // sand creeps up the beach
@@ -791,7 +996,7 @@ function wetAt(x, z, L) {
 export function forestAt(x, z, L, wet, slope) {
   if (L.h < 1.5) return 0;
   const clearing = smooth(0.3, 0.44, fbm(x * 0.017 + 5.3, z * 0.017 - 7.1, 2));
-  return smooth(0.28, 0.56, wet) * (1 - L.plain * 0.94) * (1 - smooth(TREELINE - 45, TREELINE + 5, L.h)) *
+  return smooth(0.28, 0.56, wet) * (1 - L.plain * 0.94) * (1 - 0.45 * smooth(TREELINE - 45, TREELINE + 5, L.h)) *
          smooth(6, 30, L.m) * (1 - smooth(0.42, 0.62, slope)) * clearing * (1 - L.bank * 0.85);
 }
 
@@ -837,6 +1042,8 @@ export class Terrain {
     // detail — or unloaded and loaded again — does not regrow them.
     this.felled = new Map();
     this.plantsByKey = new Map();
+    // A felled tree's stump, where it stood, until it grows back (addStump).
+    this.stumps = new Map();
 
     this.far = this.buildFar();
     this.rivers = this.buildRivers();
@@ -928,7 +1135,7 @@ export class Terrain {
     // Flora geometry is shared between every chunk; only the ground and the
     // cliff drapes belong to this one.
     c.group.traverse(o => { if (o.isMesh && o.userData.own) o.geometry.dispose(); });
-    for (const p of c.plants || []) this.plantsByKey.delete(p.key);
+    for (const p of c.plants || []) { this.removeStump(p.key); this.plantsByKey.delete(p.key); }
   }
 
   buildChunk({ i, j, ring, band = bandOf(ring) }) {
@@ -940,7 +1147,7 @@ export class Terrain {
     this._reefProps = null;
     this._landProps = null;
     const trees = this.buildFlora(i, j, band, group, grid);
-    const coral = ring <= REEF_LOD ? this.buildReef(i, j, group) : 0;
+    const coral = ring <= REEF_LOD ? this.buildReef(i, j, group, ring) : 0;
     if (band <= 2) this.buildDrapes(i, j, group, grid);
     if (this._reefProps || this._landProps) this.reefDirty = true;
 
@@ -1002,8 +1209,21 @@ export class Terrain {
         index.push(v, v + n, v + 1, v + 1, v + n, v + n + 1);
       }
     }
-    // Skirt: each edge copied a few metres down, and stitched to the edge.
-    const drop = 2 + step * 0.5;
+    // Skirt: each edge copied a few metres down, and stitched to the edge —
+    // further down where the ground along the edge climbs steeply. A coarser
+    // neighbour's edge runs straight between its own vertices, and across a
+    // cliff that can be ten metres and more off this one's: a fixed skirt
+    // left a crack down the face of the falls' cliff, sky through it.
+    const base = 2 + step * 0.5;
+    const dropAt = (edge, k) => {
+      let lo = Infinity, hi = -Infinity;
+      for (let q = Math.max(0, k - 4); q <= Math.min(n - 1, k + 4); q++) {
+        const y = pos[edge[q] * 3 + 1];
+        if (y < lo) lo = y;
+        if (y > hi) hi = y;
+      }
+      return base + (hi - lo);
+    };
     const edges = [
       Array.from({ length: n }, (_, a) => a),                       // north
       Array.from({ length: n }, (_, a) => (n - 1) * n + a),         // south
@@ -1013,11 +1233,11 @@ export class Terrain {
     let sv = n * n;
     edges.forEach((edge, e) => {
       const start = sv;
-      for (const v of edge) {
-        pos[sv * 3] = pos[v * 3]; pos[sv * 3 + 1] = pos[v * 3 + 1] - drop; pos[sv * 3 + 2] = pos[v * 3 + 2];
-        for (let k = 0; k < 3; k++) { nrm[sv * 3 + k] = nrm[v * 3 + k]; colours[sv * 3 + k] = colours[v * 3 + k]; }
+      edge.forEach((v, k) => {
+        pos[sv * 3] = pos[v * 3]; pos[sv * 3 + 1] = pos[v * 3 + 1] - dropAt(edge, k); pos[sv * 3 + 2] = pos[v * 3 + 2];
+        for (let c = 0; c < 3; c++) { nrm[sv * 3 + c] = nrm[v * 3 + c]; colours[sv * 3 + c] = colours[v * 3 + c]; }
         sv++;
-      }
+      });
       for (let k = 0; k < n - 1; k++) {
         const a = edge[k], b2 = edge[k + 1], c = start + k, d = start + k + 1;
         // Wound to face outward; both windings for simplicity are not needed
@@ -1101,8 +1321,12 @@ export class Terrain {
 
           const r1 = hash(s, i * 3 + j * 5 + 1), r2 = hash(s + 9, j * 3 + i * 5 + 2), r3 = hash(s + 17, i + j * 11 + 3);
           const lod = band >= (sp.farFrom ?? 99) ? 1 : 0;
-          const v = lod ? 0 : Math.floor(r1 * sp.variants) % sp.variants;
-          const sc = THREE.MathUtils.lerp(sp.scale[0], sp.scale[1], Math.pow(r2, 1.4));
+          // (Far off, the cheap build of its own kind: a young tree stays young.)
+          const vAll = Math.floor(r1 * sp.variants) % sp.variants;
+          const v = lod ? (sp.farVariant ? sp.farVariant(vAll) : 0) : vAll;
+          // Its size, for the spot too: stunted up in the cloud forest.
+          const sc = THREE.MathUtils.lerp(sp.scale[0], sp.scale[1], Math.pow(r2, 1.4)) * (sp.size ? sp.size(site) : 1);
+          const trunk = sp.trunkOf ? sp.trunkOf(vAll) : sp.trunk;
           const yaw = r3 * Math.PI * 2;
           const fine = layer === 'grass' || layer === 'ground';
           let y = fine ? this.gridHeight(grid, x, z) : heightAt(x, z);
@@ -1124,14 +1348,14 @@ export class Terrain {
           let list = place.get(key);
           if (!list) place.set(key, list = { sp, v, lod, items: [] });
           const plantKey = `${i},${j},${li},${ci},${cj}`;
-          list.items.push({ x, y, z, sc, yaw, pitch, roll, plantKey, tint: hash(s + 29, i * 7 + j) });
+          list.items.push({ x, y, z, sc, yaw, pitch, roll, plantKey, trunk, form: vAll, tint: hash(s + 29, i * 7 + j) });
 
           // What it blocks: a trunk, a rock, a stump.
-          if (sp.trunk || sp.solid) {
+          if (trunk || sp.solid) {
             const geo = speciesGeometry(sp, v, lod);
             const bb = geo.boundingBox || (geo.computeBoundingBox(), geo.boundingBox);
-            const rad = sp.trunk ? sp.trunk * sc : Math.max(bb.max.x, -bb.min.x, bb.max.z, -bb.min.z) * sc * 0.75;
-            solids.push({ x, z, base: y - 1, top: sp.trunk ? y + 60 : y + bb.max.y * sc, rad: rad * 1.1, hit: rad, solid: true, plantKey });
+            const rad = trunk ? trunk * sc : Math.max(bb.max.x, -bb.min.x, bb.max.z, -bb.min.z) * sc * 0.75;
+            solids.push({ x, z, base: y - 1, top: trunk ? y + 60 : y + bb.max.y * sc, rad: rad * 1.1, hit: rad, solid: true, plantKey });
           }
         }
       }
@@ -1155,8 +1379,10 @@ export class Terrain {
           .multiplyScalar(0.88 + hash(k, t.tint * 1e6) * 0.22);
         inst.setColorAt(k, this._c);
         if (sp.yield && band <= 1) {
-          const p = { sp, inst, index: k, matrix: d.matrix.clone(), x: t.x, y: t.y, z: t.z, key: t.plantKey,
-                      reach: sp.reach + (sp.trunk ? sp.trunk * (t.sc - 1) : 0) };
+          // (How many strokes, and what it gives, for its form: a young tree less than an old one.)
+          const p = { sp, inst, index: k, matrix: d.matrix.clone(), x: t.x, y: t.y, z: t.z, key: t.plantKey, trunk: t.trunk,
+                      chop: sp.chopOf ? sp.chopOf(t.form) : sp.chop, yield: sp.yieldOf ? sp.yieldOf(t.form) : sp.yield,
+                      reach: sp.reach + (t.trunk ? t.trunk * (t.sc - 1) : 0) };
           plants.push(p);
           this.plantsByKey.set(t.plantKey, p);
         }
@@ -1170,6 +1396,7 @@ export class Terrain {
     for (const s of solids) if (this.felled.has(s.plantKey)) s.off = true;
     this._plants = plants;
     this._landProps = solids.length ? solids : null;
+    for (const p of plants) if (this.felled.has(p.key)) this.addStump(p, solids);
     return total;
   }
 
@@ -1274,16 +1501,32 @@ export class Terrain {
         canopy[v * 3 + 1] = Math.max(ground[v * 3 + 1] - 18, Math.min(src[v * 3 + 1] + 6, sum / 9));
       }
     }
+    // Under the near chunks the far ground is sunk out of the way — but a
+    // 16 m cell across a cliff runs straight from its top to its foot, and
+    // sunk from there it still stood metres out of the ground at the foot (a
+    // tan wedge beside the falls). Sunk from the lowest of its neighbours
+    // instead, no cell corner stands above the ground around it.
+    const low = new Float32Array(n * n), canopyLow = new Float32Array(n * n);
+    for (let b = 0; b < n; b++) for (let a = 0; a < n; a++) {
+      let m = Infinity;
+      for (let db = -1; db <= 1; db++) for (let da = -1; da <= 1; da++) {
+        const bb = Math.min(n - 1, Math.max(0, b + db)), aa = Math.min(n - 1, Math.max(0, a + da));
+        m = Math.min(m, H[bb * n + aa]);
+      }
+      low[b * n + a] = m - 0.6;
+      canopyLow[b * n + a] = canopy[(b * n + a) * 3 + 1];
+    }
     const index = [];
     for (let b = 0; b < n - 1; b++) for (let a = 0; a < n - 1; a++) {
       const v = b * n + a;
       index.push(v, v + n, v + 1, v + 1, v + n, v + n + 1);
     }
     const focus = { value: new THREE.Vector2(1e9, 1e9) };
-    const sheet = (positions, colours, half, drop, rough) => {
+    const sheet = (positions, colours, lows, half, drop, rough) => {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+      geo.setAttribute('aLow', new THREE.BufferAttribute(lows, 1));
       geo.setIndex(index);
       geo.computeVertexNormals();
       const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: rough, metalness: 0 });
@@ -1298,11 +1541,12 @@ export class Terrain {
           .replace('#include <common>', `#include <common>
             uniform vec2 uFarFocus;
             uniform vec3 uCaveFar[4];
+            attribute float aLow;
             varying float vFarY;`)
           .replace('#include <begin_vertex>', `#include <begin_vertex>
             {
               vec2 rel = abs(transformed.xz - uFarFocus);
-              if (max(rel.x, rel.y) < ${(half - 0.5).toFixed(1)}) transformed.y -= ${drop.toFixed(1)};
+              if (max(rel.x, rel.y) < ${(half - 0.5).toFixed(1)}) transformed.y = min(transformed.y, aLow) - ${drop.toFixed(1)};
               // Round a cave, gone altogether (under the sea, so thrown away below):
               // sunk only a little, it runs through the hills — through the caves in them.
               if (max(rel.x, rel.y) < ${(half - 70).toFixed(1)}) {
@@ -1328,8 +1572,8 @@ export class Terrain {
     };
     return {
       focus,
-      ground: sheet(ground, gcol, (VIEW_CHUNKS + 0.5) * CHUNK, 14, 0.96),
-      canopy: sheet(canopy, ccol, (TREE_RING + 0.5) * CHUNK, 90, 0.85),
+      ground: sheet(ground, gcol, low, (VIEW_CHUNKS + 0.5) * CHUNK, 14, 0.96),
+      canopy: sheet(canopy, ccol, canopyLow, (TREE_RING + 0.5) * CHUNK, 90, 0.85),
     };
   }
 
@@ -1384,11 +1628,14 @@ export class Terrain {
       if (!geo) continue;
       const mesh = new THREE.Mesh(geo, mat);
       mesh.receiveShadow = true;
-      mesh.renderOrder = 1;
+      mesh.renderOrder = 2;
       this.scene.add(mesh);
       meshes.push(mesh);
     }
-    // Still water: the same, but its ripples barely drift.
+    // Still water: the same, but its ripples barely drift. Drawn first and
+    // into the depth, so where a river runs into or out of it the river's
+    // ribbon (a hair lower) is hidden under it rather than laid over it — two
+    // sheets of see-through water would show as a pale band.
     const stillFlow = flow.clone();
     stillFlow.needsUpdate = true;
     stillFlow.repeat.set(0.45, 0.45);             // broad, soft ripples: no tiling to see from above
@@ -1396,6 +1643,7 @@ export class Terrain {
     still.normalMap = stillFlow;
     still.normalScale = new THREE.Vector2(0.3, 0.3);
     still.onBeforeCompile = mat.onBeforeCompile;
+    still.depthWrite = true;
     for (const L of LAKES) {
       const mesh = new THREE.Mesh(lakeGeometry(L), still);
       mesh.receiveShadow = true;
@@ -1417,12 +1665,13 @@ export class Terrain {
    * slope and moisture — a colony grows on rock, the grass grows on the sand
    * between colonies, and neither crosses into the other's ground.
    */
-  buildReef(i, j, group) {
-    const geos = reefGeometry();
+  buildReef(i, j, group, ring = 0) {
+    // The chunk you are in gets the fine reef, the ring round it the lighter one.
+    const geos = reefGeometry(ring > 0 ? 1 : 0);
     // How tall each species stands and how wide it spreads, measured once from
     // the geometry rather than guessed from the table.
     if (!this._reefBounds) {
-      this._reefBounds = geos.map(g => {
+      this._reefBounds = reefGeometry(0).map(g => {
         g.computeBoundingBox();
         const b = g.boundingBox;
         return { top: b.max.y, rad: Math.max(b.max.x, -b.min.x, b.max.z, -b.min.z) };
@@ -1483,11 +1732,30 @@ export class Terrain {
         // wallpaper.
         const g = Math.pow(hash(t.s, f * 23), 1.7);
         const sc = THREE.MathUtils.lerp(sp.scale[0], sp.scale[1], g);
+        const bounds = this._reefBounds[f];
+        const sx = sc * (0.85 + hash(t.s, f * 59) * 0.3), sz = sc * (0.85 + hash(t.s, f * 83) * 0.3);
+        // Down onto the lowest of the bed under its rim, not the height at its
+        // middle: the reef floor is lumpy — coral heads stand metres up off it
+        // — and a head set on a knoll's crown overhung the drop all round,
+        // floating, by as much as two and a half metres. One that would go
+        // more than half under like that grows somewhere else.
+        const rim = bounds.rad * (sx + sz) / 2 * 0.8;
+        let low = t.y;
+        for (let a = 0; a < 8; a++) {
+          const th = a * Math.PI / 4;
+          low = Math.min(low, heightAt(t.x + Math.cos(th) * rim, t.z + Math.sin(th) * rim));
+        }
+        // (A rim a few centimetres proud of the bed is nothing; a starfish
+        // flat on the sand stays where it is.)
+        if (t.y - low > 0.1) {
+          if (t.y - low > Math.max(0.25, bounds.top * sc * 0.5)) { inst.setMatrixAt(k, HIDDEN); continue; }
+          t.y = low;
+        }
         d.position.set(t.x, t.y - 0.08, t.z);
         // A little tilt off vertical: nothing on a reef grew plumb.
         d.rotation.set((hash(t.s, f * 41) - 0.5) * 0.30, hash(t.s, f * 31) * Math.PI * 2,
                        (hash(t.s, f * 53) - 0.5) * 0.30);
-        d.scale.set(sc * (0.85 + hash(t.s, f * 59) * 0.3), sc, sc * (0.85 + hash(t.s, f * 83) * 0.3));
+        d.scale.set(sx, sc, sz);
         d.updateMatrix();
         inst.setMatrixAt(k, d.matrix);
 
@@ -1503,7 +1771,6 @@ export class Terrain {
         // Remember what this one occupies. The fish steer off this; without it
         // they only know about the ground, and a boulder is three metres of
         // geometry the ground function has never heard of.
-        const bounds = this._reefBounds[f];
         const base = t.y - 0.08;
         footprints.push({
           x: t.x, z: t.z, base,
@@ -1517,6 +1784,9 @@ export class Terrain {
           hit: sc * 0.78 * bounds.rad,
           // Anything that bends in the surge bends around you too.
           solid: sp.soft < 0.5,
+          // Its shape across, for the fish: a barrel sponge is a column, the
+          // rest are mounds — highest at the middle, down to the bed at the rim.
+          column: sp.name === 'barrel',
         });
       }
       inst.instanceMatrix.needsUpdate = true;
@@ -1559,6 +1829,10 @@ export class Terrain {
           const bucket = this.reefSolids.get(key);
           if (bucket) bucket.push(p); else this.reefSolids.set(key, [p]);
         }
+        // What bends in the surge — kelp, fans, anemones, seagrass — a fish
+        // swims in among, not over: stamped as solid, a kelp stand's 8 m
+        // canopy was a floor they hovered on, nine metres off the sand.
+        if (!p.solid) continue;
         const i0 = Math.floor((p.x - p.rad) / REEF_CELL), i1 = Math.floor((p.x + p.rad) / REEF_CELL);
         const j0 = Math.floor((p.z - p.rad) / REEF_CELL), j1 = Math.floor((p.z + p.rad) / REEF_CELL);
         for (let i = i0; i <= i1; i++) {
@@ -1567,10 +1841,15 @@ export class Terrain {
             // prop actually overlaps, not its whole bounding square.
             const nx = Math.min(Math.max(p.x, i * REEF_CELL), (i + 1) * REEF_CELL);
             const nz = Math.min(Math.max(p.z, j * REEF_CELL), (j + 1) * REEF_CELL);
-            if ((nx - p.x) ** 2 + (nz - p.z) ** 2 > p.rad * p.rad) continue;
+            const r2 = (nx - p.x) ** 2 + (nz - p.z) ** 2;
+            if (r2 > p.rad * p.rad) continue;
+            // How high it stands over this cell: a column its full height, a
+            // mound less toward its rim. (Its full height over every cell it
+            // touched, the fish beside a coral head hovered at its crown.)
+            const top = p.column ? p.top : p.base + (p.top - p.base) * Math.sqrt(1 - r2 / (p.rad * p.rad));
             const key = reefCell(i, j);
             const cur = this.reefTops.get(key);
-            if (cur === undefined || p.top > cur) this.reefTops.set(key, p.top);
+            if (cur === undefined || top > cur) this.reefTops.set(key, top);
           }
         }
       }
@@ -1597,7 +1876,8 @@ export class Terrain {
    * @param radius  body radius
    * @param height  body height above `pos`
    */
-  collideReef(pos, radius, height) {
+  /** …`through`: props slighter than this (a trunk's radius) are pushed through, not stopped by — a sauropod's saplings. */
+  collideReef(pos, radius, height, through = 0) {
     let stand = -Infinity;
     if (this.reefSolids.size === 0) return stand;
 
@@ -1608,6 +1888,7 @@ export class Terrain {
         if (!bucket) continue;
         for (const p of bucket) {
           if (p.off) continue;                      // felled
+          if (through && p.hit < through) continue;
           const feet = pos.y;
           if (feet >= p.top) {                      // already clear of it
             const dx0 = pos.x - p.x, dz0 = pos.z - p.z;
@@ -1678,16 +1959,79 @@ export class Terrain {
       if (!c.plants) continue;
       for (const p of c.plants) {
         if (this.felled.has(p.key)) continue;
-        const dx = p.x - origin.x, dy = (p.y + 1.2) - origin.y, dz = p.z - origin.z;
-        const d = Math.hypot(dx, dy, dz);
-        if (d > p.reach) continue;
-        const dot = (dx * dir.x + dy * dir.y + dz * dir.z) / (d || 1);
+        // Looked for anywhere up its own height — fallen branches at the
+        // ground, a stump at its top, a trunk up to above your head — not at
+        // one height for everything, or a fern beside a log is what you get
+        // when you look down at the log.
+        // (Within reach along the ground: how far you can reach to your feet
+        // is not less than how far you can reach ahead.)
+        const dx = p.x - origin.x, dz = p.z - origin.z, flat = Math.hypot(dx, dz);
+        if (flat > p.reach) continue;
+        const h = Math.min(2.4, this.plantHeight(p));
+        let dot = -2;
+        for (const f of [0.15, 0.5, 0.9]) {
+          const dy = p.y + h * f - origin.y;
+          const k = (dx * dir.x + dy * dir.y + dz * dir.z) / (Math.hypot(dx, dy, dz) || 1);
+          if (k > dot) dot = k;
+        }
         if (dot < 0.25) continue;
-        const score = dot * 2 - d / p.reach;
+        const score = dot * 2 - flat / p.reach;
         if (score > bestScore) { bestScore = score; best = p; }
       }
     }
     return best;
+  }
+
+  /** How tall a plant stands, from its body: a log lying is a few tens of centimetres. */
+  plantHeight(p) {
+    if (p.h === undefined) {
+      const geo = p.inst.geometry;
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      p.h = Math.max(0.2, geo.boundingBox.max.y * p.matrix.getMaxScaleOnAxis());
+    }
+    return p.h;
+  }
+
+  /** The plants taken and not yet grown back, for the save: [key, seconds left]. */
+  felledList() {
+    return [...this.felled].map(([k, t]) => [k, Math.round(t)]);
+  }
+
+  /** Back from a save: those still gone, hidden wherever their chunk is already built. */
+  restoreFelled(list) {
+    for (const [k, t] of list || []) {
+      if (typeof k !== 'string' || !(t > 0)) continue;
+      this.felled.set(k, t);
+      const p = this.plantsByKey.get(k);
+      if (p) { p.inst.setMatrixAt(p.index, HIDDEN); p.inst.instanceMatrix.needsUpdate = true; }
+      this.setSolid(k, false);
+      if (p) this.addStump(p);
+    }
+  }
+
+  /** Every plant back where it grew: into another world (a room's, or home again), with its own felled. */
+  clearFelled() {
+    for (const k of this.felled.keys()) {
+      const p = this.plantsByKey.get(k);
+      if (p) { p.inst.setMatrixAt(p.index, p.matrix); p.inst.instanceMatrix.needsUpdate = true; }
+      this.removeStump(k);
+      this.setSolid(k, true);
+    }
+    this.felled.clear();
+  }
+
+  /**
+   * Taken by someone else (playing together): gone here too, for as long as
+   * it takes to grow back. The plant, if its chunk is built here — to be seen
+   * coming down — or null (already gone, or too far off to be built).
+   */
+  takenElsewhere(key, regrow) {
+    if (typeof key !== 'string' || this.felled.has(key)) return null;
+    const p = this.plantsByKey.get(key);
+    if (p) { this.harvest(p); return p; }
+    this.felled.set(key, Math.min(Math.max(Number(regrow) || 600, 30), 7200));
+    this.setSolid(key, false);
+    return null;
   }
 
   /**
@@ -1704,7 +2048,7 @@ export class Terrain {
   bitePoint(p, dir, out = new THREE.Vector3()) {
     const scale = p.matrix.getMaxScaleOnAxis();
     if (p.sp.lying) return out.set(p.x, p.y + 0.35 * scale, p.z);
-    const r = Math.min(1.4, (p.sp.trunk ?? 0.3) * scale * 0.42);
+    const r = Math.min(1.4, (p.trunk ?? p.sp.trunk ?? 0.3) * scale * 0.42);
     return out.set(p.x - dir.x * r, p.y + (p.sp.name === 'stump' ? 0.5 : 1.1), p.z - dir.z * r);
   }
 
@@ -1760,10 +2104,30 @@ export class Terrain {
    * ever: gone, and growing back in its own time.)
    */
   topple(p, dir, onLand = null) {
-    const m = new THREE.InstancedMesh(p.inst.geometry, p.inst.material, 1);
-    m.setMatrixAt(0, p.matrix);
-    m.castShadow = true;
-    m.frustumCulled = false;
+    // A tree is cut: what falls is the tree above the cut, hinged on the
+    // stump's far edge (the side it falls to), its end a face of wood.
+    const cut = p.sp.cut ? this.cutOf(p) : null;
+    const hinge = new THREE.Vector3(p.x, p.y, p.z);
+    // A clump of canes (a horsetail's, cut hollow) has no one stump to hinge
+    // on: each cane goes over from its own. Turned as one body about a hinge,
+    // the canes behind it rose half a metre off their stubble as they went.
+    // So it leans by shearing instead — every point at the same distance from
+    // the foot of its cane straight under it, swung over — about the cut.
+    const shear = p.sp.cut === 'hollow';
+    let plane0 = null, plane = null, end = null, m;
+    if (cut) {
+      hinge.set(0, cut.hl, 0).applyMatrix4(p.matrix);
+      if (!shear) hinge.addScaledVector(dir, cut.rw * 0.9);
+      plane0 = new THREE.Plane(new THREE.Vector3(0, 1, 0), -cut.hl).applyMatrix4(p.matrix);
+      plane = plane0.clone();
+      m = this.clippedCopy(p, plane);
+      if (cut.end) { end = this.cutFace(p, cut.end); this.scene.add(end); }
+    } else {
+      m = new THREE.InstancedMesh(p.inst.geometry, p.inst.material, 1);
+      m.setMatrixAt(0, p.matrix);
+      m.castShadow = true;
+      m.frustumCulled = false;
+    }
     this.scene.add(m);
     const geo = p.inst.geometry;
     if (!geo.boundingBox) geo.computeBoundingBox();
@@ -1772,12 +2136,12 @@ export class Terrain {
     let stop = 1.53;
     search: for (let a = 0.15; a < 1.56; a += 0.02) {
       for (const f of [0.3, 0.6, 0.9]) {
-        const x = p.x + dir.x * Math.sin(a) * H * f, z = p.z + dir.z * Math.sin(a) * H * f;
-        if (p.y + Math.cos(a) * H * f < heightAt(x, z) + 0.35) { stop = a; break search; }
+        const x = hinge.x + dir.x * Math.sin(a) * H * f, z = hinge.z + dir.z * Math.sin(a) * H * f;
+        if (hinge.y + Math.cos(a) * H * f < heightAt(x, z) + 0.35) { stop = a; break search; }
       }
     }
     this.falling = this.falling || [];
-    const f = { m, p, t: 0, H, stop, fall: 1.3 + H / 40, dir: dir.clone(),
+    const f = { m, p, t: 0, H, stop, fall: 1.3 + H / 40, dir: dir.clone(), hinge, plane0, plane, end, shear,
                 axis: new THREE.Vector3(dir.z, 0, -dir.x).normalize(), onLand, landed: false };
     this.falling.push(f);
     return f;
@@ -1818,11 +2182,29 @@ export class Terrain {
         }
       }
       const sink = Math.max(0, f.t - f.fall - 4) * 1.3;
-      R.makeRotationAxis(f.axis, angle);
-      out.makeTranslation(f.p.x, f.p.y - sink, f.p.z).multiply(R).multiply(T.makeTranslation(-f.p.x, -f.p.y, -f.p.z)).multiply(f.p.matrix);
+      if (f.shear) {
+        // Over along dir by sin, down by cos, of each point's height above the cut.
+        const sn = Math.sin(angle), cs = Math.cos(angle);
+        R.set(1, f.dir.x * sn, 0, 0,
+              0, cs, 0, 0,
+              0, f.dir.z * sn, 1, 0,
+              0, 0, 0, 1);
+      } else R.makeRotationAxis(f.axis, angle);
+      // The motion (turned about the hinge, and later sinking), then the tree.
+      const move = this._fallMove ||= new THREE.Matrix4(), h = f.hinge;
+      move.makeTranslation(h.x, h.y - sink, h.z).multiply(R).multiply(T.makeTranslation(-h.x, -h.y, -h.z));
+      out.multiplyMatrices(move, f.p.matrix);
       f.m.setMatrixAt(0, out);
       f.m.instanceMatrix.needsUpdate = true;
-      if (f.t > f.fall + 5.6) { this.scene.remove(f.m); f.m.dispose(); f.done = true; }
+      if (f.plane) f.plane.copy(f.plane0).applyMatrix4(move);
+      if (f.end) { f.end.matrix.copy(out); f.end.matrixWorldNeedsUpdate = true; }
+      if (f.t > f.fall + 5.6) {
+        this.scene.remove(f.m);
+        for (const mat of f.m.userData.mats || []) mat.dispose();
+        f.m.dispose();
+        if (f.end) this.scene.remove(f.end);
+        f.done = true;
+      }
     }
     if (this.falling) this.falling = this.falling.filter(f => !f.done);
     // The bits: thrown, falling (leaves drifting), resting where they land; gone when their time is up.
@@ -1849,16 +2231,117 @@ export class Terrain {
   /** Fell a plant: hide that one instance and let it grow back later. */
   harvest(p) {
     this.felled.set(p.key, p.sp.regrow);
-    p.inst.setMatrixAt(p.index, HIDDEN);
-    p.inst.instanceMatrix.needsUpdate = true;
+    // (Its chunk may have been built again since it was picked — a new level
+    // of detail, as you walked — and it is that one there now.)
+    const now = this.plantsByKey.get(p.key) || p;
+    for (const q of now === p ? [p] : [p, now]) {
+      q.inst.setMatrixAt(q.index, HIDDEN);
+      q.inst.instanceMatrix.needsUpdate = true;
+    }
     this.setSolid(p.key, false);
-    return { label: p.sp.label, yield: p.sp.yield };
+    this.addStump(now);
+    return { label: p.sp.label, yield: p.yield || p.sp.yield };
   }
 
   setSolid(key, on) {
     for (const c of this.chunks.values()) {
-      for (const s of c.landProps || []) if (s.plantKey === key) s.off = !on;
+      for (const s of c.landProps || []) {
+        if (s.plantKey !== key) continue;
+        s.off = !on;
+        if (on && s.fullTop !== undefined) { s.top = s.fullTop; delete s.fullTop; }
+      }
     }
+  }
+
+  // ── the cut ────────────────────────────────────────────────────────────────
+  // A tree comes down cut, not pulled out of the ground whole: what falls is
+  // the tree above the cut, its end a face of wood, and the stump stays where
+  // it stood, the same face on top, until the tree grows back. Both are the
+  // tree itself, clipped at the cut (so the stump is its own flared, fluted
+  // foot, bark and all), and the face is the trunk's own cross-section there.
+
+  /** Where a plant is cut, and the faces of the cut: the stump's top, and the cut end of what falls. */
+  cutOf(p) {
+    const scale = p.matrix.getMaxScaleOnAxis();
+    const hollow = p.sp.cut === 'hollow';
+    const want = hollow ? 0.3 : THREE.MathUtils.clamp(0.5 + 0.12 * (p.trunk ?? p.sp.trunk ?? 1) * scale, 0.35, 0.9);
+    const hl = Math.max(0.05, Math.round(want / scale / 0.05) * 0.05);          // (in the plant's own units, a few heights to cache)
+    const geo = p.inst.geometry, key = `${geo.uuid}|${hl.toFixed(2)}`;
+    this._cutCache ||= new Map();
+    let c = this._cutCache.get(key);
+    if (!c) {
+      c = { hl, top: null, end: null, r: 0.3 };
+      if (!hollow) Object.assign(c, cutFaces(geo, hl));
+      this._cutCache.set(key, c);
+    }
+    return { ...c, hw: c.hl * scale, rw: c.r * scale };
+  }
+
+  /** A plant's own look, clipped by `plane` (world): the stump below the cut, or what falls above it. */
+  clippedCopy(p, plane) {
+    const src = Array.isArray(p.inst.material) ? p.inst.material : [p.inst.material];
+    const mats = src.map(m => {
+      const c = m.clone();
+      c.onBeforeCompile = m.onBeforeCompile;
+      c.customProgramCacheKey = m.customProgramCacheKey;
+      c.clippingPlanes = [plane];
+      c.clipShadows = true;
+      return c;
+    });
+    const m = new THREE.InstancedMesh(p.inst.geometry, Array.isArray(p.inst.material) ? mats : mats[0], 1);
+    m.setMatrixAt(0, p.matrix);
+    if (p.inst.instanceColor) { p.inst.getColorAt(p.index, this._c); m.setColorAt(0, this._c); }
+    m.castShadow = true;
+    m.receiveShadow = true;
+    m.frustumCulled = false;
+    m.userData.mats = mats;
+    return m;
+  }
+
+  /** A face of the cut, moving with the plant (its `matrix`). */
+  cutFace(p, geometry) {
+    const m = new THREE.Mesh(geometry, cutFaceMaterial(p.sp));
+    m.matrixAutoUpdate = false;
+    m.matrix.copy(p.matrix);
+    m.matrixWorldNeedsUpdate = true;
+    m.receiveShadow = true;
+    return m;
+  }
+
+  /** Felled, a tree leaves its stump: to stand on, where the trunk stood (`solids`: the chunk's, while it is built). */
+  addStump(p, solids = null) {
+    if (!p.sp.cut || this.stumps.has(p.key)) return;
+    const c = this.cutOf(p);
+    // Below the cut, in the plant's own frame (it may lean a little).
+    const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), c.hl).applyMatrix4(p.matrix);
+    const mesh = this.clippedCopy(p, plane);
+    // (It stays put, unlike what falls: out of view, it need not be drawn.)
+    mesh.frustumCulled = true;
+    mesh.computeBoundingSphere();
+    this.scene.add(mesh);
+    const top = c.top && this.cutFace(p, c.top);
+    if (top) this.scene.add(top);
+    this.stumps.set(p.key, { mesh, top });
+    // Still in the way, but only as high as it was cut: you step up onto it.
+    const lists = solids ? [solids] : [...this.chunks.values()].map(ch => ch.landProps || []);
+    for (const list of lists) {
+      for (const s of list) {
+        if (s.plantKey !== p.key) continue;
+        s.off = false;
+        if (s.fullTop === undefined) s.fullTop = s.top;
+        s.top = Math.min(s.fullTop, p.y + c.hw);
+      }
+    }
+  }
+
+  removeStump(key) {
+    const st = this.stumps.get(key);
+    if (!st) return;
+    this.scene.remove(st.mesh);
+    for (const m of st.mesh.userData.mats) m.dispose();
+    st.mesh.dispose();
+    if (st.top) this.scene.remove(st.top);
+    this.stumps.delete(key);
   }
 
   regrow(dt) {
@@ -1866,6 +2349,7 @@ export class Terrain {
       const t = left - dt;
       if (t > 0) { this.felled.set(key, t); continue; }
       this.felled.delete(key);
+      this.removeStump(key);
       const p = this.plantsByKey.get(key);
       if (p) {
         p.inst.setMatrixAt(p.index, p.matrix);
@@ -1899,3 +2383,121 @@ const _bitColour = new THREE.Color(), _bitAt = new THREE.Vector3();
 
 // An instance matrix that puts something out of sight: a felled plant.
 const HIDDEN = new THREE.Matrix4().makeTranslation(0, -400, 0).multiply(new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4));
+
+/**
+ * The faces of a cut `hl` up a trunk (in the geometry's own units): its
+ * cross-section there, from where the bark (the first group) crosses that
+ * height, so a fluted or buttressed foot gets a face that fits it. The
+ * stump's `top` faces up; the `end` of what falls faces down. `r`, its
+ * average radius.
+ */
+function cutFaces(geo, hl) {
+  const pos = geo.attributes.position, idx = geo.index;
+  const gr = geo.groups.find(g => g.materialIndex === 0) || { start: 0, count: idx ? idx.count : pos.count };
+  const xs = [], zs = [];
+  const P = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+  for (let t = gr.start; t + 2 < gr.start + gr.count; t += 3) {
+    for (let k = 0; k < 3; k++) P[k].fromBufferAttribute(pos, idx ? idx.getX(t + k) : t + k);
+    for (let k = 0; k < 3; k++) {
+      const a = P[k], b = P[(k + 1) % 3];
+      if ((a.y - hl) * (b.y - hl) >= 0) continue;
+      const u = (hl - a.y) / (b.y - a.y);
+      xs.push(a.x + (b.x - a.x) * u); zs.push(a.z + (b.z - a.z) * u);
+    }
+  }
+  if (xs.length < 8) return {};
+  // The trunk's, not a low branch's or a root's: about the middle of them.
+  let cx = 0, cz = 0;
+  for (let i = 0; i < xs.length; i++) { cx += xs[i]; cz += zs[i]; }
+  cx /= xs.length; cz /= xs.length;
+  const N = 40, rad = new Array(N).fill(0);
+  for (let i = 0; i < xs.length; i++) {
+    const dx = xs[i] - cx, dz = zs[i] - cz;
+    const b = Math.floor(((Math.atan2(dz, dx) + Math.PI) / (Math.PI * 2)) * N) % N;
+    rad[b] = Math.max(rad[b], Math.hypot(dx, dz));
+  }
+  const have = rad.filter(r => r > 0).length;
+  if (have < 10) return {};
+  // Gaps (a bin no edge crossed): between the neighbours either side.
+  for (let b = 0; b < N; b++) {
+    if (rad[b] > 0) continue;
+    let l = 1, r = 1;
+    while (rad[(b - l + N) % N] === 0) l++;
+    while (rad[(b + r) % N] === 0) r++;
+    rad[b] = (rad[(b - l + N) % N] * r + rad[(b + r) % N] * l) / (l + r);
+  }
+  const face = up => {
+    const v = [cx, hl, cz], uv = [0.5, 0.5], ix = [];
+    for (let b = 0; b <= N; b++) {
+      const a = (b % N + 0.5) / N * Math.PI * 2 - Math.PI, r = rad[b % N];
+      v.push(cx + Math.cos(a) * r, hl, cz + Math.sin(a) * r);
+      // The rings follow the outline: its edge is always the bark.
+      uv.push(0.5 + Math.cos(a) * 0.5, 0.5 + Math.sin(a) * 0.5);
+    }
+    for (let b = 1; b <= N; b++) up ? ix.push(0, b + 1, b) : ix.push(0, b, b + 1);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(ix);
+    g.computeVertexNormals();
+    return g;
+  };
+  return { top: face(true), end: face(false), r: rad.reduce((s, r) => s + r, 0) / N };
+}
+
+/**
+ * The face of the wood, a species' own (`heartwood`: heart, sapwood, bark):
+ * the dark heart, a paler band of sapwood, the bark round it; growth rings,
+ * closer together toward the outside, and a few checks out from the pith.
+ */
+const _cutFaces = new Map();
+function cutFaceMaterial(sp) {
+  let m = _cutFaces.get(sp.name);
+  if (m) return m;
+  const [heart, sap, bark] = (sp.heartwood || [0xb58a5a, 0xe2cfa6, 0x4a3326]).map(c => new THREE.Color(c));
+  const css = c => `#${c.getHexString()}`;
+  const S = 256, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const g = cv.getContext('2d'), o = S / 2;
+  const grad = g.createRadialGradient(o, o, 0, o, o, o);
+  // (Sapwood a narrow band, as it is in a big conifer, and no whiter than
+  // fresh wood is in the shade of a forest.)
+  const pale = sap.clone().lerp(heart, 0.18).multiplyScalar(0.86);
+  grad.addColorStop(0, css(heart.clone().multiplyScalar(0.82)));
+  grad.addColorStop(0.7, css(heart));
+  grad.addColorStop(0.76, css(pale));
+  grad.addColorStop(0.88, css(pale.clone().multiplyScalar(0.92)));
+  grad.addColorStop(0.9, css(bark));
+  grad.addColorStop(1, css(bark.clone().multiplyScalar(0.7)));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, S, S);
+  let seed = sp.name.length * 977 + 13;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  g.strokeStyle = 'rgba(45, 22, 10, 0.3)';
+  for (let k = 1; k < 30; k++) {
+    const r = o * 0.88 * Math.pow(k / 30, 0.75);
+    g.lineWidth = 0.6 + rnd() * 1.2;
+    g.beginPath();
+    for (let a = 0; a <= 72; a++) {
+      const t = (a / 72) * Math.PI * 2, w = r * (1 + Math.sin(t * 3 + k) * 0.015 + Math.sin(t * 7 + k * 2) * 0.006);
+      const x = o + Math.cos(t) * w, y = o + Math.sin(t) * w;
+      if (a) g.lineTo(x, y); else g.moveTo(x, y);
+    }
+    g.stroke();
+  }
+  g.strokeStyle = 'rgba(30, 14, 6, 0.4)';
+  for (let k = 0; k < 5; k++) {
+    const t = rnd() * Math.PI * 2, a = o * 0.04, b = o * (0.25 + rnd() * 0.35);
+    g.lineWidth = 0.8 + rnd() * 1.2;
+    g.beginPath();
+    g.moveTo(o + Math.cos(t) * a, o + Math.sin(t) * a);
+    g.lineTo(o + Math.cos(t + 0.05) * b, o + Math.sin(t + 0.05) * b);
+    g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, metalness: 0 });
+  _cutFaces.set(sp.name, m);
+  return m;
+}

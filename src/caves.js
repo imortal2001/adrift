@@ -4,12 +4,15 @@
 //
 //   caves        tunnels into the foot of a cliff, a few metres wide, that
 //                wind twenty-odd metres back to a chamber with a spring pool
-//                in it: dark past the first few metres, flint in the walls,
-//                and too narrow for a dinosaur to follow you in
+//                in it: an alcove at the mouth where the seep has sapped the
+//                rock back, dark round the dog-leg past it, flint in the
+//                walls, fallen blocks on a sand floor, and too narrow for a
+//                dinosaur to follow you in
 //   sea caves    the same at the waterline under a sea cliff: you swim in,
 //                and at the back is a shingle beach to climb out on
-//   sea arches   rock arches in the shallows off the cliffs, to swim or sail
-//                under — their legs are solid, to you and to the raft
+//   sea arches   rock arches off the headlands, one foot in the cliff and
+//                one in the sea, to swim or sail under — their legs are
+//                solid, to you and to the raft
 //   rock shelves ledges jutting from the lips of the cliffs, to walk out
 //                onto, or under
 //
@@ -151,15 +154,21 @@ function shoreline() {
 function carvePath(x, z, heading, o, R) {
   const samples = [], total = o.tunnel + 2 * o.room;
   let a = heading;
-  const wob = R() * 6.28, bend = (R() - 0.5) * 2;
+  const wob = R() * 6.28, bend = (R() - 0.5) * 2, turn = (R() < 0.5 ? -1 : 1) * (o.turn || 0);
   for (let s = 0; s <= total + 1e-6; s += 1) {
     const q = Math.max(0, 1 - ((s - o.tunnel - o.room) / o.room) ** 2), c = Math.sqrt(q);
     const tunnel = s <= o.tunnel + o.room * 0.35;
-    const flare = s < 1.5 ? 1.08 : 1;                     // the lip of the mouth
+    // The mouth: an alcove, wider and higher than the passage behind it —
+    // the rock round a seep is sapped back and falls away in blocks, so the
+    // way in is a hollow in the cliff that narrows to the passage.
+    const flare = 1 + (o.alcove ?? 0.08) * (1 - smooth(0, 4.5, s));
     const w = Math.max(tunnel ? o.width * flare : 0, o.room * c, 0.15);
-    const h = Math.max(tunnel ? o.height * flare : 0, o.roomH * Math.pow(c, 0.6), 0.2);
+    const h = Math.max(tunnel ? o.height * (1 + (flare - 1) * 0.55) : 0, o.roomH * Math.pow(c, 0.6), 0.2);
     samples.push({ x, z, y: o.floor(s, total), w, h, s, fx: Math.sin(a), fz: Math.cos(a) });
     if (s > 3) a += Math.sin(s * 0.23 + wob) * 0.045 + bend * 0.018;
+    // A dog-leg past the twilight: the passage turns, so the dark begins
+    // round the bend and the chamber is out of sight of the mouth.
+    if (turn && s > 5 && s <= 10) a += turn / 5;
     x += Math.sin(a); z += Math.cos(a);
   }
   return samples;
@@ -195,12 +204,20 @@ function bound(samples) {
   return { x, z, r };
 }
 
-/** A few flint faces low on the walls, in the deeper half of the tunnel and round the chamber. */
-function flintFaces(samples, o, R, n) {
+/**
+ * A few flint faces low on the walls, in the deeper half of the tunnel and
+ * round the chamber — and, with `mouth`, one more a few metres in, where the
+ * daylight still reaches: enough for a fire striker, and so a torch, for
+ * someone who has come without one.
+ */
+function flintFaces(samples, o, R, n, mouth = false) {
   const out = [];
   const deep = samples.filter(p => p.s > o.tunnel * 0.55 && p.w > 1.2 && p.s < samples.at(-1).s - 2);
-  for (let k = 0; k < n && deep.length; k++) {
-    const p = deep[Math.floor(R() * deep.length)];
+  const lit = samples.filter(p => p.s > 2.5 && p.s < 5.5 && p.w > 1.2);
+  for (let k = 0; k < n + (mouth ? 1 : 0); k++) {
+    const pool = k < n ? deep : lit;
+    if (!pool.length) continue;
+    const p = pool[Math.floor(R() * pool.length)];
     // On the wall at its own height: out where the curve of the wall is there.
     // (In a sea cave, clear of the water: `above` is the height it must be over.)
     const up = (o.above !== undefined ? Math.max(0, o.above - p.y) : 0) + 0.12 + R() * 0.4, yl = Math.min(up, p.h * 0.6);
@@ -224,10 +241,19 @@ function fitLandCave(c) {
   }
   if (!foot || freshWaterAt(foot.x, foot.z) || freshWaterAt(foot.x - c.ux * 3, foot.z - c.uz * 3)) return null;
   const R = stream(seedAt(foot.x, foot.z));
-  const sx = foot.x - c.ux * 1.2, sz = foot.z - c.uz * 1.2;
-  const floor0 = Math.min(heightAt(sx, sz), foot.h) + 0.02;
-  const o = { tunnel: 14 + R() * 10, width: 1.55 + R() * 0.3, height: 3.1 + R() * 0.4,
+  let floor0 = 0;
+  const o = { tunnel: 14 + R() * 10, width: 1.55 + R() * 0.3, height: 3.1 + R() * 0.4, alcove: 0.5, turn: 0.55,
               room: 4.6 + R() * 1.6, roomH: 4.4 + R() * 1.2, floor: s => floor0 + 0.05 * s };
+  // In from the foot to where the rock stands over the way in: started at
+  // the foot itself, a tube four metres high came out of a slope of 50° for
+  // five metres before the hill closed over it — a dome of rock standing on
+  // the grass, not a mouth in the hillside. (On a true face that is a step
+  // or two; the floor starts on the ground where the mouth is.)
+  const up = d => heightAt(foot.x + c.ux * d, foot.z + c.uz * d);
+  let t = -1.2;
+  while (t < 4.5 && up(t + 3) < up(t) + o.height * 1.15) t += 0.5;
+  const sx = foot.x + c.ux * t, sz = foot.z + c.uz * t;
+  floor0 = (t <= -1.2 ? Math.min(heightAt(sx, sz), foot.h) : heightAt(sx, sz)) + 0.02;
   const samples = carvePath(sx, sz, Math.atan2(c.ux, c.uz), o, R);
   if (!covered(samples)) return null;
   const mid = samples.find(p => p.s >= o.tunnel + o.room) || samples.at(-1);
@@ -235,7 +261,7 @@ function fitLandCave(c) {
   const side = R() < 0.5 ? -1 : 1, lat = o.room * 0.38 * side;
   const spring = { x: mid.x + mid.fz * lat, z: mid.z - mid.fx * lat, r: o.room * 0.3, depth: 0.45, level: mid.y - 0.06 };
   return { kind: 'land', samples, mouth: { x: sx, z: sz, y: floor0 }, spring,
-           flint: flintFaces(samples, o, R, 5), bound: bound(samples), o };
+           flint: flintFaces(samples, o, R, 5, true), bound: bound(samples), o };
 }
 
 /** A sea cave in the sea cliff at `p`: its mouth at the waterline, a shingle beach at the back. */
@@ -244,7 +270,7 @@ function fitSeaCave(p) {
   const sx = p.x - p.ux * 1.5, sz = p.z - p.uz * 1.5;
   if (heightAt(sx, sz) > 0.3 || heightAt(p.x - p.ux * 9, p.z - p.uz * 9) > -1.5) return null;
   const R = stream(seedAt(sx, sz));
-  const o = { tunnel: 13 + R() * 6, width: 2.1 + R() * 0.3, height: 3.4 + R() * 0.3,
+  const o = { tunnel: 13 + R() * 6, width: 2.1 + R() * 0.3, height: 3.4 + R() * 0.3, alcove: 0.3,
               room: 5 + R() * 1.2, roomH: 4.8 + R() * 0.8,
               floor: (s, total) => -1.9 + 2.4 * smooth(total * 0.5, total * 0.85, s) };
   const samples = carvePath(sx, sz, Math.atan2(p.ux, p.uz), o, R);
@@ -254,17 +280,33 @@ function fitSeaCave(p) {
            bound: bound(samples), o };
 }
 
-/** An arch in the shallows off the cliff at `p`, standing parallel to the shore. */
+/**
+ * An arch off the headland at `p`: one foot in the foot of the cliff, the
+ * other out in the sea, and the way under it along the shore. That is how a
+ * sea arch comes to be — waves working into a headland from both sides cut
+ * a cave through it, and what is left over the cave is the arch; when that
+ * falls, its seaward foot is a stack. So it stands only where the coast
+ * juts out, with the sea on both sides of it.
+ */
 function fitArch(p) {
-  const R = stream(seedAt(p.x * 3, p.z * 3));
-  const out = 16 + R() * 14, span = 11 + R() * 5;
-  const cx = p.x - p.ux * out, cz = p.z - p.uz * out;
   const tx = -p.uz, tz = p.ux;
-  const a = { x: cx - tx * span / 2, z: cz - tz * span / 2 }, b = { x: cx + tx * span / 2, z: cz + tz * span / 2 };
-  const ba = heightAt(a.x, a.z), bb = heightAt(b.x, b.z), mid = heightAt(cx, cz);
-  if (ba > -1.5 || bb > -1.5 || ba < -11 || bb < -11 || mid > -2) return null;
-  const top = 7.5 + R() * 3.5, legR = 2.1 + R() * 0.5, topR = 1.4 + R() * 0.3;
-  const arch = { x: cx, z: cz, a, b, bedA: ba, bedB: bb, top, legR, topR, bow: (R() - 0.5) * 3, nx: -p.ux, nz: -p.uz };
+  // (Either side of it, forty metres along, is out at the shoreline or in the sea: the coast bends back.)
+  for (const k of [-1, 1]) if (coastDistance(p.x + tx * k * 40, p.z + tz * k * 40) > 0.5) return null;
+  // The seaward foot of the cliff: where the bed first drops to wading depth.
+  let t = 0;
+  while (t < 14 && heightAt(p.x - p.ux * t, p.z - p.uz * t) > -0.8) t += 0.5;
+  if (t >= 14) return null;
+  const R = stream(seedAt(p.x * 3, p.z * 3));
+  const span = 12 + R() * 5;
+  const a = { x: p.x - p.ux * t, z: p.z - p.uz * t };
+  const b = { x: a.x - p.ux * span, z: a.z - p.uz * span };
+  const cx = (a.x + b.x) / 2, cz = (a.z + b.z) / 2;
+  const ba = Math.min(-0.8, heightAt(a.x, a.z)), bb = heightAt(b.x, b.z), mid = heightAt(cx, cz);
+  if (bb > -2 || bb < -12 || mid > -2.2) return null;
+  const top = 8 + R() * 4, legR = 2.2 + R() * 0.5, topR = 1.5 + R() * 0.3;
+  // The headland it is cut from stands as high as it does, behind its foot.
+  if (heightAt(a.x + p.ux * 7, a.z + p.uz * 7) < top * 0.7) return null;
+  const arch = { x: cx, z: cz, a, b, bedA: ba, bedB: bb, top, legR, topR, bow: (R() - 0.5) * 2.5, nx: tx, nz: tz };
   arch.legs = [archPoint(arch, 0.07), archPoint(arch, 0.93)].map(q => ({ x: q.x, z: q.z, r: q.r + 0.3 }));
   return arch;
 }
@@ -423,7 +465,7 @@ export function collideArches(pos, r) {
 const ROCK = {
   land: [new THREE.Color(0x8f6f55), new THREE.Color(0x6e6962)],   // sandstone and grey, as the cliff it is in
   sea: [new THREE.Color(0x55524d), new THREE.Color(0x3f4446)],
-  floor: new THREE.Color(0x4f4436), shingle: new THREE.Color(0x8a8272), wet: new THREE.Color(0x3a3530),
+  floor: new THREE.Color(0x4f4436), sand: new THREE.Color(0x8c7556), shingle: new THREE.Color(0x8a8272), wet: new THREE.Color(0x3a3530),
 };
 
 /** The rock of the caves: the ground's detail on it, and the sky's light only as far in as it reaches (aDay). */
@@ -483,7 +525,7 @@ function inTheDark(material, day) {
  * A cave's tube: a ring of rock every metre along its path — an arch of wall
  * and roof over a flat floor — joined up, closed at the far end, open at the
  * mouth; and round it, SKIN further out, its outer face, the two joined at the
- * lip of the mouth. Stalactites in the chamber. The inside faces in.
+ * lip of the mouth. Blocks fallen from the roof on the floor. The inside faces in.
  */
 export function caveGeometry(c, { open = false } = {}) {
   // (`open`: a cutaway for the asset gallery — the roof off above head height,
@@ -520,7 +562,8 @@ export function caveGeometry(c, { open = false } = {}) {
       // Colour: the rock, streaked; the floor darker, damp by the spring and at the waterline.
       const v = rough(x * 0.37 + 11, y * 0.5, z * 0.37 - 4);
       tint.copy(rock[0]).lerp(rock[1], 0.5 + 0.5 * Math.sin(y * 1.7 + v * 2)).multiplyScalar(0.86 + 0.14 * v);
-      if (part === 'floor' || ly < 0.25) tint.lerp(c.kind === 'sea' && p.y > -0.3 ? ROCK.shingle : ROCK.floor, 0.7);
+      // (A land cave's floor is the sand the sandstone weathers to.)
+      if (part === 'floor' || ly < 0.25) tint.lerp(c.kind === 'sea' ? (p.y > -0.3 ? ROCK.shingle : ROCK.floor) : ROCK.sand, 0.7);
       if (c.kind === 'sea' && y < 0.7) tint.lerp(ROCK.wet, smooth(0.7, -0.4, y) * 0.8);
       if (c.spring && Math.hypot(x - c.spring.x, z - c.spring.z) < c.spring.r * 1.5) tint.lerp(ROCK.wet, 0.45);
       put(x, y, z, tint, dv);
@@ -573,19 +616,41 @@ export function caveGeometry(c, { open = false } = {}) {
     g.setIndex(idx);
     g.computeVertexNormals();
   }
-  // Stalactites from the chamber's roof.
+  // Blocks fallen from the roof, heaped against the walls: sandstone and the
+  // rock of a sea cliff do not grow stalactites — those are limestone's — but
+  // a cave in them widens by its roof and walls coming down in slabs, and
+  // what fell lies on the floor where it landed.
   const R = stream(seedAt(c.mouth.x * 7, c.mouth.z * 7)), drips = [];
-  const room = S.filter(p => p.w > 2.8);
-  for (let k = 0; k < 9 && room.length && !open; k++) {
-    const p = room[Math.floor(R() * room.length)], lat = (R() * 2 - 1) * p.w * 0.6;
-    const roof = p.y + p.h * Math.sqrt(1 - (lat / p.w) ** 2);
-    const len = 0.4 + R() * 1.1, rad = 0.08 + R() * 0.12;
-    const cone = new THREE.ConeGeometry(rad, len, 6, 1, false).rotateX(Math.PI).translate(p.x + p.fz * lat, roof - len / 2 + 0.25, p.z - p.fx * lat);
-    const n = cone.attributes.position.count;
-    tint.copy(rock[0]).multiplyScalar(0.95);
-    cone.setAttribute('color', new THREE.Float32BufferAttribute(new Array(n).fill(0).flatMap(() => [tint.r, tint.g, tint.b]), 3));
-    cone.setAttribute('aDay', new THREE.Float32BufferAttribute(new Array(n).fill(daylight(p.s, c.kind)), 1));
-    drips.push(cone.toNonIndexed());
+  const floorOk = p => p.s > 2 && p.s < S.at(-1).s - 1.5 && (c.kind === 'land' || p.y > -0.2);
+  const along = S.filter(floorOk);
+  for (let k = 0; k < 14 && along.length; k++) {
+    // Most in the chamber, where the roof is widest; a few along the passage.
+    const pool = k < 9 ? along.filter(p => p.w > 2.6) : along;
+    if (!pool.length) continue;
+    const p = pool[Math.floor(R() * pool.length)], side = R() < 0.5 ? -1 : 1;
+    const size = (p.w > 2.6 ? 0.35 : 0.22) + R() * (p.w > 2.6 ? 0.6 : 0.3);
+    const sx = size * (1 + R() * 0.6), sy = size * (0.45 + R() * 0.3), sz = size * (0.8 + R() * 0.5), ext = Math.max(sx, sz);
+    // Against the wall, and a way clear down the middle to walk: they are
+    // rock to look at, not to climb over (you would walk through them).
+    const lat = side * Math.max(0, p.w - ext * 0.8 - R() * 0.3);
+    if (Math.abs(lat) - ext < 0.75) continue;
+    const bx = p.x + p.fz * lat, bz = p.z - p.fx * lat;
+    if (c.spring && Math.hypot(bx - c.spring.x, bz - c.spring.z) < c.spring.r + size) continue;
+    const block = new THREE.IcosahedronGeometry(1, 0);
+    const q = block.attributes.position, yaw = R() * 6.28, cs = Math.cos(yaw), sn = Math.sin(yaw);
+    for (let i = 0; i < q.count; i++) {
+      // Angular: fresh from the roof, not worn round. Flat side down, sunk a little.
+      let x = q.getX(i) * sx, y = Math.max(-0.35, q.getY(i)) * sy, z = q.getZ(i) * sz;
+      const k2 = 1 + 0.12 * rough(x * 4 + k, y * 4, z * 4);
+      x *= k2; z *= k2;
+      q.setXYZ(i, bx + x * cs - z * sn, p.y + y + sy * 0.2, bz + x * sn + z * cs);
+    }
+    const n = q.count;
+    tint.copy(rock[0]).lerp(rock[1], R()).multiplyScalar(0.8 + R() * 0.15);
+    block.setAttribute('color', new THREE.Float32BufferAttribute(new Array(n).fill(0).flatMap(() => [tint.r, tint.g, tint.b]), 3));
+    block.setAttribute('aDay', new THREE.Float32BufferAttribute(new Array(n).fill(open ? 1 : daylight(p.s, c.kind)), 1));
+    block.computeVertexNormals();
+    drips.push(block.toNonIndexed());
   }
   if (drips.length) g = mergeGeometries([g.toNonIndexed(), ...drips.map(d => { d.deleteAttribute('uv'); return d; })], false);
   g.computeBoundingSphere();
@@ -740,7 +805,9 @@ export class Caves {
     for (const { c } of near) {
       const S = c.samples, half = Math.ceil(HOOD / CUTS_PER_CAVE);
       for (let k = 0; k < CUTS_PER_CAVE; k++) {
-        const a = S[Math.min(k * half, S.length - 1)], b = S[Math.min((k + 1) * half, S.length - 1)];
+        // (From a metre in: the capsule is round, and from the lip itself it
+        // would reach out in front of the alcove and hole the ground there.)
+        const a = S[Math.min(Math.max(1, k * half), S.length - 1)], b = S[Math.min((k + 1) * half, S.length - 1)];
         CAVE_CUT.uCutA.value[n].set(a.x, a.y + a.h / 2, a.z, Math.max(a.w, b.w) + 0.4);
         CAVE_CUT.uCutB.value[n].set(b.x, b.y + b.h / 2, b.z, Math.max(a.h, b.h) / 2 + 0.5);
         CAVE_CUT.uCutF.value[n].set(a.y, b.y);
@@ -782,6 +849,26 @@ export class Caves {
     this.chipped.set(f.key, FLINT_REGROW);
     this.placeFlint(f, false);
     return 1 + (Math.abs(seedAt(f.x * 13, f.z * 13)) % 2);
+  }
+
+  /** Chipped by someone else (playing together): gone here too. */
+  chippedElsewhere(key, left = FLINT_REGROW) {
+    const f = this.flint.find(x => x.key === key);
+    if (!f || this.chipped.has(key)) return;
+    this.chipped.set(key, Math.min(Math.max(Number(left) || FLINT_REGROW, 1), FLINT_REGROW));
+    this.placeFlint(f, false);
+  }
+
+  /** The faces chipped and not yet back, for a save or a room's world: [key, seconds left]. */
+  chippedList() { return [...this.chipped].map(([k, t]) => [k, Math.round(t)]); }
+
+  /** Another world's chipped faces: all back first, then those gone there. */
+  restoreChipped(list, clear = true) {
+    if (clear) {
+      for (const k of this.chipped.keys()) { const f = this.flint.find(x => x.key === k); if (f) this.placeFlint(f, true); }
+      this.chipped.clear();
+    }
+    for (const [k, t] of Array.isArray(list) ? list : []) if (typeof k === 'string' && t > 0) this.chippedElsewhere(k, t);
   }
 
   /** The spring you are looking at within reach, or null. */

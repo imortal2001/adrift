@@ -236,6 +236,10 @@ function stepSparks(p, dt, rate) {
         x: Math.cos(a) * r, y: 0.3 + Math.random() * 0.2, z: Math.sin(a) * r,
         vx: (Math.random() - 0.5) * 0.25, vz: (Math.random() - 0.5) * 0.25, vy: 0.7 + Math.random() * 0.8 });
     }
+    // Out: it stays where it went out until it is lit again. (Left wandering,
+    // unseen, the spent ones drifted hundreds of metres from the fire in a
+    // few minutes — and with them the fire's bounds.)
+    if (s.age >= s.life) { life[i] = 1; continue; }
     s.age += dt;
     // Up on the heat, wandering, slowing as they cool.
     s.vx += (Math.random() - 0.5) * dt * 1.6;

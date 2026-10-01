@@ -126,18 +126,22 @@ SPECIES = {
     "tang": dict(
         length=0.20, rings=20, section=1.75,
         texture=dict(scales=90, scale_amount=0.5, roughness=0.55),
-        profile=[(0.00, 0.030, 0.018), (0.05, 0.075, 0.035), (0.10, 0.17, 0.07),
-                 (0.17, 0.33, 0.105), (0.26, 0.45, 0.125), (0.38, 0.49, 0.13),
-                 (0.52, 0.47, 0.12), (0.66, 0.39, 0.10), (0.80, 0.26, 0.07),
-                 (0.91, 0.13, 0.04), (1.00, 0.07, 0.03)],
-        dorsal=(0.24, 0.80, 0.20), anal=(0.46, 0.84, 0.15),
+        # (Half-depths: the disc is ~0.6 SL deep, FishBase/Smithsonian 55-71%;
+        # its fins "extremely elevated", the longest dorsal ray 26% SL.)
+        profile=[(0.00, 0.030, 0.018), (0.05, 0.065, 0.035), (0.10, 0.12, 0.07),
+                 (0.17, 0.21, 0.105), (0.26, 0.28, 0.125), (0.38, 0.305, 0.13),
+                 (0.52, 0.29, 0.12), (0.66, 0.24, 0.10), (0.80, 0.16, 0.07),
+                 (0.91, 0.09, 0.04), (1.00, 0.06, 0.03)],
+        dorsal=(0.24, 0.80, 0.26), anal=(0.46, 0.84, 0.22),
         fin_styles=dict(dorsal="round"),
-        tail=dict(shape="truncate", span=0.40, sweep=0.20),
+        tail=dict(shape="truncate", span=0.26, sweep=0.20),
         pectoral=(0.30, 0.15, 0.13), pelvic=(0.30, 0.10),
         head=dict(mouth=0.035, mouth_up=-0.05, oblique=-0.1, gape=0.3, snout=(0.2, 0.32),
                   gills=[0.27]),
         eye_t=0.18, eye_z=0.4, eye_r=0.032, iris=0x2a2a26,
-        bands=[(0.16, 0.05), (0.60, 0.04), (0.885, 0.012)],
+        # One even yellow, all over — no bands: those are another tang's. The
+        # scalpel on the stalk is white (a decal: see face()).
+        bands=[], scalpel=0.885,
         lateral=(0.55, 0.24, 0.85, 1.12),
         fin_tone=0.72,
     ),
@@ -146,13 +150,13 @@ SPECIES = {
     "chromis": dict(
         length=0.13, rings=18,
         texture=dict(scales=26, scale_amount=1.0, roughness=0.5),
-        profile=[(0.00, 0.06, 0.03), (0.08, 0.20, 0.09), (0.22, 0.29, 0.12),
-                 (0.40, 0.31, 0.12), (0.56, 0.28, 0.11), (0.72, 0.21, 0.08),
-                 (0.86, 0.12, 0.05), (1.00, 0.06, 0.03)],
-        dorsal=(0.24, 0.78, 0.13), anal=(0.52, 0.80, 0.10),
-        tail=dict(span=0.30, sweep=0.16, fork=0.09),
-        pectoral=(0.32, 0.13, 0.10), pelvic=(0.33, 0.12),
-        head=dict(mouth=0.05, mouth_up=0.05, oblique=0.2, gape=0.25, gills=[0.27]),
+        profile=[(0.00, 0.045, 0.03), (0.08, 0.14, 0.09), (0.22, 0.205, 0.12),
+                 (0.40, 0.22, 0.12), (0.56, 0.20, 0.11), (0.72, 0.15, 0.08),
+                 (0.86, 0.085, 0.05), (1.00, 0.045, 0.03)],
+        dorsal=(0.28, 0.80, 0.13), anal=(0.56, 0.82, 0.10),
+        tail=dict(span=0.26, sweep=0.30, fork=0.15),
+        pectoral=(0.31, 0.27, 0.09), pelvic=(0.33, 0.12),
+        head=dict(mouth=0.085, mouth_up=0.05, oblique=0.2, gape=0.25, gills=[0.29]),
         eye_t=0.12, eye_z=0.22, eye_r=0.046, iris=0x8fa4a8,
         bands=[], lateral=(0.55, 0.25, 0.7, 1.12),
         fin_tone=0.80,
@@ -162,14 +166,14 @@ SPECIES = {
     "wrasse": dict(
         length=0.24, rings=20,
         texture=dict(scales=34, scale_amount=0.9, roughness=0.5),
-        profile=[(0.00, 0.035, 0.022), (0.08, 0.11, 0.065), (0.24, 0.18, 0.10),
-                 (0.44, 0.19, 0.10), (0.60, 0.17, 0.09), (0.76, 0.13, 0.07),
-                 (0.90, 0.08, 0.04), (1.00, 0.04, 0.02)],
-        dorsal=(0.18, 0.84, 0.09), anal=(0.54, 0.84, 0.07),
+        profile=[(0.00, 0.025, 0.022), (0.08, 0.075, 0.065), (0.24, 0.125, 0.10),
+                 (0.44, 0.13, 0.10), (0.60, 0.115, 0.09), (0.76, 0.09, 0.07),
+                 (0.90, 0.055, 0.04), (1.00, 0.03, 0.02)],
+        dorsal=(0.28, 0.84, 0.08), anal=(0.56, 0.84, 0.07),
         fin_styles=dict(dorsal="round"),
-        tail=dict(shape="truncate", span=0.24, sweep=0.14),
-        pectoral=(0.26, 0.14, 0.09), pelvic=(0.28, 0.08),
-        head=dict(mouth=0.06, mouth_up=-0.1, gape=0.3, lips=True, gills=[0.24],
+        tail=dict(shape="truncate", span=0.20, sweep=0.14),
+        pectoral=(0.32, 0.23, 0.08), pelvic=(0.34, 0.08),
+        head=dict(mouth=0.06, mouth_up=-0.1, gape=0.3, lips=True, gills=[0.31], maxilla=False,
                   teeth=dict(n=2, size=0.12, t=(0.004, 0.012), width=0.004)),
         eye_t=0.11, eye_z=0.3, eye_r=0.03, iris=0xb04030,
         bands=[(0.34, 0.06)], lateral=(0.55, 0.22, 0.95, 1.14),
@@ -184,12 +188,12 @@ SPECIES = {
     "bluetang": dict(
         length=0.20, rings=24, seg=18, section=1.8,
         texture=dict(scales=85, scale_amount=0.5, roughness=0.5),
-        profile=[(0.00, 0.045, 0.025), (0.06, 0.16, 0.06), (0.16, 0.31, 0.10),
-                 (0.32, 0.39, 0.12), (0.50, 0.38, 0.115), (0.66, 0.31, 0.09),
-                 (0.80, 0.20, 0.06), (0.91, 0.11, 0.04), (1.00, 0.07, 0.03)],
-        dorsal=(0.22, 0.82, 0.13), anal=(0.46, 0.84, 0.11),
+        profile=[(0.00, 0.04, 0.025), (0.06, 0.13, 0.06), (0.16, 0.24, 0.10),
+                 (0.32, 0.29, 0.12), (0.50, 0.285, 0.115), (0.66, 0.235, 0.09),
+                 (0.80, 0.15, 0.06), (0.91, 0.085, 0.04), (1.00, 0.06, 0.03)],
+        dorsal=(0.22, 0.82, 0.14), anal=(0.46, 0.84, 0.12),
         fin_styles=dict(dorsal="round"),
-        tail=dict(shape="truncate", span=0.34, sweep=0.2),
+        tail=dict(span=0.27, sweep=0.2, fork=0.035),
         pectoral=(0.28, 0.15, 0.12), pelvic=(0.29, 0.09),
         head=dict(mouth=0.04, mouth_up=-0.4, gape=0.3, snout=(0.16, 0.25), gills=[0.25]),
         eye_t=0.15, eye_z=0.35, eye_r=0.034, iris=0x1c1c20,
@@ -210,8 +214,8 @@ SPECIES = {
         fin_styles=dict(dorsal="round", dorsal2="falcate", anal="falcate"),
         tail=dict(span=0.2, sweep=0.14, fork=0.1),
         pectoral=(0.22, 0.12, 0.06), pelvic=(0.38, 0.06),
-        head=dict(mouth=0.04, mouth_up=0.25, oblique=0.3, gape=0.2, gills=[0.22]),
-        eye_t=0.1, eye_z=0.12, eye_r=0.04, eye_bulge=0.3, iris=0xd6dde0, lateral=None,
+        head=dict(mouth=0.055, mouth_up=0.25, oblique=0.3, gape=0.2, gills=[0.22]),
+        eye_t=0.085, eye_z=0.12, eye_r=0.045, eye_bulge=0.3, iris=0xb4bec2, lateral=None,
         colors=dict(back=0x7fa596, belly=0xeef2f2, line=0.25, soft=0.2, fin=0xc8d4d0,
                     stripes=[(0.12, 0.96, -0.06, 0.22, 0xf6fafc), (0.12, 0.96, 0.22, 0.32, 0x4e6c66)]),
     ),
@@ -221,16 +225,20 @@ SPECIES = {
     "snapper": dict(
         length=0.34, rings=22,
         texture=dict(scales=48, scale_amount=1.0, roughness=0.5),
-        profile=[(0.00, 0.03, 0.022), (0.08, 0.12, 0.06), (0.20, 0.17, 0.08),
-                 (0.36, 0.18, 0.085), (0.52, 0.16, 0.075), (0.68, 0.12, 0.06),
-                 (0.84, 0.07, 0.035), (1.00, 0.035, 0.020)],
-        dorsal=(0.20, 0.76, 0.10), anal=(0.56, 0.80, 0.07),
-        tail=dict(span=0.18, sweep=0.16, fork=0.10),
-        pectoral=(0.26, 0.14, 0.08), belly=0.92,
-        head=dict(mouth=0.105, mouth_up=-0.25, oblique=0.12, gape=0.35, jaw=0.005, snout=(0.14, 0.12),
-                  gills=[0.26], preop=True,
-                  teeth=dict(n=2, size=0.09, t=(0.012, 0.03), width=0.004)),
-        eye_t=0.12, eye_z=0.32, eye_r=0.03,
+        # (Fishes of Texas, % SL: depth 40-43, head 38-44, snout 13-15, eye
+        # 10-11, maxilla 15-16, pectoral 25-33; dorsal X,14 shallowly notched;
+        # anal pointed; the tail only slightly concave.)
+        profile=[(0.00, 0.035, 0.022), (0.08, 0.13, 0.06), (0.20, 0.19, 0.08),
+                 (0.36, 0.205, 0.085), (0.52, 0.19, 0.075), (0.68, 0.14, 0.06),
+                 (0.84, 0.08, 0.035), (1.00, 0.04, 0.020)],
+        dorsal=(0.37, 0.84, 0.11, 0.5), anal=(0.64, 0.80, 0.16), spine_notch=0.16,
+        fin_styles=dict(anal="pointed"),
+        tail=dict(span=0.19, sweep=0.18, fork=0.04),
+        pectoral=(0.41, 0.28, 0.07), pelvic=(0.42, 0.13), belly=0.92,
+        head=dict(mouth=0.15, mouth_up=-0.25, oblique=0.12, gape=0.35, jaw=0.005, snout=(0.16, 0.12),
+                  gills=[0.40], preop=True,
+                  teeth=dict(n=2, size=0.09, t=(0.012, 0.035), width=0.004)),
+        eye_t=0.19, eye_z=0.42, eye_r=0.05,
         lateral=(0.55, 0.24, 0.95, 1.12),
         colors=dict(back=0xc8413a, belly=0xf2c7bd, line=0.0, soft=0.45,
                     fin=0xd4574a, eye=0xc02a1c),
@@ -244,17 +252,21 @@ SPECIES = {
         profile=[(0.00, 0.035, 0.02), (0.06, 0.12, 0.042), (0.16, 0.20, 0.063),
                  (0.30, 0.23, 0.070), (0.48, 0.21, 0.065), (0.66, 0.15, 0.050),
                  (0.82, 0.08, 0.030), (1.00, 0.04, 0.020)],
-        dorsal=(0.20, 0.78, 0.09), anal=(0.50, 0.80, 0.07),
+        # (Fishes of Texas, % SL: head 31-34, snout 17-20, eye 9-10, pectoral
+        # 32-40, reaching past the anal origin; dorsal low, XII,12, slightly
+        # notched; the jaw bone covered by the bone under the eye; front canines.)
+        dorsal=(0.30, 0.82, 0.09, 0.5), anal=(0.60, 0.82, 0.08), spine_notch=0.12,
         tail=dict(span=0.18, sweep=0.16, fork=0.09),
-        pectoral=(0.26, 0.18, 0.09), belly=0.9,
-        head=dict(mouth=0.075, mouth_up=-0.5, oblique=0.08, gape=0.3, jaw=0.004, snout=(0.2, 0.3),
-                  lips=0xc9b89a, corner=0xe08a3a, gills=[0.25], preop=True),
-        eye_t=0.15, eye_z=0.42, eye_r=0.03, iris=0xb8a86a,
+        pectoral=(0.33, 0.36, 0.08), pelvic=(0.34, 0.12), belly=0.9,
+        head=dict(mouth=0.11, mouth_up=-0.5, oblique=0.08, gape=0.3, jaw=0.004, snout=(0.2, 0.3),
+                  lips=0xc9b89a, corner=0xe08a3a, gills=[0.32], maxilla=False,
+                  teeth=dict(n=2, size=0.08, t=(0.01, 0.02), width=0.004)),
+        eye_t=0.22, eye_z=0.45, eye_r=0.048, iris=0xb8a86a,
         marks=[dict(type="eyerim", arc=(195, 345), color=0x3f8fd8, w=0.3),
-               dict(type="path", pts=[(0.13, 0.12), (0.10, -0.05), (0.075, -0.25)], w=0.07, color=0xe9e4d6),
-               dict(type="path", pts=[(0.15, -0.02), (0.13, -0.2), (0.105, -0.36)], w=0.06, color=0xe9e4d6)],
+               dict(type="path", pts=[(0.18, 0.12), (0.15, -0.05), (0.12, -0.25)], w=0.07, color=0xe9e4d6),
+               dict(type="path", pts=[(0.20, -0.02), (0.18, -0.2), (0.15, -0.36)], w=0.06, color=0xe9e4d6)],
         lateral=(0.55, 0.22, 0.95, 1.1),
-        colors=dict(back=0xa89878, belly=0xeee9de, line=0.2, soft=0.4, fin=0xc8b89a, face=(0.2, 0x6e5838)),
+        colors=dict(back=0xa89878, belly=0xeee9de, line=0.2, soft=0.4, fin=0xc8b89a, face=(0.26, 0x6e5838)),
     ),
     # Peacock flounder: a flat disc lying on its blind side, fringed all round
     # by its dorsal and anal fins, both eyes on the upper side — widely spaced
@@ -269,9 +281,9 @@ SPECIES = {
         dorsal=(0.03, 0.93, 0.06), anal=(0.16, 0.93, 0.06),
         fin_styles=dict(dorsal="round", anal="round"),
         tail=dict(shape="round", span=0.08, sweep=0.14),
-        pectoral=(0.22, 0.08, 0.05), pelvic=None,
-        head=dict(mouth=0.075, mouth_up=-0.25, oblique=0.15, gape=0.25, gills=[0.2], nares=False),
-        eye_t=0.12, eye_r=0.03, eye_bulge=1.1, iris=0x8a8a6a,
+        pectoral=(0.29, 0.10, 0.05), pelvic=None,
+        head=dict(mouth=0.075, mouth_up=-0.25, oblique=0.15, gape=0.25, gills=[0.28], nares=False),
+        eye_t=0.13, eye_r=0.03, eye_bulge=1.1, eye_offset=0.05, iris=0x8a8a6a,
         colors=dict(axis="side", back=0xb49e76, belly=0xf2f0ea, line=0.0, soft=0.12,
                     fin=0xa89270,
                     spots=dict(color=0x4f8fd0, density=0.12, size=0.06, up=(0.3, 1.0), t=(0.08, 0.95))),
@@ -286,18 +298,18 @@ SPECIES = {
         profile=[(0.00, 0.012, 0.010), (0.07, 0.050, 0.035), (0.18, 0.075, 0.048),
                  (0.35, 0.085, 0.050), (0.55, 0.075, 0.045), (0.72, 0.055, 0.035),
                  (0.87, 0.028, 0.020), (1.00, 0.014, 0.012)],
-        dorsal=(0.25, 0.45, 0.05), dorsal2=(0.55, 0.64, 0.05), anal=(0.56, 0.65, 0.05),
+        dorsal=(0.25, 0.45, 0.05, 1.0), dorsal2=(0.46, 0.60, 0.05), anal=(0.52, 0.63, 0.05),
         fin_styles=dict(dorsal2="falcate", anal="falcate"),
         finlets=(0.67, 0.95, 8, 0.02),
         tail=dict(shape="lunate", span=0.16, sweep=0.10),
         pectoral=(0.22, 0.08, 0.05), pelvic=(0.28, 0.04),
-        head=dict(mouth=0.105, mouth_up=-0.2, oblique=0.05, gape=0.3, jaw=0.006, gills=[0.2],
+        head=dict(mouth=0.125, mouth_up=-0.2, oblique=0.05, gape=0.3, jaw=0.006, gills=[0.2],
                   teeth=dict(n=9, size=0.07, t=(0.01, 0.085), width=0.003)),
         eye_t=0.105, eye_z=0.3, eye_r=0.02,
         lateral=(0.5, 0.2, 0.97, 0.78),
         lateral_path=[(0.2, 0.6), (0.48, 0.55), (0.58, 0.12), (0.7, 0.18), (0.82, 0.08), (0.97, 0.12)],
-        colors=dict(back=0x3e6b88, belly=0xe9eef0, line=0.25, soft=0.2, fin=0x51708a,
-                    spots=dict(color=0xd9c25a, density=0.08, size=0.03, up=(-0.1, 0.55), t=(0.15, 0.85))),
+        # (Plain silver: the yellow spots are the young's; adults have none.)
+        colors=dict(back=0x3e6b88, belly=0xe9eef0, line=0.25, soft=0.2, fin=0x51708a),
     ),
     # Yellowfin tuna: a conical snout, a small eye and a small mouth ending
     # well before it; deep blue-black over silver, a golden stripe, long yellow
@@ -308,11 +320,11 @@ SPECIES = {
         profile=[(0.00, 0.010, 0.009), (0.05, 0.058, 0.044), (0.12, 0.095, 0.070),
                  (0.25, 0.125, 0.088), (0.40, 0.130, 0.090), (0.55, 0.115, 0.080),
                  (0.70, 0.075, 0.055), (0.85, 0.035, 0.028), (1.00, 0.014, 0.012)],
-        dorsal=(0.28, 0.42, 0.07), dorsal2=(0.50, 0.60, 0.17), anal=(0.53, 0.63, 0.16),
+        dorsal=(0.28, 0.42, 0.07, 1.0), dorsal2=(0.48, 0.58, 0.22), anal=(0.52, 0.62, 0.21),
         fin_styles=dict(dorsal2="falcate", anal="falcate"),
-        finlets=(0.64, 0.95, 7, 0.025),
+        finlets=(0.63, 0.95, 9, 0.025),
         tail=dict(shape="lunate", span=0.22, sweep=0.10),
-        pectoral_style="wing", pectoral=(0.20, 0.13, 0.06, 0.25), pelvic=(0.24, 0.05),
+        pectoral_style="wing", pectoral=(0.21, 0.08, 0.07, 0.2, 0.22), pelvic=(0.24, 0.05),
         head=dict(mouth=0.065, mouth_up=-0.18, oblique=0.05, gape=0.22, gills=[0.21], preop=True),
         eye_t=0.105, eye_z=0.25, eye_r=0.017, iris=0x3a3a30,
         colors=dict(back=0x1c2f5a, belly=0xdfe6ea, line=0.15, soft=0.25, fin=0x3a4660,
@@ -329,17 +341,19 @@ SPECIES = {
         profile=[(0.00, 0.008, 0.008), (0.05, 0.030, 0.024), (0.14, 0.052, 0.038),
                  (0.32, 0.066, 0.045), (0.55, 0.063, 0.042), (0.75, 0.049, 0.032),
                  (0.90, 0.028, 0.020), (1.00, 0.015, 0.013)],
-        dorsal=(0.34, 0.42, 0.045), dorsal2=(0.66, 0.72, 0.04), anal=(0.67, 0.73, 0.04),
+        # (Fishes of Texas, % SL: head 31-35, snout 14-15, eye 5-6, upper jaw
+        # 14-15, pectoral 9-11; pelvics ahead of the first dorsal.)
+        dorsal=(0.35, 0.42, 0.045, 1.0), dorsal2=(0.66, 0.72, 0.04), anal=(0.67, 0.73, 0.04),
         fin_styles=dict(dorsal2="falcate", anal="falcate"),
         tail=dict(span=0.11, sweep=0.10, fork=0.06),
-        pectoral=(0.20, 0.07, 0.04), pelvic=(0.38, 0.04),
-        head=dict(mouth=0.14, mouth_up=-0.15, oblique=0.06, gape=0.35, jaw=0.024, flat_top=(0.2, 0.3),
-                  gills=[0.19], preop=True,
-                  teeth=dict(n=8, size=0.2, t=(0.012, 0.11), width=0.004, uneven=True)),
-        eye_t=0.115, eye_z=0.35, eye_r=0.013, eye_bulge=0.3, iris=0xd8c890,
+        pectoral=(0.33, 0.10, 0.04), pelvic=(0.31, 0.04),
+        head=dict(mouth=0.15, mouth_up=-0.15, oblique=0.06, gape=0.35, jaw=0.024, flat_top=(0.28, 0.3),
+                  gills=[0.32], preop=True,
+                  teeth=dict(n=8, size=0.2, t=(0.012, 0.13), width=0.004, uneven=True)),
+        eye_t=0.18, eye_z=0.35, eye_r=0.028, eye_bulge=0.3, iris=0xd8c890,
         lateral=(0.3, 0.2, 0.95, 1.15),
         colors=dict(back=0x5a6e72, belly=0xeef2f2, line=0.3, soft=0.2, fin=0x6f7c80,
-                    bars=dict(color=0x2f3a3e, count=13, t=(0.2, 0.85), up=(0.2, 1.0)),
+                    bars=dict(color=0x2f3a3e, count=20, t=(0.32, 0.88), up=(0.2, 1.0)),
                     spots=dict(color=0x1b2224, density=0.10, size=0.02, up=(-0.8, -0.1), t=(0.55, 0.92)),
                     fins=dict(caudal=0x3b4648)),
     ),
@@ -350,16 +364,19 @@ SPECIES = {
     "grouper": dict(
         length=0.80, rings=28, seg=16,
         texture=dict(scales=110, scale_amount=0.5, roughness=0.55),
-        profile=[(0.00, 0.040, 0.030), (0.07, 0.100, 0.070), (0.18, 0.140, 0.085),
-                 (0.35, 0.150, 0.090), (0.55, 0.145, 0.085), (0.72, 0.110, 0.065),
-                 (0.86, 0.070, 0.040), (1.00, 0.045, 0.028)],
-        dorsal=(0.20, 0.82, 0.07), anal=(0.58, 0.82, 0.07),
-        tail=dict(shape="round", span=0.09, sweep=0.12),
-        pectoral=(0.26, 0.14, 0.10), pelvic=(0.28, 0.10),
-        head=dict(mouth=0.15, mouth_up=-0.22, oblique=0.1, gape=0.45, jaw=0.014, flat_top=(0.22, 0.2),
-                  lips=True, gills=[0.28], preop=True,
-                  teeth=dict(n=2, size=0.07, t=(0.01, 0.025), width=0.004)),
-        eye_t=0.12, eye_z=0.42, eye_r=0.017,
+        # (FishBase: depth 33-38% SL, head 38-42%, the jaw bone to or past the
+        # back of the eye; dorsal IX,14-15, spines 5-8 longest (~0.12 SL);
+        # pectoral ~0.25 SL; tail and anal rounded.)
+        profile=[(0.00, 0.045, 0.030), (0.07, 0.115, 0.070), (0.18, 0.160, 0.085),
+                 (0.35, 0.175, 0.090), (0.55, 0.170, 0.085), (0.72, 0.130, 0.065),
+                 (0.86, 0.080, 0.040), (1.00, 0.050, 0.028)],
+        dorsal=(0.38, 0.86, 0.12, 0.42), anal=(0.66, 0.84, 0.11),
+        tail=dict(shape="round", span=0.10, sweep=0.13),
+        pectoral=(0.41, 0.25, 0.12), pelvic=(0.42, 0.12),
+        head=dict(mouth=0.21, mouth_up=-0.22, oblique=0.1, gape=0.45, jaw=0.014, flat_top=(0.3, 0.2),
+                  lips=True, gills=[0.40], preop=True,
+                  teeth=dict(n=2, size=0.07, t=(0.01, 0.03), width=0.004)),
+        eye_t=0.16, eye_z=0.45, eye_r=0.03,
         lateral=(0.55, 0.26, 0.95, 1.1),
         colors=dict(back=0xa0402f, belly=0xd98a6a, line=-0.1, soft=0.5, fin=0xa84a36,
                     eye=0xb89a50,
@@ -372,14 +389,17 @@ SPECIES = {
     "mahi": dict(
         length=1.10, rings=26, seg=14, section=1.9,
         texture=dict(scales=130, scale_amount=0.3, roughness=0.42),
-        profile=[(0.00, 0.095, 0.024), (0.012, 0.135, 0.038), (0.05, 0.148, 0.05),
-                 (0.25, 0.135, 0.050), (0.45, 0.110, 0.045), (0.65, 0.080, 0.035),
-                 (0.85, 0.040, 0.022), (1.00, 0.020, 0.014)],
-        dorsal=(0.03, 0.92, 0.07), anal=(0.48, 0.92, 0.05),
+        # (Depth under 25% SL; the dorsal from over the eye; the pectoral a
+        # sickle over half the head; the tail deeply forked.)
+        profile=[(0.00, 0.076, 0.024), (0.012, 0.108, 0.038), (0.05, 0.118, 0.05),
+                 (0.25, 0.108, 0.050), (0.45, 0.088, 0.045), (0.65, 0.064, 0.035),
+                 (0.85, 0.032, 0.022), (1.00, 0.016, 0.014)],
+        dorsal=(0.07, 0.92, 0.07), anal=(0.48, 0.92, 0.05),
         fin_styles=dict(dorsal="crest"),
-        tail=dict(span=0.18, sweep=0.15, fork=0.12),
-        pectoral=(0.18, 0.09, 0.04), pelvic=(0.2, 0.06),
-        head=dict(mouth=0.06, mouth_up=-0.62, oblique=0.1, gape=0.2, snout=(0.1, 0.35), gills=[0.19]),
+        tail=dict(span=0.18, sweep=0.22, fork=0.17),
+        pectoral=(0.18, 0.12, 0.035), pelvic=(0.2, 0.06),
+        head=dict(mouth=0.06, mouth_up=-0.62, oblique=0.1, gape=0.2, snout=(0.1, 0.35), gills=[0.19],
+                  maxilla=False),              # (drawn on that steep face, it read as a grin)
         eye_t=0.07, eye_z=-0.15, eye_r=0.017, iris=0x6a5a30,
         colors=dict(back=0x2f8f8a, belly=0xf0d64a, line=0.35, soft=0.25, fin=0x2f7fb0,
                     spots=dict(color=0x2c6fb0, density=0.10, size=0.022, up=(-0.3, 0.8), t=(0.08, 0.9)),
@@ -790,12 +810,40 @@ def face(sp, m):
                 strip(m, a, b, dark(gt, 0.0, 0.42))
 
         # ── the mouth ──
+        # Shut, a fish's mouth is not a painted slot. The upper jaw closes over
+        # the lower: a crease, fine at the tip of the snout where the jaws
+        # meet and in the corner, only a shadow's width between; the lips
+        # either side of it, catching the light; and behind the gape the
+        # maxilla, the plate of the upper jaw, its rear end showing as an
+        # edge on the cheek. (A band the width of a lip, near black, read as
+        # a cartoon's mouth.) Sharks and whales have none of it.
+        bony = not sp.get("smooth_fins")
         if mt > 0:
-            ts = [0.012 + (mt * 0.97 - 0.012) * i / 7 for i in range(8)]
+            ts = [0.012 + (mt * 0.97 - 0.012) * i / 11 for i in range(12)]
             ml = [mouth_line(head, t) for t in ts]
-            a = [surface(sp, t, u + 0.022, sgn, 0.02) for t, u in zip(ts, ml)]
-            b = [surface(sp, t, u - 0.022, sgn, 0.02) for t, u in zip(ts, ml)]
-            strip(m, a, b, dark(0.02, ml[0], 0.28))
+            wid = [0.014 * (0.35 + 0.65 * math.sin(math.pi * min(1.0, 0.12 + 0.88 * i / 11)))
+                   if bony else 0.022 for i in range(12)]
+            a = [surface(sp, t, u + w_, sgn, 0.02) for t, u, w_ in zip(ts, ml, wid)]
+            b = [surface(sp, t, u - w_, sgn, 0.02) for t, u, w_ in zip(ts, ml, wid)]
+            strip(m, a, b, dark(0.02, ml[0], 0.36 if bony else 0.28))
+            if bony and not head.get("lips"):
+                # Lips, if not the fleshy ones some species have: a narrow
+                # band either side of the crease, a shade paler than the face.
+                for off in (1, -1):
+                    a = [surface(sp, t, u + off * w_, sgn, 0.024) for t, u, w_ in zip(ts, ml, wid)]
+                    b = [surface(sp, t, u + off * (w_ + 0.035), sgn, 0.022) for t, u, w_ in zip(ts, ml, wid)]
+                    strip(m, a, b, [shade(here(t, u), 1.1) for t, u in zip(ts, ml)])
+            if bony and mt >= 0.05 and head.get("maxilla", True):
+                # The maxilla's rear edge: from the corner of the mouth up
+                # and forward round the end of the bone, a fine line a shade
+                # darker than the cheek — how far back it reaches is much of
+                # a species' face (a grouper's past its eye, a tang's hardly).
+                c_t, c_u = mt * 0.97, ml[-1]
+                arc = [(c_t - 0.004, c_u - 0.02), (c_t + 0.004, c_u + 0.04), (c_t + 0.002, c_u + 0.1),
+                       (c_t - 0.012, c_u + 0.14), (c_t - mt * 0.28, c_u + 0.13), (c_t - mt * 0.5, c_u + 0.1)]
+                a = [surface(sp, t, u, sgn, 0.02) for t, u in arc]
+                b = [surface(sp, t + 0.0035, u + 0.012, sgn, 0.02) for t, u in arc]
+                strip(m, a, b, [shade(here(t, u), 0.8) for t, u in arc])
             lips = head.get("lips")
             if lips:
                 # Fleshy lips: a raised band either side of the gape, paler
@@ -825,6 +873,11 @@ def face(sp, m):
                         tri = [surface(sp, t - w, base, sgn, 0.03), surface(sp, t + w, base, sgn, 0.03),
                                surface(sp, t + w * 0.3, base - s_ * h, sgn, 0.034)]
                         m.poly_out([m.add(*q, ivory) for q in tri])
+
+        # ── a surgeonfish's scalpel ──
+        if sp.get("scalpel"):
+            # The folding blade on each side of the tail stalk, in a pale sheath.
+            patch(m, sp, sp["scalpel"], 0.0, sgn, 0.016, 0.16, (0.97, 0.96, 0.92), lift=0.03, dome=0.02, n=10)
 
         # ── nostrils ──
         nares = head.get("nares", True)
@@ -913,7 +966,8 @@ def fan(m, base, edge, colour, part, rows=(0.0, 0.25, 0.5, 0.75, 1.0), notch=0.0
         if i < n:
             bm = lerp3(base[i], base[i + 1], 0.5)
             em = lerp3(edge[i], edge[i + 1], 0.5)
-            cols.append((bm, lerp3(bm, em, 1 - notch), False))
+            nt = notch[i] if isinstance(notch, (list, tuple)) else notch   # one per gap, or one for all
+            cols.append((bm, lerp3(bm, em, 1 - nt), False))
     rws = list(rows)
     if tip is not None and tip_at not in rws:
         rws = sorted(set(rws) | {tip_at - 0.02, tip_at})
@@ -943,15 +997,35 @@ def fan(m, base, edge, colour, part, rows=(0.0, 0.25, 0.5, 0.75, 1.0), notch=0.0
 def median(sp, m, key, spec, sign, style):
     """Dorsal and anal fins: a row of rays standing out of the back or belly."""
     L = sp["length"]
-    t0, t1, h = spec
-    n = max(4, min(14, int((t1 - t0) * 40)))
-    base, edge = [], []
+    t0, t1, h = spec[:3]
+    # How much of a spiny fin is spines: a snapper's or a grouper's dorsal is
+    # one fin, spines in front and soft rays behind; a tuna's first dorsal is
+    # spines alone (1.0).
+    spines = spec[3] if len(spec) > 3 else 0.5
+    n = max(4, min(16, int((t1 - t0) * 44)))
+    base, edge, notches = [], [], []
     for i in range(n + 1):
         u = i / n
         t = t0 + (t1 - t0) * u
         r = outline(sp, t)[0] * L * sign * (sp.get("belly", 1.0) if sign < 0 else 1.0) * 0.94
-        if style == "spiny":        # tall spines in front, soft rays behind
-            hh, rake = h * (1.0 - 0.3 * u), 0.35
+        if style == "spiny" and spines >= 0.99:
+            # Spines alone: the first few tallest, then falling away.
+            v = u
+            hh, rake = h * (0.2 + 0.8 * math.exp(-((v - 0.18) / 0.42) ** 2)), 0.35
+        elif style == "spiny":
+            # A perch's dorsal, the way a snapper's, a porgy's and a
+            # grouper's run: spines rising to the third or fourth and
+            # shortening to a dip where they meet the soft rays; then the soft
+            # part, taller, rounded, and falling away at the back.
+            if u < spines:
+                v = u / spines
+                hh, rake = h * (0.6 + 0.4 * math.exp(-((v - 0.25) / 0.38) ** 2)), 0.35
+            else:
+                w_ = (u - spines) / (1 - spines)
+                hh = h * (0.62 + 0.38 * math.sin(math.pi * w_ * 0.9)) * (1 - 0.55 * smooth(0.72, 1.0, w_))
+                rake = 0.5
+        elif style == "pointed":    # a snapper's anal fin: angular, its middle rays longest
+            hh, rake = h * (0.15 + 0.85 * math.exp(-((u - 0.42) / 0.3) ** 2)), 0.6
         elif style == "falcate":    # a sickle: tall at the front, swept right back
             hh, rake = h * max(0.06, (1 - u) ** 1.3), 0.95
         elif style == "shark":      # a shark's first dorsal: a swept, concave triangle
@@ -962,7 +1036,10 @@ def median(sp, m, key, spec, sign, style):
             hh, rake = h * (0.3 + 0.7 * math.sin(math.pi * (0.08 + 0.84 * u))), 0.4
         base.append((0.0, t * L, r))
         edge.append((0.0, t * L + rake * hh * L, r + hh * L * sign))
-    notch = 0.32 if style == "spiny" else 0.05
+        # The membrane is cut deep between spines, not between soft rays.
+        if i < n:
+            notches.append(sp.get("spine_notch", 0.26) if style == "spiny" and (u + 0.5 / n) < spines else 0.04)
+    notch = notches
     rays = 1.0 if sp.get("smooth_fins") else 0.78
     fan(m, base, edge, fin_colour(sp, key), MEDIAN, notch=notch, rays=rays,
         tip=tip_colour(sp) if key == "dorsal" else None, tip_at=0.62, slot=key,
@@ -1040,8 +1117,10 @@ def paired(sp, m):
     col, tip = fin_colour(sp, "pectoral"), tip_colour(sp)
     rays = 1.0 if sp.get("smooth_fins") else 0.8
     if sp.get("pectoral_style") == "wing":
-        # Out from the flank, swept back and drooping: (t, span, chord, droop).
-        pt, span, chord, droop = sp["pectoral"]
+        # Out from the flank, swept back and drooping: (t, span, chord, droop,
+        # and how far back the tip lies — a tuna's sickle reaches the second dorsal).
+        pt, span, chord, droop = sp["pectoral"][:4]
+        sweep = sp["pectoral"][4] if len(sp["pectoral"]) > 4 else 0.0
         z0 = -outline(sp, pt)[0] * L * 0.45
         wb = outline(sp, pt)[1] * L
         for side in (1, -1):
@@ -1049,7 +1128,7 @@ def paired(sp, m):
             tipx = side * (wb * 0.85 + span * L)
             n = 4
             base = [(root, (pt + chord * i / n) * L, z0) for i in range(n + 1)]
-            edge = [(tipx, (pt + chord * (1.0 + 0.4 * i / n)) * L, z0 - droop * span * L)
+            edge = [(tipx, (pt + chord * (1.0 + 0.4 * i / n) + sweep * (1 - 0.5 * i / n)) * L, z0 - droop * span * L)
                     for i in range(n + 1)]
             fan(m, base, edge, col, PAIRED, rays=rays, tip=tip, tip_at=0.68,
                 rows=(0.0, 0.25, 0.5, 0.75, 1.0), slot="pectoral")
@@ -1117,16 +1196,16 @@ def eyes(sp, m):
     bulge = sp.get("eye_bulge", 0.45)
     c = sp.get("colors", {})
     iris = rgb(c["eye"]) if "eye" in c else rgb(sp.get("iris", 0xc9b27a))
-    pupil = (0.02, 0.02, 0.025)
+    pupil = (0.018, 0.02, 0.026)
     slit = sp.get("pupil") == "slit"
     if sp.get("eyes") == "top":
         # Both eyes on the upper side, widely spaced, the migrated one a little
         # further forward — a bothid flounder's. Upper side here is +X; the
         # roll makes it face the sky.
-        places = [(1, t, 0.48), (1, t - 0.035, -0.22)]
+        places = [(1, t, 0.48), (1, t - sp.get("eye_offset", 0.035), -0.22)]
     else:
         places = [(side, t, sp.get("eye_z", 0.30)) for side in (1, -1)]
-    n = 12
+    n = 24
     L_ = L
 
     def seat(t, u, side, h):
@@ -1139,18 +1218,34 @@ def eyes(sp, m):
         return (x + dx / ln * h, y, z + dz / ln * h)
 
     # The eye, from the centre out: (radius, how far it stands out as a share
-    # of the bulge, colour, is-pupil). A species can give its own; the
-    # default is pupil, iris, socket.
-    rings_spec = sp.get("eye_rings") or [(0.45, 0.8, "pupil", True), (1.0, 0.35, "iris", False),
-                                         (1.3, 0.0, "socket", False)]
+    # of the bulge, colour, is-pupil). A species can give its own. The
+    # default is a teleost's: a big black pupil with the round lens bulging
+    # through it, the iris bright round the pupil where the silvery argentea
+    # shows and darker toward its rim, and then the skin, running right up to
+    # it — a fish has no lids, and a dark socket round the eye read as a
+    # cartoon's.
+    rings_spec = sp.get("eye_rings") or [(0.44, 1.0, "pupil", True), (0.52, 0.86, "iris_in", False),
+                                         (0.82, 0.62, "iris", False), (0.97, 0.38, "iris_out", False),
+                                         (1.1, 0.12, "orbit", False), (1.34, 0.0, "skin", False)]
     slit_w = sp.get("slit", 0.35)
     lids = sp.get("eye_lids")
 
-    def colour_of(c_):
+    skin_at = {}
+
+    def colour_of(c_, side=1, et=0.0, eu=0.0):
         if c_ == "pupil":
             return pupil
         if c_ == "iris":
             return iris
+        if c_ == "iris_in":
+            return mix(iris, (0.93, 0.9, 0.8), 0.3)
+        if c_ == "iris_out":
+            return shade(iris, 0.62)
+        if c_ in ("orbit", "skin"):
+            key = (side, round(et, 4), round(eu, 4))
+            if key not in skin_at:
+                skin_at[key] = body_colour(sp, et, eu, side, 0, 0)
+            return shade(skin_at[key], 0.82) if c_ == "orbit" else skin_at[key]
         if c_ == "socket":
             return shade(iris, 0.35)
         return rgb(c_)
@@ -1178,9 +1273,9 @@ def eyes(sp, m):
         centre = m.add(*seat(et, eu, side, r * bulge * rings_spec[0][1]), pupil, EYE)
         rings = []
         for rr, lf, c_, ps in rings_spec:
-            col = colour_of(c_)
+            col = colour_of(c_, side, et, eu)
             rings.append([m.add(*q, col, EYE)
-                          for q in ellipse(et, eu, depth, side, rr, bulge * lf, ps)])
+                          for q in ellipse(et, eu, depth, side, rr, bulge * lf, ps and slit)])   # round, but a shark's
         for k in range(n):
             k2 = (k + 1) % n
             m.poly_out([centre, rings[0][k], rings[0][k2]])

@@ -8,34 +8,37 @@ export const ITEMS = {
   wood:    { name: 'Wood',    tool: false },
   plank:   { name: 'Plank',   tool: false },
   rope:    { name: 'Rope',    tool: false },
-  leaf:    { name: 'Palm',    tool: false },
-  // Hollow and sealed at every joint: it floats better than any timber.
-  bamboo:  { name: 'Bamboo',  tool: false },
+  leaf:    { name: 'Palm fibre', tool: false },
+  // Giant-horsetail cane (the id is from when it was bamboo, which had not
+  // evolved yet): hollow and braced at every joint, it floats better than any timber.
+  bamboo:  { name: 'Horsetail cane', short: 'Cane', tool: false },
   scrap:   { name: 'Scrap',   tool: false },
-  // Chipped from the walls of the caves, deep in, where it is dark: nowhere else has it.
+  // Chipped from the walls of the caves — one face by each mouth, in the light, the
+  // rest deep in, where it is dark: nowhere else has it.
   flint:   { name: 'Flint',   tool: false },
   // A stick bound with palm fibre. Not a tool — you can carry several; each
   // burns for TORCH.burn seconds once it is lit.
   torch:   { name: 'Torch',   tool: false, action: 'torch',
              hint: 'Light it at a burning campfire (E) — or anywhere, click, with a fire striker in your pack. Water puts it out' },
   // Flint struck on scrap iron: sparks, and a fire at once.
-  striker: { name: 'Fire striker', short: 'Striker', tool: true, action: 'strike',
-             hint: 'At an unlit campfire, E to strike a spark into the tinder (1 Palm). With it in your pack, a torch lights anywhere' },
+  // `pack`: works from the pack, so it does not take one of the slots for itself.
+  striker: { name: 'Fire striker', short: 'Striker', tool: true, action: 'strike', pack: true,
+             hint: 'Works from your pack: E at an unlit campfire strikes a spark into the tinder (1 Palm fibre), and a torch lights anywhere' },
   coconut: { name: 'Coconut', tool: false, action: 'eat',
              hint: 'Click to eat' },
 
   hammer:  { name: 'Hammer',  tool: true, action: 'build',
              hint: 'Held out to build — wheel or [ ] picks the piece' },
   // A blade of scrap iron ground to an edge, lashed to a haft. Trees, logs,
-  // stumps and bamboo need it; branches and fronds come away in your hands.
+  // stumps and giant horsetail need it; branches and fronds come away in your hands.
   axe:     { name: 'Axe',     tool: true, action: 'chop',
-             hint: 'Click (or E) at a tree, a fallen log, a stump or bamboo to chop it — a few strokes and it is down' },
+             hint: 'Click (or E) at a tree, a fallen log, a stump or giant horsetail to chop it — a few strokes and it is down' },
   hook:    { name: 'Hook',    tool: true, action: 'hook',
              hint: 'Click to throw it at debris out of reach' },
   spear:   { name: 'Spear',   tool: true, action: 'spear',
              hint: 'Right-click to throw it — then E to pull it back out' },
   rod:     { name: 'Rod',     tool: true, action: 'rod',
-             hint: 'Click to cast — click again the moment the float goes under. Right-click baits the hook with a fish' },
+             hint: 'Hold click to swing, let go to cast — click the moment the float goes under. Right-click baits the hook with a fish' },
   // Carved from driftwood, set up on land: where you wake if you die.
   statue:  { name: 'Statue',  tool: false, action: 'place',
              hint: 'Click to set it up on land — then E at it, and it is where you wake if you die' },
@@ -45,8 +48,8 @@ export const ITEMS = {
   // A bow with its cord round a spindle: sawing the bow spins the spindle in
   // a notch in a board, and the friction makes an ember. The oldest way to
   // make fire from what floats past a raft — wood and cord.
-  bowdrill: { name: 'Bow drill', tool: true, action: 'drill',
-             hint: 'Hold click at an unlit campfire to drill an ember — it takes 1 Palm for tinder' },
+  bowdrill: { name: 'Bow drill', tool: true, action: 'drill', pack: true,
+             hint: 'Works from your pack: hold E at an unlit campfire to drill an ember — it takes 1 Palm fibre for tinder' },
 };
 
 // A campfire, in seconds of burning. It is built with its first wood laid,
@@ -134,7 +137,7 @@ export const RECIPES = [
   { id: 'hammer', out: ['hammer', 1], cost: { plank: 2, rope: 1 },
     desc: 'Needed for every piece of construction.' },
   { id: 'axe',    out: ['axe', 1],    cost: { plank: 1, rope: 1, scrap: 1 },
-    desc: 'Scrap iron ground to an edge and lashed to a haft. Fells trees and cuts logs and bamboo — branches and fronds you take by hand.' },
+    desc: 'Scrap iron ground to an edge and lashed to a haft. Fells trees and cuts logs and giant horsetail — branches and fronds you take by hand.' },
   { id: 'hook',   out: ['hook', 1],   cost: { plank: 1, rope: 2, scrap: 1 },
     desc: 'Right-click to throw and reel in distant debris.' },
   { id: 'spear',  out: ['spear', 1],  cost: { plank: 2, rope: 1, scrap: 1 },
@@ -163,8 +166,8 @@ export const BUILDABLES = [
   // look like what they are made of; they float and handle the same.
   { id: 'foundation', name: 'Foundation', kind: 'cell',   cost: { plank: 2 },
     desc: 'Extend the deck by one 2m square: planks over three float logs.' },
-  { id: 'bamboo_floor', name: 'Bamboo foundation', kind: 'cell', cost: { bamboo: 4, rope: 1 },
-    desc: 'A 2m square of bamboo poles lashed side by side, cross-poles on top.' },
+  { id: 'bamboo_floor', name: 'Cane foundation', kind: 'cell', cost: { bamboo: 4, rope: 1 },
+    desc: 'A 2m square of giant-horsetail canes lashed side by side, cross-canes on top: hollow, and buoyant.' },
   { id: 'log_floor',  name: 'Log foundation', kind: 'cell', cost: { wood: 4, rope: 1 },
     desc: 'A 2m square of driftwood and palm trunks, lashed together.' },
   { id: 'barrel_floor', name: 'Barrel foundation', kind: 'cell', cost: { scrap: 2, plank: 1 },
@@ -189,13 +192,16 @@ export const BUILDABLE_BY_ID = Object.fromEntries(BUILDABLES.map(b => [b.id, b])
 BUILDABLE_BY_ID.statue = { id: 'statue', name: 'Statue', kind: 'object', cost: { statue: 1 },
                            desc: 'Set up on the deck, it sails with the raft; register at it to wake aboard.' };
 
+/** What taking a piece apart says (yours, or — a guest's — the host, handing over what it gave). */
+export const salvaged = id => (id === 'statue' ? 'You unlash the statue and lift it.' : `Salvaged ${BUILDABLE_BY_ID[id]?.name || 'it'}.`);
+
 /** What each kind of flotsam gives up when gathered. */
 export const DEBRIS_KINDS = {
   log:     { label: 'Driftwood', yield: { wood: 2 },            weight: 30 },
   flotsam: { label: 'Flotsam',   yield: { plank: 1, wood: 1 },  weight: 14 },
   palm:    { label: 'Palm frond',yield: { leaf: 2 },            weight: 24 },
   barrel:  { label: 'Barrel',    yield: { scrap: 2 },           weight: 13 },
-  bamboo:  { label: 'Bamboo',    yield: { bamboo: 2 },          weight: 12 },
+  bamboo:  { label: 'Horsetail canes', yield: { bamboo: 2 },     weight: 12 },
   crate:   { label: 'Crate',     yield: { plank: 2, scrap: 1 }, weight: 9  },
   coconut: { label: 'Coconut',   yield: { coconut: 1 },         weight: 10 },
 };

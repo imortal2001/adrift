@@ -63,6 +63,9 @@ const PLAYER = (() => {
 
 export { PLAYER };
 
+// The game you were in last (for Rejoin): a test tab's own, like its player.
+const LAST_KEY = (() => { try { const t = sessionStorage.getItem('adrift.pid'); return t ? `adrift.last:${t}` : 'adrift.last'; } catch { return 'adrift.last'; } })();
+
 // Who you are to the others: a tag made from PLAYER that cannot be turned
 // back into it (PLAYER is what a room keeps your record under, so it is not
 // handed round). Pieces you build, fish you hang and the statue you wake at
@@ -149,7 +152,7 @@ const lerpAngle = (a, b, t) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) 
 
 // A name is read at a conversational distance, not across the island:
 // finding each other is looking for each other.
-const NAME_CLEAR = 25, NAME_GONE = 45;
+const NAME_CLEAR = 40, NAME_GONE = 80;
 
 // What is on the end of someone's line: a float (the rod) or the hook.
 const LINE_SEGS = 10;
@@ -251,6 +254,7 @@ class Remote {
     this.tag.material.opacity = clear;
     this.tag.visible = clear > 0.01;
     this.drawLine(a.s.ln, b.s.ln, k);
+    this.drawCatch(a.s.ln, b.s.ln, k);
     if (this.bubble) {
       if (performance.now() / 1000 > this.bubbleUntil) this.dropBubble();
       else this.bubble.position.set(p.pos.x, p.pos.y + 2.25 + this.bubble.scale.y / 2, p.pos.z);
@@ -294,7 +298,41 @@ class Remote {
     if (kind === 1) this.line.end.lookAt(start);
   }
 
+  /**
+   * The fish on their line, when one is on: its own body, where their game
+   * has it — fighting under the float, leaping clear, swung in to the rod or
+   * hauled onto the deck — struggling as a hooked fish does. Without it a
+   * crewmate saw a float skitter about and nothing come up out of the sea.
+   */
+  drawCatch(la, lb, k) {
+    const key = Array.isArray(lb) && typeof lb[4] === 'string' ? lb[4] : null;
+    if (!key) { this.dropCatch(); return; }
+    if (this.caught && this.caught.key !== key) this.dropCatch();
+    if (!this.caught) {
+      const mesh = this.net.catchBody?.(key, Math.max(0.1, +lb[5] || 0.3));
+      if (!mesh) return;
+      mesh.rotation.order = 'YXZ';
+      this.net.scene.add(mesh);
+      this.caught = { key, mesh };
+    }
+    const m = this.caught.mesh, same = Array.isArray(la) && la[4] === key;
+    const at = i => same ? la[i] + (lb[i] - la[i]) * k : lb[i];
+    m.position.set(at(6), at(7), at(8));
+    const turn = (i) => same ? la[i] + Math.atan2(Math.sin(lb[i] - la[i]), Math.cos(lb[i] - la[i])) * k : lb[i];
+    m.rotation.set(turn(9), turn(10), turn(11));
+  }
+
+  dropCatch() {
+    if (!this.caught) return;
+    const m = this.caught.mesh;
+    m.removeFromParent();
+    m.geometry?.dispose();
+    m.material?.dispose?.();
+    this.caught = null;
+  }
+
   dropLine() {
+    this.dropCatch();
     if (!this.line) return;
     this.line.rope.removeFromParent();
     this.line.rope.geometry.dispose();
@@ -402,8 +440,9 @@ export class Net {
    * @param onEvent   (e, remote) => true if the game took it: things that
    *                  are for you rather than about them — a gift, a catch
    */
-  constructor({ scene, library, cloneHeld, log, raft, rafts, together, onEvent }) {
+  constructor({ scene, library, cloneHeld, catchBody, log, raft, rafts, together, onEvent }) {
     this.scene = scene;
+    this.catchBody = catchBody;  // (species, length) → a fish, for what is on someone's line
     this.rafts = rafts;         // every raft: someone on a deck is sent on theirs, by its id
     this.onEvent = onEvent;
     this.eye = null;            // where you look from, for how clearly their names show
@@ -433,7 +472,7 @@ export class Net {
 
   /** A game you were in lately and are not in now: its code, to rejoin. */
   get lastRoom() {
-    const l = store.get('adrift.last');
+    const l = store.get(LAST_KEY);
     if (!l?.code || Date.now() - l.at > LAST_ROOM || (l.code === this.code && this.ws)) return null;
     return l.code;
   }
@@ -445,7 +484,7 @@ export class Net {
     this.code = cleanCode(code);
     this.name = name;
     this.who = who;
-    store.set('adrift.last', { code: this.code, at: Date.now() });
+    store.set(LAST_KEY, { code: this.code, at: Date.now() });
     this.connect(false);
   }
 
@@ -553,7 +592,7 @@ export class Net {
       this.event({ k: 'pub', pub: PUB });               // who you are, to everyone here
       if (this.retrying) this.log(`Back in ${this.code}.`, 'good');
       else this.log(this.remotes.size ? `You join ${this.code}: ${names} ${this.remotes.size === 1 ? 'is' : 'are'} here.`
-                                      : `You are hosting ${this.code}. Share the invite link.`, 'good');
+                                      : `You are hosting ${this.code} — tell your friends the code, or send the invite link (H shows it).`, 'good');
       this.retrying = null;
       this.onChange();
     } else if (m.t === 'join') {
@@ -655,7 +694,14 @@ export class Net {
     const s = { p: [r2(at.x), r2(h), r2(at.z)],
                 y: Math.round(yaw * 1000) / 1000, pi: Math.round(player.pitch * 100) / 100,
                 st: { deck: 'd', air: 'a', swim: 's' }[player.state] || 'd', h: held || null };
-    if (line) s.ln = [r2(line[0]), r2(line[1]), r2(line[2]), line[3]];
+    if (line) {
+      s.ln = [r2(line[0]), r2(line[1]), r2(line[2]), line[3]];
+      // And what is on it, fighting: which fish, how long, where and which way it faces.
+      if (typeof line[4] === 'string') {
+        const r3 = v => Math.round(v * 1000) / 1000;
+        s.ln.push(line[4], r2(line[5]), r2(line[6]), r2(line[7]), r2(line[8]), r3(line[9]), r3(line[10]), r3(line[11]));
+      }
+    }
     if (deck) { s.r = 1; s.ri = this.raft.id; }
     else if (swim) s.r = 2;
     if (player.onLand && !swim) s.l = 1;         // on land: prey, to the host's dinosaurs
@@ -678,10 +724,18 @@ export class Net {
    * Names in the game, you first, and how far off each of the others is —
    * how far only, never which way: where they are is for finding out.
    */
-  crew() {
+  /**
+   * Who is here, you first: each with how far off they are and — `way`, given
+   * where they are, returns an arrow — which way. Two of the same name are
+   * told apart by their number in the room.
+   */
+  crew(way = null) {
     if (!this.connected) return [];
-    const mark = id => (id === this.host ? ' (host)' : '');
-    const far = r => (this.me && r.body.visible ? ` — ${Math.round(this.me.distanceTo(r.pose.pos))} m` : '');
-    return [`${this.name}${mark(this.id)} — you`, ...[...this.remotes.values()].map(r => `${r.name}${mark(r.id)}${far(r)}`)];
+    const all = [[this.id, this.name], ...[...this.remotes.values()].map(r => [r.id, r.name])];
+    const twice = new Set(all.map(([, n]) => n).filter((n, i, a) => a.indexOf(n) !== i));
+    const label = (id, name) => `${name}${twice.has(name) ? ` #${id}` : ''}${id === this.host ? ' (host)' : ''}`;
+    const far = r => (this.me && r.body.visible && r.snaps.length      // not before where they are has come
+      ? ` — ${Math.round(this.me.distanceTo(r.pose.pos))} m${way?.(r.pose.pos) ? ` ${way(r.pose.pos)}` : ''}` : '');
+    return [`${label(this.id, this.name)} — you`, ...[...this.remotes.values()].map(r => `${label(r.id, r.name)}${far(r)}`)];
   }
 }

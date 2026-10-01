@@ -27,6 +27,9 @@ of the game.
   from `src/`, and every model is the game's own file from `assets/models/`.
   Where the game has a built-in fallback for a model (dinosaurs, fish, tools),
   you can switch between the two.
+- **What a fish is built to** — each fish's card gives the anatomy its body
+  was shaped from (head, eye, jaw, fins, tail, markings, as proportions of its
+  length) and where the measurements come from, and how near it lets you come.
 - **Animations** — every clip in a glTF, playable; and for the fish, each way
   the game moves them: cruising, fast, gliding, turning, a startle, hooked and
   landed.

@@ -27,7 +27,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from '/vendor/jsm/utils/BufferGeometryUtils.js';
 import { ModelLibrary } from '/src/models.js';
-import { SPECIES as DINOS, Wildlife } from '/src/wildlife.js';
+import { SPECIES as DINOS, Wildlife, RANGES, population } from '/src/wildlife.js';
 import { FishSchools, normalise, BODY_LENGTH, BIG } from '/src/fish.js';
 import { swimMaterial, styleFor, Swimmer, skinOf } from '/src/swim.js';
 import { statueBody } from '/src/statue.js';
@@ -38,9 +38,9 @@ import { Terrain, CHUNK, WORLD, heightAt, coastDistance, reefMask, landAt, RIVER
 import { Waterfall, lakeGeometry } from '/src/waterfall.js';
 import { REEF_ANIMALS, turtleBody, rayBody, octopusBody, Crabs, OCTO_SHADES } from '/src/reeflife.js';
 import { octopusModel, rayModel, shelledModel, seaTurtleModel } from '/src/reefmodels.js';
-import { SPECIES as FLORA, speciesMesh, setFloraTime } from '/src/flora.js';
-import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE } from '/src/items.js';
-import { POSES, Viewmodel, FLAME } from '/src/viewmodel.js';
+import { SPECIES as FLORA, speciesMesh, speciesGeometry, speciesMaterial, setFloraTime } from '/src/flora.js';
+import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE, CATCHES } from '/src/items.js';
+import { POSES, Viewmodel, FLAME, COOKED } from '/src/viewmodel.js';
 import { CAVES, ARCH_LIST, SHELF_LIST, survey as surveyCaves, caveGeometry, archGeometry, shelfGeometry, caveMaterial } from '/src/caves.js';
 import { Fishing } from '/src/fishing.js';
 import { Hook } from '/src/hook.js';
@@ -236,7 +236,9 @@ export async function loadRegistry() {
       source: hasModel ? `assets/models/${key}.glb · src/wildlife.js` : 'src/wildlife.js · buildBody()',
       facts: [
         ['Diet', sp.diet === 'meat' ? 'carnivore' : 'herbivore'],
-        ['In the world', `${sp.count}${sp.pack ? ', hunts in packs' : ''}`],
+        ['Lives', `${sp.habitat}; every few minutes down to the water to drink — never on the cliffs, the misty tops or in the caves`],
+        ['In the world', `${population(key)}, in ${RANGES.filter(r => !r.counts || r.counts[key]).map(r => r.name).join(' and ')}${sp.pack ? '; hunts in packs' : ''}`],
+        ['Size', key === 'tyrannosaur' ? 'each one full grown' : 'mixed ages: a group\'s young from about four-fifths of its leader'],
         ['Top speed', `${sp.speed} m/s`], ['Sight', `${sp.sight} m`], ['Health', sp.hp],
         ...(sp.damage ? [['Bite', `${sp.damage} damage every ${sp.biteEvery} s`]] : []),
       ],
@@ -247,7 +249,7 @@ export async function loadRegistry() {
           const entry = await lib.get(key);
           if (entry) {
             // Sized exactly as the game sizes it: to the procedural body.
-            const rig = lib.instantiate(entry, a.rig.length * sp.scale);
+            const rig = lib.instantiate(entry, a.rig.length * sp.scale * a.grow);
             rig.group.position.y = rig.stand;
             const clips = entry.clips.map(c => c.name);
             let action = null;
@@ -268,7 +270,7 @@ export async function loadRegistry() {
           }
         }
         const g = a.rig.group.clone(true);
-        g.position.set(0, a.rig.stand * sp.scale, 0);
+        g.position.set(0, a.rig.stand * sp.scale * a.grow, 0);
         g.rotation.set(0, 0, 0);
         g.visible = true;
         return { object: shadows(g) };
@@ -277,6 +279,27 @@ export async function loadRegistry() {
   }
 
   // ── fish ──
+  // What each body is built to (tools/build_fish.py): the species' published
+  // measurements as proportions of standard length — Fishes of Texas, the
+  // Smithsonian's Shorefishes of the Greater Caribbean, FishBase.
+  const ANATOMY = {
+    tang: ['a compressed disc ~0.6 of its length deep; head steep, eye high, a long snout concave above and below; dorsal and anal fins high; an even yellow with a white scalpel on the tail stalk', 'FishBase; Smithsonian Shorefishes'],
+    bluetang: ['an oval disc with a pointed snout and small low mouth; the black palette; a yellow tail with its corners drawn out', 'Animal Diversity Web'],
+    chromis: ['0.44 of its length deep; a small terminal mouth reaching under the front of the eye; pectorals ~0.27; a deep, sharp-tipped fork', 'Fishes of Texas; Smithsonian Shorefishes'],
+    wrasse: ['slender (0.26 deep), head a third of its length; thick lips and front canines, the jaw bone hidden; dorsal VIII,12 unnotched', 'Fishes of Texas; Smithsonian Shorefishes'],
+    silver: ['slender, with a head wider than the body and an eye twice its snout; two dorsals; a silver stripe over a black one', 'Smithsonian Shorefishes'],
+    snapper: ['head ~40% of its length, eye a tenth, a red iris; the jaw to under the front of the eye, four canines; dorsal X,14 shallowly notched; long pointed pectorals and anal fin; the tail barely concave', 'Fishes of Texas; Smithsonian Shorefishes'],
+    porgy: ['head a third of its length on a deep body; a long sloping snout, thick lips, front canines; the eye high with a blue line beneath; pectorals past the anal fin', 'Fishes of Texas; Smithsonian Shorefishes'],
+    flounder: ['a flat disc on its blind side, both eyes on top, the lower one well ahead; the head notched before it; fringed by dorsal and anal fins; ringed with blue', 'Smithsonian Shorefishes; Fishes of Texas'],
+    mackerel: ['a slim torpedo; snout shorter than the rest of the head, the end of the jaw bone showing, knife-like teeth; two dorsals together, 8–10 finlets; plain silver as an adult', 'Smithsonian Shorefishes; Fishes of Texas'],
+    tuna: ['a conical snout, no fatty eyelid; long yellow sickle second dorsal and anal; a sickle pectoral to the second dorsal; yellow finlets; a crescent tail', 'FishBase; Smithsonian Shorefishes'],
+    barracuda: ['head a third of its length, pike-like and flat on top; the lower jaw jutting, fangs of unequal size; the pelvics ahead of the first dorsal; ~20 dark bars', 'Fishes of Texas; FishBase; Smithsonian Shorefishes'],
+    grouper: ['head ~40% of its length; the jaw bone past the back of the eye, thick lips; dorsal IX,15, the middle spines longest; rounded pectorals, anal and tail; red with blue spots', 'FishBase'],
+    mahi: ['a bull: under a quarter of its length deep, with a near-vertical bony forehead; the dorsal from over the eye to the tail; sickle pectorals; a deep fork', 'FishBase; Smithsonian Shorefishes'],
+  };
+  // The ones that run from you let you closer the slower you come (src/fish.js
+  // WARY): their full flight distance (SENSE there), halved drifting in.
+  const WARY_AT = { school: 2.5, dart: 3.5, hide: 2.6, bolt: 2.0 };
   const fish = await schools();
   for (const { sp } of fish.groups) {
     const fighter = FIGHTERS[sp.key];
@@ -297,7 +320,9 @@ export async function loadRegistry() {
           curious: 'turns to watch you; backs off only when close', retreat: 'backs away toward its hole, facing you',
           ignore: 'keeps its line; swerves at arm\u2019s length', dart: 'the school bursts away',
           circle: 'comes over and circles you, wide, to look',
-          school: 'a fright ripples through the shoal' }[sp.react || 'school']],
+          school: 'a fright ripples through the shoal' }[sp.react || 'school'] +
+          (WARY_AT[sp.react || 'school'] ? ` \u2014 at ~${WARY_AT[sp.react || 'school']} m swimming hard, about half that drifting in slowly` : '')],
+        ...(ANATOMY[sp.key] ? [['Built to', ANATOMY[sp.key][0]], ['Measurements from', ANATOMY[sp.key][1]]] : []),
         ...(fighter ? [['Fights', fighter.style]] : []),
         ...(sp.color !== 0xffffff ? [['Tint', '#' + sp.color.toString(16).padStart(6, '0')]] : []),
       ],
@@ -363,7 +388,7 @@ export async function loadRegistry() {
     facts: reefFacts('octopus', [['Size', 'half a metre to a metre across the arms'],
       ['Behaviour', 'creeps over the coral, arms curling, its colour sliding to match what it is on; startled within 2.8 m, it blanches, jets off backwards and leaves a cloud of ink — then hides'],
       ['Moves by', manifest.has('octopus') ? 'its rig’s eight arm chains, curled and swept in code' : 'its arms re-shaped every frame'],
-      ['Caught with', 'the spear — thrown, or thrust once it has hidden'], ['Eats as', 'a fish: cooks on the spit']]),
+      ['Caught with', 'the spear — thrown, or thrust once it has hidden, or when you have drifted in slowly'], ['Eats as', 'a fish: cooks on the spit']]),
     variants: [{ id: 'crawl', label: 'Creeping' }, { id: 'jet', label: 'Jetting off' }, { id: 'code', label: 'Built in code' }],
     async build(variant) {
       const entry = variant === 'code' ? null : await reefModel('octopus');
@@ -423,7 +448,7 @@ export async function loadRegistry() {
   add({
     id: 'tortoise', name: 'Tortoise', category: 'animals', group: 'Land animals',
     ...modelled('tortoise', 'tortoise.glb'),
-    facts: [['Lives', REEF_ANIMALS.tortoise.where], ['Round you', `${REEF_ANIMALS.tortoise.count} at a time`],
+    facts: [['Lives', REEF_ANIMALS.tortoise.where], ['Round you', `up to ${REEF_ANIMALS.tortoise.count} at a time — as many as the ground round you suits, none in the wet forest`],
       ['Size', '40–60 cm long'],
       ['Behaviour', 'plods a little way, stops to graze, plods on; come within 3 m and it stops and draws in its head and legs until you have gone'],
       ['Moves by', 'its legs, head and tail found in the mesh and moved in the vertex shader'],
@@ -453,7 +478,8 @@ export async function loadRegistry() {
     id: 'whale', name: 'Humpback whale', category: 'animals', group: 'Aquatic',
     kind: 'glTF model', files: ['whale_humpback.glb', 'reef_fish.glb'], backdrop: 'underwater',
     source: 'assets/models/whale_humpback.glb (tools/build_whale.py; fallback reef_fish.glb "whale") · src/whale.js',
-    facts: [['Lives', '50–95 m from the raft'], ['Behaviour', 'cruises at 9 m, surfaces to blow, sounds flukes-up'],
+    facts: [['Lives', 'passing by: 50–110 m from you for seven to twelve minutes, then it moves on out of sight, and is gone twelve to twenty-five before it comes by again'],
+            ['Behaviour', 'cruises at 9 m, surfaces to blow, sounds flukes-up'],
             ['Caught with', 'nothing — scenery only']],
     async build() {
       const w = new Whale(scratch, null, raftStub, { library: lib });
@@ -470,6 +496,7 @@ export async function loadRegistry() {
 
   // ── equipment ──
   const held = await heldBodies();
+  const heldFish = (await schools()).groups.map(g => g.sp).filter(sp => CATCHES.some(c => c[0] === sp.key));
   for (const [id, pose] of Object.entries(POSES)) {
     if (id === 'torch_lit') continue;                 // the torch's card shows it lit
     const hasModel = !!pose.model && manifest.has(pose.model);
@@ -484,9 +511,29 @@ export async function loadRegistry() {
               ...(id === 'fish' ? [['In play', 'every fish is its own item and is held as its own species; this is the stand-in for one the schools cannot draw']] : []),
               ['Frame', id === 'bowdrill' ? 'its own: the bow across, the spindle down, as held' : 'stands along +Y, origin at the grip']],
       variants: hasModel ? [{ id: 'model', label: 'glTF model' }, { id: 'fallback', label: 'Built-in fallback' }]
-              : id === 'torch' ? [{ id: 'lit', label: 'Burning' }, { id: 'unlit', label: 'Unlit' }] : null,
+              : id === 'torch' ? [{ id: 'lit', label: 'Burning' }, { id: 'unlit', label: 'Unlit' }]
+              // In hand, a fish is its own species, raw or cooked (viewmodel.js body()): each of them.
+              : id === 'fish' ? [{ id: 'standin', label: 'Stand-in' },
+                  ...heldFish.flatMap(sp => [{ id: `raw:${sp.key}`, label: cap(sp.name) },
+                                             { id: `cooked:${sp.key}`, label: `${cap(sp.name)}, cooked` }])] : null,
       async build(variant) {
         let obj = null;
+        if (id === 'fish' && variant && variant !== 'standin') {
+          // As the game holds one (main.js viewmodel.fishBody, viewmodel.js standFish).
+          const [how, key] = variant.split(':');
+          const f = await schools();
+          await f.ready;
+          const sp = f.species(key);
+          const mesh = sp && f.displayBody(key, Math.min(sp.big ? 0.36 : 0.40, sp.length[1]));
+          if (mesh) {
+            f.lively.delete(mesh);
+            if (how === 'cooked') mesh.material.color.multiply(COOKED);
+            mesh.rotation.set(-Math.PI / 2, 0, 0);
+            const box = new THREE.Box3().setFromObject(mesh);
+            mesh.position.y = -box.min.y - 0.04;
+            obj = new THREE.Group().add(mesh);
+          }
+        }
         if (hasModel && variant !== 'fallback') obj = (await lib.get(pose.model))?.scene.clone(true);
         if (id === 'torch' && variant !== 'unlit') {
           obj = held.torch_lit.clone(true);
@@ -496,7 +543,7 @@ export async function loadRegistry() {
         // The game holds tools along +Y. For display they lie on the floor,
         // working end to the right, the way you would lay one out on a bench;
         // on end, a spear is a vertical hairline across a 4:3 card.
-        const long = ['hammer', 'spear', 'rod', 'plank', 'leaf', 'fish'].includes(id);
+        const long = ['hammer', 'spear', 'rod', 'plank', 'leaf', 'fish', 'bamboo'].includes(id);
         if (long) obj.rotation.z = -Math.PI / 2;
         return { object: rest(shadows(obj)), view: long ? { yaw: 0.25, pitch: 0.55 } : undefined };
       },
@@ -598,11 +645,69 @@ export async function loadRegistry() {
               ...(sp.trunk || sp.solid ? [['Blocks you', 'yes']] : [])],
       async build(variant) {
         const far = variant === 'far';
-        const mesh = speciesMesh(sp, far ? 0 : Number(variant || 0), far ? 1 : 0);
+        const mesh = speciesMesh(sp, far ? (sp.farVariant ? sp.farVariant(0) : 0) : Number(variant || 0), far ? 1 : 0);
         return { object: shadows(mesh), update: (dt, time) => setFloraTime(time) };
       },
     });
   }
+  // ── a tree felled: the stump it leaves, and the trunk down beside it ──
+  for (const sp of FLORA.filter(s => s.cut)) {
+    const forms = Array.from({ length: sp.variants }, (_, v) => ({ id: String(v), label: `Variant ${v + 1}` }));
+    add({
+      id: `felled-${sp.name}`, name: `${sp.label} — felled`, category: 'vegetation', group: sp.group,
+      kind: 'built in code', backdrop: 'world', source: 'src/terrain.js · addStump(), topple(), cutFaces()',
+      variants: forms.length > 1 ? forms : null,
+      facts: [['Cut', sp.cut === 'hollow' ? 'a stubble of open stems a hand high — a horsetail’s are hollow'
+                                           : 'at knee height or so, higher on a big trunk: the stump its own foot, clipped at the cut'],
+              ...(sp.heartwood ? [['The face', 'its own cross-section there, flutes and buttresses and all: the heartwood, a narrow band of sapwood, the bark; growth rings and a few checks']] : []),
+              ['Falls', 'hinged on the stump’s far edge, away from the axe; lies a few seconds, and sinks from sight'],
+              ['Stays', `the stump, until the tree grows back (${sp.regrow} s); you can stand on it`]],
+      async build(variant) {
+        const v = Number(variant || 0);
+        const inst = new THREE.InstancedMesh(speciesGeometry(sp, v, 0), speciesMaterial(sp), 1);
+        const M = new THREE.Matrix4();
+        inst.setMatrixAt(0, M);
+        const p = { sp, inst, index: 0, matrix: M, x: 0, y: 0, z: 0, key: `gallery-${sp.name}`, trunk: sp.trunkOf ? sp.trunkOf(v) : sp.trunk };
+        const c = t.cutOf(p);
+        const g = new THREE.Group();
+        // The stump, where it stood.
+        const below = new THREE.Plane(), above = new THREE.Plane();
+        const stump = t.clippedCopy(p, below);
+        // (Its bounds the stump's, not the whole tree's it is clipped from.)
+        const gb = inst.geometry.boundingBox || (inst.geometry.computeBoundingBox(), inst.geometry.boundingBox);
+        const rb = Math.max(c.rw, 0.3) * 1.6;
+        stump.boundingBox = new THREE.Box3(V(Math.max(gb.min.x, -rb), gb.min.y, Math.max(gb.min.z, -rb)), V(Math.min(gb.max.x, rb), c.hl, Math.min(gb.max.z, rb)));
+        g.add(stump);
+        if (c.top) g.add(t.cutFace(p, c.top));
+        // The rest of it, over on its side from the hinge at the far edge of
+        // the cut — away from where you look, so its cut end faces you.
+        const down = new THREE.Group();
+        down.position.set(-c.rw * 0.9, c.hw, 0);
+        // (A touch past level, the crown down on the ground, the butt up on its hinge.)
+        const geo = inst.geometry;
+        if (!geo.boundingBox) geo.computeBoundingBox();
+        down.rotation.z = Math.PI / 2 + Math.atan2(c.hw + c.rw * 0.9, geo.boundingBox.max.y * 0.85);
+        const log = t.clippedCopy(p, above);
+        log.position.set(c.rw * 0.9, -c.hw, 0);
+        down.add(log);
+        if (c.end) { const e = t.cutFace(p, c.end); e.matrix.setPosition(c.rw * 0.9, -c.hw, 0); down.add(e); }
+        g.add(down);
+        // (Clipping is in the world's frame: kept with the pieces wherever the stage puts them.)
+        const keep = () => {
+          g.updateMatrixWorld(true);
+          below.set(new THREE.Vector3(0, -1, 0), c.hl).applyMatrix4(stump.matrixWorld);
+          above.set(new THREE.Vector3(0, 1, 0), -c.hl).applyMatrix4(log.matrixWorld);
+        };
+        keep();
+        // Framed on the cut: the stump, and the end of the trunk beside it.
+        const r = Math.max(c.rw, 0.25);
+        return { object: shadows(g), keepHeight: true,
+                 frame: { center: V(-r * 1.2, c.hw + r * 0.6, 0), size: V(r * 5.5, r * 3.2 + c.hw, r * 4.5) },
+                 update: (dt, time) => { keep(); setFloraTime(time); } };
+      },
+    });
+  }
+
   const reefGeo = reefGeometry();
 
   // ── corals & rocks ──
@@ -678,7 +783,7 @@ export async function loadRegistry() {
       facts: c ? [
         ['In the world', `${n}, ${kind === 'land' ? 'at the foot of the cliffs inland — none near the landing beach' : 'at the waterline under the sea cliffs'}`],
         ['This one', `at ${Math.round(c.mouth.x)}, ${Math.round(c.mouth.z)}: ${Math.round(c.o.tunnel)} m of tunnel, ${(c.o.width * 2).toFixed(1)} m wide, to a chamber ${Math.round(c.o.room * 2)} m across`],
-        ['Inside', kind === 'land' ? 'a spring pool in the chamber to drink from, flint in the walls, stalactites — and dark past the first few metres'
+        ['Inside', kind === 'land' ? 'an alcove at the mouth, then a dog-leg, and dark round it; a spring pool in the chamber to drink from, flint in the walls, a sand floor and blocks fallen from the roof (sandstone grows no stalactites)'
                                    : 'you swim in; at the back a shingle beach to climb out on, flint in the walls, dark'],
         ['In play', 'a torch lights it; dinosaurs will not follow you in; your torch goes out in the water'],
         ['How it is made', 'a tube of rock set into the hill, the terrain cut away where it comes out of the cliff face; its floor and walls are what you walk on inside'],
@@ -716,7 +821,7 @@ export async function loadRegistry() {
   add({
     id: 'sea-arch', name: 'Sea arch', category: 'terrain', group: 'Caves & overhangs',
     kind: 'built in code', backdrop: 'studio', source: 'src/caves.js · archGeometry() · survey()',
-    facts: [['In the world', `${ARCH_LIST.length}, in the shallows off the sea cliffs`],
+    facts: [['In the world', `${ARCH_LIST.length}, off the headlands: one foot in the cliff, one in the sea — what is left of a cave the waves cut through the headland`],
             ['Size', ARCH_LIST[0] ? `${Math.round(Math.hypot(ARCH_LIST[0].b.x - ARCH_LIST[0].a.x, ARCH_LIST[0].b.z - ARCH_LIST[0].a.z))} m foot to foot, ${Math.round(ARCH_LIST[0].top)} m over the sea` : '—'],
             ['In play', 'swim or sail under it; its legs are solid to you and to the raft']],
     async build() {
@@ -788,9 +893,10 @@ export async function loadRegistry() {
             Math.abs(x - i * CHUNK) < CHUNK / 2 + pad && Math.abs(z - j * CHUNK) < CHUNK / 2 + pad);
           for (const rv of RIVERS) {
             const geo = riverGeometry(rv, inside);
-            if (geo) c.group.add(new THREE.Mesh(geo, t.rivers.material));
+            if (geo) { const m = new THREE.Mesh(geo, t.rivers.material); m.renderOrder = 2; c.group.add(m); }
           }
-          for (const L of LAKES) if (inside(L.x, L.z, L.a)) c.group.add(new THREE.Mesh(lakeGeometry(L), t.rivers.still));
+          // (Lakes first, as the game draws them: the rivers tuck under them.)
+          for (const L of LAKES) if (inside(L.x, L.z, L.a)) { const m = new THREE.Mesh(lakeGeometry(L), t.rivers.still); m.renderOrder = 1; c.group.add(m); }
           for (const f of FALLS) {
             if (!inside(f.x, f.z, 8)) continue;
             const w = new Waterfall(f);
@@ -824,7 +930,8 @@ export async function loadRegistry() {
             ['Detail', 'as the game draws the land a couple of chunks from you: ground at 4 m, trees at their far detail; finer (2 m, every plant) along the rivers and round the lakes'],
             ['Rivers', `${RIVERS.length}, from springs in the range to the sea`],
             ['Waterfalls', FALLS.map((f, k) => `${Math.round(f.height)} m on river ${f.river + 1}`).join('; ')],
-            ['Lakes', `${LAKES.filter(L => L.kind === 'tarn').length} tarns above the falls, ${LAKES.filter(L => L.kind === 'pool').length} plunge pools below them, ${LAKES.filter(L => L.kind === 'lake').length} lake on the plain`],
+            ['Rivers are', 'mountain streams: ~20% most of the way, so a staircase of pools, not meanders; ~3 m wide at the spring, 11–12 m at the mouth'],
+            ['Lakes', `${LAKES.filter(L => L.kind === 'tarn').length} above the falls, held back by the rock of the lip, ${LAKES.filter(L => L.kind === 'pool').length} plunge pools below them, ${LAKES.filter(L => L.kind === 'lake').length} lake on the plain`],
             ['Sea', 'a stand-in, see-through over the shallows: the game’s ocean only reaches 450 m from the camera'],
             ['Takes', 'a few seconds to build: some 800 chunks']],
     async build() {
@@ -1123,7 +1230,7 @@ async function terrainSamples() {
     pick('forest', 'Forest hills', 'terrain', 'Land', 'about 100 m inland',
          'redwood and araucaria forest, tree ferns, ferns, shrubs, fallen logs and stumps, vines', at(100)),
     pick('ridge', 'Mountain ridge', 'terrain', 'Land', 'the high spine of the continent',
-         'rock, scree, snow above ~250 m', chunkOf(...peak)),
+         'cloud forest to the tops — araucarias, tree ferns, moss; bare rock and scree only where it is steep (no snow: the Cretaceous greenhouse)', chunkOf(...peak)),
     pick('shelf', 'Sea bed — sand shelf', 'terrain', 'Sea bed', 'the open sand between reef colonies, near the raft',
          'sand at ~18 m, seagrass, the odd boulder', sandIJ),
     pick('dropoff', 'The drop-off', 'terrain', 'Sea bed', 'where the shelf ends and the basin begins, past the raft',
@@ -1147,15 +1254,15 @@ async function terrainSamples() {
   };
   const near = (x, z) => Math.hypot(x, z) / 4000;       // prefer what is closest to the raft
   samples.push(
-    pick('plains', 'Open plains', 'terrain', 'Land', 'the grassland between the forests',
-         'tall seeding grass, shrubs, cycads, the odd araucaria and rock tor', best((L, x, z) => (L.h > 8 ? L.plain : 0) - near(x, z))),
+    pick('plains', 'Open plains', 'terrain', 'Land', 'the open fern country between the forests (no grass yet: that is ~26 million years on)',
+         'waist-high fern thicket, low ferns and spike-moss, shrubs, cycads, the odd araucaria', best((L, x, z) => (L.h > 8 ? L.plain : 0) - near(x, z))),
     pick('escarpment', 'Escarpment', 'terrain', 'Land', 'where harder rock weathers into benches',
          'sandstone benches and cliff risers, crags, vines down the faces', best((L, x, z) => (L.h > 20 ? L.mesa : 0) - near(x, z))),
     pick('seacliff', 'Sea cliff', 'terrain', 'Coast', 'the exposed coast, well away from the raft',
-         'a cliff straight out of the sea, forest along its top, sea stacks offshore',
+         'a cliff straight out of the sea, araucarias along its top, cobbles at its foot, sea stacks off the headlands',
          best((L, x, z) => (L.m > 0 && L.m < 25 ? L.cliff : 0) - near(x, z))),
     pick('river', 'River valley', 'water', 'Rivers', 'a river on its way down to the sea',
-         'the river, mud and pebble banks, reeds, horsetails, tree ferns',
+         'a mountain stream stepping down in a staircase of pools, mud and pebble banks, horsetails, magnolias, tree ferns, redwoods on the flats',
          best((L, x, z) => (L.h > 6 && L.river < 4 ? 1 : 0) - near(x, z)), { river: true }),
   );
   // The falls and the lakes: where terrain.js put them, on the rivers.
@@ -1163,7 +1270,7 @@ async function terrainSamples() {
   FALLS.forEach((f, k) => {
     const tarn = LAKES.find(L => L.kind === 'tarn' && Math.hypot(L.x - f.x, L.z - f.z) < 80);
     samples.push(pick(`fall-${k}`, `Waterfall ${k + 1}`, 'water', 'Lakes & falls', `where river ${f.river + 1} comes off the range, ${Math.round(f.x)}, ${Math.round(f.z)}`,
-      'the fall, the tarn it spills from, the plunge pool, spray, the rock of the lip', chunkOf(f.x + f.dx * 8, f.z + f.dz * 8), {
+      'the fall, the lake held back by the rock of its lip, the plunge pool, spray', chunkOf(f.x + f.dx * 8, f.z + f.dz * 8), {
         river: true,
         // Framed on the fall, not the middle of its chunk.
         frame: { center: V(f.x + f.dx * 3, (f.top + f.bottom) / 2, f.z + f.dz * 3), size: V(f.width + 4, f.height + 2, f.width + 4) },
@@ -1180,14 +1287,14 @@ async function terrainSamples() {
           return out;
         })(),
         facts: [['Drop', `${r1(f.height)} m, from ${r1(f.top)} m to ${r1(f.bottom)} m`], ['Width', `${r1(f.width)} m across the lip`],
-                ['Above it', tarn ? `a tarn, ${Math.round(tarn.a * 2)} × ${Math.round(tarn.b * 2)} m, spilling over the lip` : 'the river'],
-                ['Below it', 'a plunge pool, wading deep'],
+                ['Above it', tarn ? `a lake, ${Math.round(tarn.a * 2)} × ${Math.round(tarn.b * 2)} m, held back by the rock of the lip and spilling over it` : 'the river'],
+                ['Below it', 'a plunge pool dug by the drop, about half as wide as the fall is high; wading deep'],
                 ['The water', 'three curtains that shudder and speed up as they fall, clumps tumbling, churning foam, a foam trail, droplets, spray']],
       }));
   });
   LAKES.filter(L => L.kind === 'lake').forEach((L, k) => samples.push(
     pick(`lake-${k}`, 'Lake', 'water', 'Lakes & falls', `where the first river idles across the plain, ${Math.round(L.x)}, ${Math.round(L.z)}`,
-         'still water, a sandy shore, reeds and bamboo, the river in and out', chunkOf(L.x, L.z), {
+         'still water, a sandy shore, cattails, horsetails and giant horsetail, a delta where the river comes in, the river out at its lowest point', chunkOf(L.x, L.z), {
            river: true,
            facts: [['Size', `about ${Math.round(L.a * 2)} × ${Math.round(L.b * 2)} m`], ['Level', `${r1(L.level)} m above the sea`],
                    ['Depth', 'wading: 1.3 m at the deepest'], ['Drink', 'E at the water: +30 thirst — it is fresh']],

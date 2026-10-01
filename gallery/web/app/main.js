@@ -204,6 +204,7 @@ const thumbs = {
   async run() {
     const W = 400, H = 300;
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.localClippingEnabled = true;       // (a felled tree is its own clipped at the cut)
     renderer.setSize(W, H, false);
     renderer.setPixelRatio(1);
     renderer.shadowMap.enabled = true;
@@ -246,6 +247,7 @@ const viewer = {
   init() {
     if (this.renderer) return;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.localClippingEnabled = true;
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;

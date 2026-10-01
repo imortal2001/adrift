@@ -16,7 +16,7 @@
 //   fall back, and spray boils up off it all and drifts away.
 
 import * as THREE from 'three';
-import { lakeShore } from './terrain.js';
+import { lakeShore, landAt } from './terrain.js';
 
 const TUCK = 2.2;          // m a lake's surface runs past its shore, under the bank
 
@@ -29,7 +29,26 @@ export function lakeGeometry(L, segments = 96) {
     // A tarn's outlet, at the top of a fall: no further than its shore.
     if (L.outlet) r -= TUCK * THREE.MathUtils.smoothstep(Math.cos(th), 0.72, 0.95);
     const c = Math.cos(th), s = Math.sin(th);
-    const x = L.x + (c * L.cos - s * L.sin) * r, z = L.z + (c * L.sin + s * L.cos) * r;
+    let x = L.x + (c * L.cos - s * L.sin) * r, z = L.z + (c * L.sin + s * L.cos) * r;
+    // Nor out over the river leaving it, where that runs lower — the head of
+    // the cascade below a lake's outlet: tucked on past the shore there, it
+    // was a slab of lake hung in the air over the water beneath.
+    const below = landAt(x, z);
+    if (below.water > 0 && below.water < L.level - 0.3) {
+      r = lakeShore(L, th) - 0.3;
+      x = L.x + (c * L.cos - s * L.sin) * r; z = L.z + (c * L.sin + s * L.cos) * r;
+    }
+    // And nowhere past the line of the lip: beside the notch the banks fall
+    // away, and its edge would hang out over the cliff.
+    // Only where the curtain is does it come right to the lip; to either
+    // side it stops its tuck short of it.
+    if (L.outlet && L.cut) {
+      const F = L.fall;
+      const lat = F ? Math.abs((x - F.x) * -F.dz + (z - F.z) * F.dx) : 0;
+      const keep = 0.3 + (F ? TUCK * THREE.MathUtils.smoothstep(lat, F.width / 2, F.width / 2 + 1.5) : 0);
+      const past = (x - L.cut.x) * L.cut.dx + (z - L.cut.z) * L.cut.dz + keep;
+      if (past > 0) { x -= L.cut.dx * past; z -= L.cut.dz * past; }
+    }
     pos.push(x, L.level, z);
     uv.push(x / 7, z / 7);
     if (i) idx.push(0, i + 1, i);                  // wound to face up
@@ -121,17 +140,19 @@ function textures() {
 
 const G = 9.8;
 const SPRAY = 70;          // puffs of spray per fall
+const SPRAY_OPACITY = 0.55; // each puff at most a fifth opaque (its alpha peaks at 0.4)
 const CLUMPS = 60;         // clumps of white water tumbling down the face
 const DROPS = 60;          // droplets flung up out of the pool
 
 /** A cloud of sprites whose brightness is its colour (drawn additively, so that fades it). */
-function sprites(n, map, size, opacity) {
+function sprites(n, map, size, opacity, mist = false) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
-  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  // (Mist is white, faded by its alpha; the rest adds light, faded by going dark.)
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * (mist ? 4 : 3)), mist ? 4 : 3));
   const p = new THREE.Points(g, new THREE.PointsMaterial({
     map, size, sizeAttenuation: true, transparent: true, depthWrite: false,
-    blending: THREE.AdditiveBlending, vertexColors: true, opacity,
+    blending: mist ? THREE.NormalBlending : THREE.AdditiveBlending, vertexColors: true, opacity,
   }));
   p.frustumCulled = false;
   return p;
@@ -211,7 +232,9 @@ export class Waterfall {
     this.group.add(this.trail);
 
     // What flies about: spray boiling up, clumps tumbling down the face, droplets flung up.
-    this.spray = sprites(SPRAY, t.puff, 3.4 + f.width * 0.18, 0.32);
+    // (The spray is mist, not light: added up, seventy puffs of it burned
+    // into two white lamps either side of the curtain's foot.)
+    this.spray = sprites(SPRAY, t.puff, 3.4 + f.width * 0.18, SPRAY_OPACITY, true);
     this.clumps = sprites(CLUMPS, t.puff, 2.4 + f.width * 0.08, 0.6);
     this.drops = sprites(DROPS, t.puff, 0.35, 1);
     for (const p of [this.spray, this.clumps, this.drops]) this.group.add(p);
@@ -318,7 +341,7 @@ export class Waterfall {
       const day = 1 - 0.92 * night;
       for (const s of this.sheets) s.mat.emissiveIntensity = day;
       for (const { m } of this.foams) m.material.emissiveIntensity = day;
-      this.spray.material.opacity = 0.32 * (1 - 0.8 * night);
+      this.spray.material.opacity = SPRAY_OPACITY * (1 - 0.8 * night);
       this.clumps.material.opacity = 0.6 * (1 - 0.8 * night);
       this.drops.material.opacity = 1 - 0.8 * night;
     }
@@ -350,7 +373,8 @@ export class Waterfall {
     const put = (points, i, o, s, y, a) => {
       const w = this.at(o, s);
       points.geometry.attributes.position.setXYZ(i, w.x, y, w.y);
-      points.geometry.attributes.color.setXYZ(i, a, a, a);
+      const c = points.geometry.attributes.color;
+      if (c.itemSize === 4) c.setXYZW(i, 1, 1, 1, a); else c.setXYZ(i, a, a, a);
     };
     this.puffs.forEach((p, i) => {
       p.age += dt;

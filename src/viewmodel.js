@@ -52,8 +52,8 @@ export const POSES = {
   // hiding end-on behind it.
   spear:   { model: 'tool_spear',  pos: [0.24, -0.30, -0.18], rot: [-1.28, 0.0, -0.10] },
   // Held like the hammer, ready to swing, the blade's edge toward what you are looking at.
-  // (A little smaller than life in the hand: the model's bearded head is broad.)
-  axe:     { model: 'tool_axe',    pos: [0.34, -0.50, -0.70], rot: [-0.30, 0.55, 0.30], scale: 0.85 },
+  // Tipped forward and only a little turned, so the edge leads away from you.
+  axe:     { model: 'tool_axe',    pos: [0.30, -0.46, -0.62], rot: [-0.50, 0.35, 0.22], scale: 0.95 },
   rod:     { model: 'tool_rod',    pos: [0.27, -0.38, -0.34], rot: [-0.95, 0.0, 0.22] },
   hook:    { model: null,          pos: [0.19, -0.17, -0.52], rot: [0.12, 0.0, 0.20], scale: 1.3 },
   // The grip low at the right and the shaft going down over the side, the
@@ -73,6 +73,7 @@ export const POSES = {
   // using.
   wood:    { model: null,          pos: [0.25, -0.34, -0.62], rot: [0.25, 0.5, 1.25] },
   plank:   { model: null,          pos: [0.27, -0.36, -0.72], rot: [0.95, 0.3, 0.55] },
+  bamboo:  { model: null,          pos: [0.24, -0.34, -0.66], rot: [0.35, 0.45, 1.15] },
   rope:    { model: null,          pos: [0.20, -0.26, -0.56], rot: [0.55, 0.3, 0.25] },
   leaf:    { model: null,          pos: [0.22, -0.30, -0.56], rot: [-0.45, 0.4, 0.45] },
   scrap:   { model: null,          pos: [0.19, -0.25, -0.56], rot: [0.5, 0.6, 0.3] },
@@ -114,10 +115,13 @@ const USES = {
     const jolt = t > CHOP_HIT && t < 0.58 ? Math.sin(((t - CHOP_HIT) / (0.58 - CHOP_HIT)) * Math.PI) * 0.14 : 0;
     // (Raised up and out to the right for the wind-up, where you can see it drawn back.)
     if (t < 0.36) return { rx: 0.6 * up, rz: 0.35 * up, px: 0.14 * up, py: 0.24 * up, pz: 0.02 * up };
-    if (t < 0.55) return { rx: 0.6 - 1.6 * strike + jolt, rz: 0.35 - 0.9 * strike, ry: -0.25 * strike,
-                           px: 0.14 - 0.3 * strike, py: 0.24 - 0.32 * strike, pz: 0.02 - 0.14 * strike };
+    // (Ending where the tree is, in the middle of the view — not down out of sight.)
+    // (And tipped over to the left as it goes, so the head shows beside the
+    // handle as it bites, rather than hidden end-on behind it.)
+    if (t < 0.55) return { rx: 0.6 - 0.95 * strike + jolt, rz: 0.35 - 1.1 * strike, ry: 0.35 * strike,
+                           px: 0.14 - 0.3 * strike, py: 0.24 - 0.22 * strike, pz: 0.02 - 0.12 * strike };
     const k = 1 - back;
-    return { rx: -1.05 * k, rz: -0.55 * k, ry: -0.25 * k, px: -0.16 * k, py: -0.08 * k, pz: -0.12 * k };
+    return { rx: -0.35 * k, rz: -0.75 * k, ry: 0.35 * k, px: -0.16 * k, py: 0.02 * k, pz: -0.1 * k };
   } },
   rod: { time: 0.75, curve: t => {               // rod: swing it back, flick
     const back = ease(t / 0.38), flick = ease((t - 0.38) / 0.16), rest = ease((t - 0.54) / 0.46);
@@ -308,9 +312,9 @@ const BODIES = {
     const blade = new THREE.Shape();
     blade.moveTo(0, 0.045); blade.lineTo(0.13, 0.075); blade.quadraticCurveTo(0.16, 0, 0.13, -0.075);
     blade.lineTo(0, -0.045); blade.lineTo(-0.035, 0); blade.lineTo(0, 0.045);
-    // (The edge leads, toward +Z, as the model's does — tools/build_tools.py.)
+    // (The edge leads, toward -Z — the way you look — as the model's does: tools/build_tools.py.)
     const iron = new THREE.Group();
-    iron.rotation.y = -Math.PI / 2;
+    iron.rotation.y = Math.PI / 2;
     iron.position.y = 0.44;
     g.add(iron);
     iron.add(new THREE.Mesh(new THREE.ExtrudeGeometry(blade, { depth: 0.022, bevelEnabled: true, bevelSize: 0.004, bevelThickness: 0.004, bevelSegments: 1 })
@@ -397,6 +401,30 @@ const BODIES = {
       const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.05, l, 9), [bark, end, end]);
       c.position.set(x, 0, z);
       g.add(c);
+    }
+    return g;
+  },
+  // Horsetail canes, a few cut lengths: green-gold, ribbed, jointed, a dark
+  // papery sheath round each node — a giant horsetail's, not a bamboo's.
+  // (Held, they used to be nothing at all: the hand went empty.)
+  bamboo() {
+    const g = new THREE.Group();
+    const cane = mat(0xa7a45c, 0.7, { side: THREE.DoubleSide }), sheath = mat(0x3e3a26, 0.85), cut = mat(0xd8cf9a, 0.9);
+    for (const [x, z, r, l] of [[0, 0, 0.017, 0.72], [0.034, 0.012, 0.015, 0.66], [0.016, -0.03, 0.016, 0.7]]) {
+      const c = new THREE.Mesh(new THREE.CylinderGeometry(r, r, l, 10, 1, true), cane);
+      c.position.set(x, l / 2 - 0.1, z);
+      g.add(c);
+      for (let y = 0.06; y < l - 0.04; y += 0.13) {
+        const node = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.12, r * 1.08, 0.016, 10), sheath);
+        node.position.set(x, y - 0.1, z);
+        g.add(node);
+      }
+      for (const y of [-0.1, l - 0.1]) {           // cut ends: pale, hollow-looking rings
+        const end = new THREE.Mesh(new THREE.RingGeometry(r * 0.55, r, 10), cut);
+        end.rotation.x = y < 0 ? Math.PI / 2 : -Math.PI / 2;
+        end.position.set(x, y, z);
+        g.add(end);
+      }
     }
     return g;
   },

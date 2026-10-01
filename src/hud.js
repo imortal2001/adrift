@@ -7,6 +7,19 @@ import { SLOTS } from './hotbar.js';
 
 const $ = id => document.getElementById(id);
 
+/** What a raw material goes into — recipes and building pieces — for the pack. */
+const USES = {};
+function usedIn(id) {
+  if (!(id in USES)) {
+    const names = [
+      ...RECIPES.filter(r => r.cost[id]).map(r => ITEMS[r.out[0]].name),
+      ...BUILDABLES.filter(b => b.cost[id]).map(b => b.name),
+    ];
+    USES[id] = names.length ? `Material for ${[...new Set(names)].join(', ')}.` : 'Material — nothing happens when held.';
+  }
+  return USES[id];
+}
+
 export class HUD {
   constructor() {
     this.el = {
@@ -23,8 +36,10 @@ export class HUD {
       underwater: $('underwater'), hurt: $('hurt'), splash: $('splash'),
       hp: [$('hpF'), $('hpV')], hu: [$('huF'), $('huV')],
       th: [$('thF'), $('thV')], ox: [$('oxF'), $('oxV')], oxRow: $('oxRow'),
-      fishing: $('fishing'),
+      fishing: $('fishing'), objective: $('objective'),
+      bars: { hp: $('hpF')?.closest('.bar'), hu: $('huF')?.closest('.bar'), th: $('thF')?.closest('.bar') },
     };
+    this._obj = { text: null, tickUntil: 0 };
     const f = this.el.fishing;
     this.fish = f && {
       name: f.querySelector('.fname'), meta: f.querySelector('.fmeta'),
@@ -35,6 +50,9 @@ export class HUD {
     };
     this._fishHint = '';
     this.msgs = [];
+    // While the start or pause screen is up, the log's clock stops: what is
+    // said then (the first words on waking, say) is still there to read after.
+    this.pausedAt = this.el.splash.classList.contains('hide') ? null : performance.now();
     this._invSig = '';
     this._craftSig = '';
     this._barSig = '';
@@ -47,6 +65,7 @@ export class HUD {
     this.onAdminGive = () => {};      // 'materials' | 'equipment'
     this.onSelectSlot = () => {};     // hotbar slot clicked
     this.onAssign = () => {};         // (slot, itemId)
+    this.onGive = () => {};           // (itemId, how many): the pack opened to give to someone
     this._hotSig = '';
     this._packSig = '';
     this._scrubbing = false;          // don't fight the slider while it is dragged
@@ -61,12 +80,65 @@ export class HUD {
     node.className = `msg ${kind}`;
     node.textContent = text;
     this.el.log.appendChild(node);
-    const entry = { node, until: performance.now() + ms };
+    const chat = kind.includes('chat');
+    const entry = { node, chat, until: (this.pausedAt ?? performance.now()) + ms };
     this.msgs.push(entry);
-    while (this.msgs.length > 5) {
-      const old = this.msgs.shift();
-      old.node.remove();
+    // Five lines of what happens, and up to three of what was said on top —
+    // so a busy minute of gathering does not push someone's words off unread.
+    const trim = (isChat, cap) => {
+      const mine = this.msgs.filter(m => m.chat === isChat);
+      for (const old of mine.slice(0, Math.max(0, mine.length - cap))) {
+        old.node.remove();
+        this.msgs.splice(this.msgs.indexOf(old), 1);
+      }
+    };
+    trim(false, 5);
+    trim(true, 3);
+    if (chat) {
+      (this.chatLines ||= []).push({ text, mine: kind.includes('mine') });
+      if (this.chatLines.length > 30) this.chatLines.shift();
+      if (this.chatHistoryOpen) this.showChatHistory(true);
     }
+  }
+
+  /** While the line to say something is open: what has been said lately, above it. */
+  showChatHistory(on) {
+    const el = document.getElementById('chatHistory');
+    this.chatHistoryOpen = on;
+    if (!el) return;
+    const lines = (this.chatLines || []).slice(-8);
+    el.hidden = !on || !lines.length;
+    el.innerHTML = lines.map(() => '<div></div>').join('');
+    [...el.children].forEach((d, i) => { d.textContent = lines[i].text; d.className = lines[i].mine ? 'mine' : ''; });
+  }
+
+  // ── objective ──────────────────────────────────────────────────────────────
+  /**
+   * The one thing to do next, kept on screen (top left, over the log). When
+   * one is done it says so for a moment — `justDone` — then shows the next;
+   * `null` when there is nothing left to point you at. `n` of `total` done.
+   */
+  setObjective(todo, justDone, n, total) {
+    const el = this.el.objective;
+    if (!el) return;
+    const now = performance.now(), o = this._obj;
+    if (justDone) { o.tick = justDone; o.tickUntil = now + 2600; }
+    const ticking = now < o.tickUntil;
+    const sig = ticking ? `tick|${o.tick}` : `todo|${todo}|${n}`;
+    if (sig === o.sig) return;
+    o.sig = sig;
+    el.classList.toggle('tick', ticking);
+    el.hidden = !ticking && !todo;
+    el.innerHTML = ticking ? `<span class="k">Done</span>${o.tick}`
+                           : `<span class="k">Next · ${n} of ${total} done</span>${todo ?? ''}`;
+  }
+
+  /** Empty the log — going into another world, what was said in the last is not so here. */
+  clearLog() {
+    for (const m of this.msgs) m.node.remove();
+    this.msgs = [];
+    this.chatLines = [];
+    this.el.log.textContent = '';
   }
 
   tickMessages(now) {
@@ -98,22 +170,30 @@ export class HUD {
     set(this.el.hp, p.health);
     set(this.el.hu, p.hunger);
     set(this.el.th, p.thirst);
+    // Running low: the bar pulses, so it is not only a number to notice.
+    const b = this.el.bars;
+    b.hp?.classList.toggle('low', p.health < 30);
+    b.hu?.classList.toggle('low', p.hunger < 25);
+    b.th?.classList.toggle('low', p.thirst < 25);
     const showBreath = p.breath < 99.5;
     this.el.oxRow.style.display = showBreath ? 'block' : 'none';
     if (showBreath) set(this.el.ox, p.breath);
   }
 
-  updateClock(sky, player, raft) {
+  updateClock(sky, player, raft, raftWay = null) {
     this.el.clock.textContent = sky.clock;
-    this.el.daynum.textContent = `Day ${sky.day} adrift · ${raft.size} deck${raft.size === 1 ? '' : 's'}`;
+    this.el.daynum.textContent = `Day ${sky.day} adrift · ` +
+      (raft.size ? `${raft.size} deck${raft.size === 1 ? '' : 's'}` : 'no raft yet');
     const tags = [];
     // Non-default world state should never be invisible: it is why the sun is
     // not moving.
     if (this.adminOpen) tags.push(['Admin', 'warn']);
     if (sky.held) tags.push(['Time held', 'warn']);
     if (player.cave) tags.push([player.cave.kind === 'sea' ? 'In a sea cave' : 'In a cave', 'warn']);
-    else if (player.onLand) tags.push(player.wading > 0.5 ? [`Wading · ${player.wading.toFixed(1)} m`, 'cold'] : ['Ashore', 'ok']);
+    // Swimming in the shallows counts as over land, but it is not "Ashore".
+    else if (player.onLand && player.state !== 'swim') tags.push(player.wading > 0.5 ? [`Wading · ${player.wading.toFixed(1)} m`, 'cold'] : ['Ashore', 'ok']);
     if (player.sheltered) tags.push(['Sheltered', 'ok']);
+    if (raftWay) tags.push([raftWay, '']);
     if (sky.isNight) tags.push(['Night', 'cold']);
     if (player.state === 'swim') {
       tags.push([player.depth > 0.3 ? `Diving · ${player.depth.toFixed(1)} m` : 'In the water', 'cold']);
@@ -192,6 +272,12 @@ export class HUD {
       .filter(([id, n]) => n > 0 && !ITEMS[id].action);
     const sig = entries.map(e => e.join(':')).join(',');
     if (sig === this._invSig) return;
+    // Changed: shown for a while even where it keeps out of the way (index.html, .view-out).
+    if (this._invSig) {
+      this.el.inv.classList.add('fresh');
+      clearTimeout(this._invFresh);
+      this._invFresh = setTimeout(() => this.el.inv.classList.remove('fresh'), 4000);
+    }
     this._invSig = sig;
     this.el.inv.innerHTML = entries.map(([id, n]) =>
       `<div class="slot"><div class="n">${ITEMS[id].name}</div>` +
@@ -228,26 +314,39 @@ export class HUD {
   // ── pack (slot registration) ───────────────────────────────────────────────
   get packOpen() { return this.el.pack.classList.contains('open'); }
 
-  togglePack(inv, hotbar) {
+  /**
+   * `giveTo` (a name) opens it to hand things to someone: a click gives one
+   * of what you clicked, Shift-click five — instead of putting it in a slot.
+   */
+  togglePack(inv, hotbar, giveTo = null) {
     const open = !this.packOpen;
+    this.giveTo = open ? giveTo : null;
     this.el.pack.classList.toggle('open', open);
+    this.el.pack.classList.toggle('giving', !!this.giveTo);
+    const h = this.el.pack.querySelector('h2'), sub = this.el.pack.querySelector('.sub');
+    if (h) h.textContent = this.giveTo ? `Give to ${this.giveTo}` : 'Pack';
+    if (sub) sub.textContent = this.giveTo ? 'Click to hand one over, Shift-click for five · I or Esc to close' : 'Press I to close';
+    this._packSig = '';
     if (open) this.refreshPack(inv, hotbar, true);
     return open;
   }
 
-  closePack() { this.el.pack.classList.remove('open'); }
+  closePack() { this.el.pack.classList.remove('open'); this.giveTo = null; }
 
   refreshPack(inv, hotbar, force = false) {
     if (!this.packOpen && !force) return;
     const carried = [...inv.slots.entries()].filter(([, n]) => n > 0);
-    const sig = `${hotbar.selected}|${hotbar.slots.join(',')}|` +
+    const sig = `${this.giveTo}|${hotbar.selected}|${hotbar.slots.join(',')}|` +
                 carried.map(e => e.join(':')).join(',');
     if (sig === this._packSig) return;
     this._packSig = sig;
 
-    this.el.packSlotLine.innerHTML = hotbar.slots.map((id, i) =>
-      `<div class="ps${i === hotbar.selected ? ' sel' : ''}" data-pslot="${i}">
-        <b>${i + 1}</b>${id ? ITEMS[id].name : '<em>empty</em>'}</div>`).join('');
+    // A slot keeps its item when you run out (hotbar.js): say so, greyed.
+    this.el.packSlotLine.innerHTML = hotbar.slots.map((id, i) => {
+      const out = id && !inv.has(id);
+      return `<div class="ps${i === hotbar.selected ? ' sel' : ''}${out ? ' out' : ''}" data-pslot="${i}">
+        <b>${i + 1}</b>${id ? ITEMS[id].name : '<em>empty</em>'}${out ? '<i>none left</i>' : ''}</div>`;
+    }).join('');
 
     if (!carried.length) {
       this.el.packGrid.innerHTML =
@@ -261,7 +360,7 @@ export class HUD {
         return `<div class="card${slot === hotbar.selected ? ' sel' : ''}" data-item="${id}">
           <div class="t">${it.name}<em>${it.tool ? 'tool' : '×' + n}</em></div>
           <div class="c">${slot === -1 ? 'not in a slot' : `slot ${slot + 1}`}</div>
-          <div class="d">${it.hint || 'Raw material — nothing happens when held.'}</div></div>`;
+          <div class="d">${it.hint || usedIn(id)}</div></div>`;
       }).join('');
     }
 
@@ -269,7 +368,8 @@ export class HUD {
       el.onclick = () => this.onSelectSlot(Number(el.dataset.pslot));
     }
     for (const el of this.el.packGrid.querySelectorAll('[data-item]')) {
-      el.onclick = () => this.onAssign(hotbar.selected, el.dataset.item);
+      el.onclick = e => (this.giveTo ? this.onGive(el.dataset.item, e.shiftKey ? 5 : 1)
+                                     : this.onAssign(hotbar.selected, el.dataset.item));
     }
   }
 
@@ -296,17 +396,20 @@ export class HUD {
       const owned = inv.count(r.out[0]);
       const blocked = item.tool && owned > 0;
       const can = inv.canAfford(r.cost) && !blocked;
-      return `<div class="card ${can ? '' : 'no'}" data-recipe="${r.id}">
+      const made = r.id === this._made ? ' made' : '';
+      return `<div class="card ${can ? '' : 'no'}${made}" data-recipe="${r.id}">
         <div class="t">${item.name}${r.out[1] > 1 ? ` ×${r.out[1]}` : ''}
-          <em>${blocked ? 'owned' : item.tool ? 'tool' : ''}</em></div>
+          <em>${blocked ? 'owned' : item.tool ? 'tool' : owned ? `${owned} carried` : ''}</em></div>
         <div class="c">${inv.costText(r.cost)}</div>
         <div class="d">${r.desc}</div></div>`;
     }).join('');
 
     for (const card of this.el.craftGrid.querySelectorAll('[data-recipe]')) {
-      card.onclick = () => {
+      card.onclick = e => {
         if (card.classList.contains('no')) return;
-        this.onCraft(card.dataset.recipe);
+        this._made = card.dataset.recipe;       // the card it redraws flashes: made
+        this.onCraft(card.dataset.recipe, e.shiftKey ? 5 : 1);
+        this._made = null;
       };
     }
   }
@@ -327,7 +430,27 @@ export class HUD {
     }).join('');
   }
 
-  showSplash(on) { this.el.splash.classList.toggle('hide', !on); }
+  /** Black out, with `text` over it, and come round again. */
+  blackout(text) {
+    const el = document.getElementById('blackout');
+    if (!el) return;
+    el.firstElementChild.textContent = text;
+    el.classList.remove('fade');
+    el.classList.add('on');
+    void el.offsetWidth;                  // take the black before starting the fade
+    el.classList.remove('on');
+    el.classList.add('fade');
+  }
+
+  showSplash(on) {
+    this.el.splash.classList.toggle('hide', !on);
+    const now = performance.now();
+    if (on) this.pausedAt ??= now;
+    else if (this.pausedAt != null) {
+      for (const m of this.msgs) m.until += now - this.pausedAt;
+      this.pausedAt = null;
+    }
+  }
 
   // ── admin panel (only ever shown on a local dev host) ──────────────────────
   // Sunrise is 06:00 and sunset 18:00, so 05:30/18:30 would both put the sun

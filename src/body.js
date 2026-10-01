@@ -253,6 +253,11 @@ function applyRig(r, a) {
 // 0.2, drive to 0.38, hold to 0.5, recover — so the two views agree on when
 // the point arrives.
 const ease = t => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
+// Carried, an axe is held just under its head, at the top of the leather
+// binding: this far up the handle from where it is held to swing (its origin:
+// tools/build_tools.py, 20% up from the butt; the head starts at about 45%).
+const AXE_THROAT = 0.11;
+
 const GESTURES = {
   // The axe: the arm drawn up and back over the shoulder, out to the side,
   // then driven down and across into the trunk — the chest coming round
@@ -560,7 +565,7 @@ export class PlayerBody {
     const a = this.pose(dt, p);
     if (this.rig) applyRig(this.rig, a); else applyMannequin(this.stand, a);
     if (this.rig && this.held) {
-      if (this.heldTool) this.rollHand(p);
+      if (this.heldTool && !(this.heldId === 'axe' && this.use >= 1)) this.rollHand(p);
       this.placeHeld();
     }
   }
@@ -632,14 +637,26 @@ export class PlayerBody {
     // Carrying something: the right forearm comes up to hold it out, and a
     // use swings the arm up and through.
     if (this.held && !swimming) {
-      a.armR = 0.3 + a.armR * 0.3;
-      a.elbowR = 1.1;
-      a.foreInR = 0.15;
+      if (this.heldId === 'axe') {
+        // An axe you carry at your side: the arm hangs, swinging a little
+        // as you walk, a touch out from the leg so the head clears it.
+        a.armR = 0.05 + a.armR * 0.4;
+        a.elbowR = 0.25;
+        a.openR = 0.14;
+        a.foreInR = 0;
+      } else {
+        a.armR = 0.3 + a.armR * 0.3;
+        a.elbowR = 1.1;
+        a.foreInR = 0.15;
+      }
     }
     // A fist round a tool, cupped round anything else.
     a.grip = this.held ? (this.heldTool ? 1 : 0.6) : 0.3;
     // A use: the arm (and for a spear, the spear's heading) through its
     // gesture. Each is a curve from progress 0..1 to the joints it moves.
+    // How much the axe is carried rather than swung (placeHeld): eased, so it
+    // slides from the throat down to the end of the handle as a swing starts.
+    this.carryK = (this.carryK ?? 1) + ((this.use >= 1 ? 1 : 0) - (this.carryK ?? 1)) * Math.min(1, dt * 12);
     this.aimK = 0;
     if (this.use < 1) {
       const gst = GESTURES[this.useKind];
@@ -736,7 +753,37 @@ export class PlayerBody {
         const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
         dir = fwd.multiplyScalar(0.2 + 0.55 * lean).addScaledVector(right, 0.3).add(new THREE.Vector3(0, -0.9, 0)).normalize();
       }
-      this.held.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      if (this.heldId === 'axe') {
+        // Not only which way the haft runs but which way the blade faces: its
+        // edge (the tool's -Z) leads — forward, as far as the haft allows.
+        const yaw = this.group.rotation.y;
+        const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)), right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+        // Carried the way a hanging hand carries a handle: running forward
+        // through the fist (the way the fist itself runs), the head just in
+        // front of it tipped a little down, the edge to the ground. (Blended
+        // with the swing's hold, down at the end of the handle, by carryK.)
+        const flat = across.clone().setY(0).normalize();
+        const carry = flat.addScaledVector(new THREE.Vector3(0, -1, 0), 0.25).normalize();
+        if (this.use < 1 && this.useKind === 'chop') {
+          // Wound up: the head up and back over the right shoulder, until the
+          // stroke brings it down and through to the level of the trunk.
+          // (Up and out that way from the first moment — as the arm rises, the fist alone would bring it past your face.)
+          const u = this.use, w = u < 0.36 ? Math.min(1, u / 0.08) : u < CHOP_HIT ? 1 - ease((u - 0.36) / (CHOP_HIT - 0.36)) : 0;
+          // (Out to the right as well as back: rising past your face, it would go through it.)
+          const back = new THREE.Vector3(0, 0.7, 0).addScaledVector(fwd, -0.45).addScaledVector(right, 0.65).normalize();
+          dir = dir.clone().lerp(back, w).normalize();
+        }
+        const k = this.carryK;
+        dir = dir.clone().lerp(carry, k).normalize();
+        this.held.position.addScaledVector(carry, -AXE_THROAT * k);
+        // The edge: forward in the swing, as far as the haft allows; carried, to the ground.
+        const lead = fwd.clone().lerp(new THREE.Vector3(0, -1, 0), this.carryK).normalize();
+        const edge = lead.addScaledVector(dir, -lead.dot(dir));
+        if (edge.lengthSq() < 1e-4) edge.copy(right).addScaledVector(dir, -right.dot(dir));
+        edge.normalize();
+        const zAxis = edge.negate(), xAxis = new THREE.Vector3().crossVectors(dir, zAxis).normalize();
+        this.held.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis, dir, zAxis.crossVectors(xAxis, dir)));
+      } else this.held.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
     } else {
       const fingers = knuck.clone().sub(hand).normalize();
       this.held.position.copy(grip).addScaledVector(palm, Math.min(this.heldRadius * 0.6, 0.12));

@@ -2,10 +2,11 @@
 // Ocean raft survival prototype. Gather → craft → build → upgrade the raft.
 
 import * as THREE from 'three';
-import { Ocean, waveHeight } from './ocean.js';
+import { Ocean, waveHeight, setSeabed } from './ocean.js';
 import { Sky, DAY_SECONDS } from './sky.js';
-import { Rafts } from './raft.js';
-import { DebrisField } from './debris.js';
+import { Rafts, windAt } from './raft.js';
+import { setFloraWind } from './flora.js';
+import { DebrisField, CURRENT } from './debris.js';
 import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
 import { Whale } from './whale.js';
@@ -21,26 +22,32 @@ import { Statues, newStatueId, scatter } from './statue.js';
 import { ThrownSpears, travelTime } from './spear.js';
 import { Fishing } from './fishing.js';
 import { Terrain, heightAt as landHeight, coastDistance, CHUNK, landAt, freshWaterAt } from './terrain.js';
-import { Caves } from './caves.js';
+import { Caves, CAVES } from './caves.js';
 import { FLAME } from './viewmodel.js';
 import * as sound from './sound.js';
-import { Wildlife } from './wildlife.js';
+import { Wildlife, RANGES } from './wildlife.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { BuildMode } from './build.js';
-import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, TORCH, CHOP_TIME, CHOP_HIT, fishItem, fishOf, foodOf, cookedItem, isCooked } from './items.js';
+import { Inventory, RECIPES, ITEMS, DEBRIS_KINDS, CATCHES, FIRE, TORCH, CHOP_TIME, CHOP_HIT, fishItem, fishOf, foodOf, cookedItem, isCooked, salvaged } from './items.js';
 import { Hotbar, SLOTS } from './hotbar.js';
 
-const SAVE_KEY = 'adrift.save.v2';
+// A tab given a player of its own (sessionStorage 'adrift.pid' — net.js: for
+// trying several players side by side in one browser) keeps its own game and
+// name too, rather than each tab saving over the others'.
+const TAB = (() => { try { return sessionStorage.getItem('adrift.pid'); } catch { return null; } })();
+const SAVE_KEY = TAB ? `adrift.save.v2:${TAB}` : 'adrift.save.v2';
+const NAME_KEY = TAB ? `adrift.name:${TAB}` : 'adrift.name';
 const THROW_RELEASE = 0.27;         // s into the body's throw (body.js) that the spear leaves the hand
 const SPIT_Y = 0.77;                 // the spit's cross-stick, above the campfire (raft.js)
 
 
 // What the admin "give" buttons hand over. Enough to build without grinding,
 // not so much that the numbers stop being readable.
-const ADMIN_MATERIALS = { wood: 50, plank: 50, rope: 50, leaf: 50, scrap: 50, bamboo: 50, coconut: 10 };
-const ADMIN_EQUIPMENT = ['hammer', 'hook', 'spear', 'rod'];
+const ADMIN_MATERIALS = { wood: 50, plank: 50, rope: 50, leaf: 50, scrap: 50, bamboo: 50, coconut: 10, flint: 10 };
+// (Every tool there is — the axe, the paddle, the fire kit too — so testing does not mean crafting.)
+const ADMIN_EQUIPMENT = ['hammer', 'hook', 'spear', 'rod', 'axe', 'paddle', 'bowdrill', 'torch', 'striker'];
 
 /**
  * Admin tools exist only when the page is served from a development machine:
@@ -58,27 +65,58 @@ function isLocalDev() {
   return /^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(h);
 }
 
+const TORCH_EMBERS = 45;   // seconds a torch put away keeps smouldering, ready to flare again
+const TORCH_LIGHT = 6;     // a lit torch's brightness: the cave wall beside you plain, the far end of the tunnel dim
+const TORCH_DECAY = 1.2;   // …falling off gentler than the inverse square, or the ground at your feet burns white and the trees a few steps off stay black
+
 // ── milestones ───────────────────────────────────────────────────────────────
-// Light guidance instead of a tutorial: each fires once, in order of discovery.
+// Light guidance instead of a tutorial: one thing to do next, always on screen
+// (the objective line, top left), in the order a castaway needs them. Each is
+// done once it has happened, whatever the order you got there in — the line
+// shows the first that has not. `todo` is what to do; `done`, said as it ticks.
+const has = type => g => [...g.raft.objs.values()].some(o => o.type === type);
+// `where` is where you have to be to do it: the objective line prefers what
+// can be done where you are — ashore, the island's; afloat, the raft's.
 const GOALS = [
-  { id: 'wood',    test: g => g.inv.count('wood') > 0 || g.inv.count('plank') > 0,
-    text: 'Driftwood aboard. Open crafting with C and split it into planks.' },
-  { id: 'plank',   test: g => g.inv.count('plank') > 0,
-    text: 'Planks made. A hammer comes next — you cannot build without one.' },
+  { id: 'wood',    test: g => g.inv.count('wood') > 0 || g.inv.count('plank') > 0 || g.inv.has('hammer'),
+    todo: 'Gather driftwood as it floats past: look at it and press <b>E</b>.', done: 'Driftwood gathered.' },
+  { id: 'plank',   test: g => g.inv.count('plank') > 0 || g.inv.has('hammer'),
+    todo: 'Open crafting (<b>C</b>) and split the wood into planks.', done: 'Planks made.' },
   { id: 'hammer',  test: g => g.inv.has('hammer'),
-    text: 'Hammer in hand. Press B to build and extend the deck.' },
-  { id: 'grew',    test: g => g.raft.size > 4,
-    text: 'The raft is growing. Thirst kills first: build a Collector.' },
-  { id: 'water',   test: g => [...g.raft.objs.values()].some(o => o.type === 'collector'),
-    text: 'Collector up. Wait for it to fill, then press E to drink.' },
-  { id: 'fire',    test: g => [...g.raft.objs.values()].some(o => o.type === 'campfire'),
-    text: 'Campfire built — but not lit. Craft a bow drill (C), hold it at the fire and hold click. It takes 1 Palm for tinder.' },
-  { id: 'lit',     test: g => [...g.raft.objs.values()].some(o => o.type === 'campfire' && o.lit),
-    text: 'Fire lit. Hold a raw fish and press E at the fire to cook it — and feed it wood before it burns out.' },
-  { id: 'hook',    test: g => g.inv.has('hook'),
-    text: 'Hook ready. Right-click to throw it at debris out of reach.' },
-  { id: 'shelter', test: g => [...g.raft.cells.values()].some(c => g.raft.isSheltered(c.cx, c.cz)),
-    text: 'Shelter finished. You will keep your strength far longer in there.' },
+    todo: 'Craft a hammer (<b>C</b>): 2 planks and a rope. Rope is twisted from palm fibre.', done: 'A hammer.' },
+  { id: 'aboard',  test: g => g.raft.size > 0 && g.player.state === 'deck' && !g.player.onLand,
+    todo: g => g.raft.size ? 'Climb aboard your raft: swim up to it and press <b>Space</b>.'
+                           : 'With the hammer out (<b>B</b>), look at the water and <b>click</b>: a first foundation, to climb onto.',
+    done: 'Aboard.' },
+  { id: 'grew',    where: 'sea', test: g => g.raft.size > 4,
+    todo: 'With the hammer out (<b>B</b>), lay foundations: grow the raft to five decks.', done: 'The raft is growing.' },
+  { id: 'water',   where: 'sea', test: has('collector'),
+    todo: 'Thirst kills first: build a collector. It fills with rain and dew — <b>E</b> to drink.', done: 'Collector up.' },
+  { id: 'hook',    where: 'sea', test: g => g.inv.has('hook'),
+    todo: 'Craft a hook (<b>C</b>) and <b>right-click</b> to throw it at debris out of reach.', done: 'Hook ready.' },
+  { id: 'fire',    where: 'sea', test: has('campfire'),
+    todo: 'Build a campfire on the deck — fish is better cooked.', done: 'Campfire built.' },
+  { id: 'lit',     where: 'sea', test: g => [...g.raft.objs.values()].some(o => o.type === 'campfire' && o.lit),
+    todo: 'Light the fire: craft a bow drill (<b>C</b>) and <b>hold E</b> at the fire. It takes 1 Palm fibre.', done: 'Fire lit.' },
+  { id: 'cook',    where: 'sea', test: g => g.cookedOnce || [...g.inv.slots].some(([id, n]) => n > 0 && isCooked(id)),
+    todo: 'Cook a fish: catch one (a rod or a spear, <b>C</b>), then <b>E</b> at the lit fire.', done: 'A hot meal.' },
+  { id: 'shelter', where: 'sea', test: g => [...g.raft.cells.values()].some(c => g.raft.isSheltered(c.cx, c.cz)),
+    todo: 'Walls and a roof over a deck: sheltered, you tire and thirst far slower.', done: 'Shelter finished.' },
+  { id: 'land',    where: 'sea', test: g => g.player.onLand,
+    todo: g => `Land, ${g.wayTo(g.nearestLand())}. Paddle there (craft a paddle, <b>C</b>) or swim for it.`, done: 'Ashore.' },
+  { id: 'statue',  where: 'land', test: g => !!g.registered,
+    todo: 'Find a statue standing on the land — or craft one (<b>C</b>) — and press <b>E</b> at it: if you die, you wake beside it.',
+    done: 'You will wake by your statue.' },
+  { id: 'axe',     where: 'land', test: g => g.inv.has('axe'),
+    todo: 'Craft an axe (<b>C</b>) to fell trees for wood. Branches and fronds come by hand.', done: 'An axe.' },
+  { id: 'torch',   where: 'land', test: g => g.torchLitOnce || g.inv.has('striker'),
+    todo: 'Craft a torch (<b>C</b>) and light it — at a burning fire (<b>E</b>), or anywhere with a fire striker: the caves are dark.', done: 'Torch lit.' },
+  { id: 'cave',    where: 'land', test: g => !!g.player.cave || g.inv.has('flint') || g.inv.has('striker'),
+    todo: g => `The nearest cave is ${g.wayTo(g.nearestCave())}, at the foot of the cliffs. Caves hide springs, and flint.`,
+    done: 'A cave.' },
+  { id: 'striker', where: 'land', test: g => g.inv.has('striker'),
+    todo: 'Chip flint from a cave wall (<b>E</b>) — there is some by the mouth, in the light — and craft a fire striker (<b>C</b>).',
+    done: 'Fire at a strike.' },
 ];
 
 class Game {
@@ -88,6 +126,8 @@ class Game {
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // A felled tree is drawn clipped at its cut: the stump below, what falls above (terrain.js).
+    this.renderer.localClippingEnabled = true;
     document.body.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -100,6 +140,8 @@ class Game {
     this.eye = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 3200);
 
     this.ocean = new Ocean(this.scene);
+    // The sea knows the ground under it: calm in the shallows, still over the land.
+    setSeabed(landHeight);
     this.sky = new Sky(this.scene, this.ocean);
     // Every raft in the world (raft.js Rafts); `raft` is the one you are on
     // or by, which everything below is pointed at (setRaft).
@@ -114,11 +156,14 @@ class Game {
     // A torch's light — yours, and one each for two of the others. Always in
     // the scene, dark until lit: adding a light later would make every
     // material in the world recompile at the moment you lit it.
-    this.torch = { lit: false, fuel: 0 };
+    this.torch = { lit: false, fuel: 0, embers: 0 };
     // Trees part-chopped: plant key → { n: strokes so far, at: when the last was }.
     this.chops = new Map();
+    this.plantClaims = new Map();   // a guest's plants, taken and waiting on the host's word (takeShared)
+    this.plantTakers = new Map();   // hosting: who took each plant, to tell whoever was too slow
+    this.takenBy = new Map();       // …and each flint face and statue ('flint:key', 'statue:id')
     this.torchLights = [0, 1, 2].map(() => {
-      const l = new THREE.PointLight(0xffa35a, 0, 20, 2);
+      const l = new THREE.PointLight(0xffa35a, 0, 26, TORCH_DECAY);
       this.scene.add(l);
       return l;
     });
@@ -135,8 +180,8 @@ class Game {
     this.wakers = new Map();
     this.player.onDeath = () => this.respawn();
     this.debris = new DebrisField(this.scene, this.raft);
-    // Seed the wildlife around a point well inland from the nearest coast.
-    this.wildlife = new Wildlife(this.scene, { x: 210, z: -150 }, this.terrain);
+    // The wildlife, in its ranges: round each river and its lakes (wildlife.js RANGES).
+    this.wildlife = new Wildlife(this.scene, RANGES, this.terrain);
     this.fish = new FishSchools(this.scene, this.terrain, this.raft);
     this.whale = new Whale(this.scene, this.terrain, this.raft, this.fish);
     // Turtles, stingrays, octopus and crabs (reeflife.js); crab and octopus are catches, as fish are.
@@ -154,6 +199,7 @@ class Game {
     this.together = new Together(this);
     this.net = new Net({ scene: this.scene, library: this.viewmodel.library,
                          cloneHeld: id => this.viewmodel.cloneBody(id),
+                         catchBody: (key, length) => this.fish.displayBody(key, length),
                          log: (text, kind, ms) => this.hud.log(text, kind, ms),
                          raft: this.raft, rafts: this.rafts, together: this.together,
                          onEvent: (e, r) => this.fromCrew(e, r) });
@@ -201,8 +247,16 @@ class Game {
     this.lastSave = 0;
     this.lastHealth = 100;
 
-    this.hud.onCraft = id => this.craft(id);
+    this.hud.onCraft = (id, n) => this.craft(id, n);
     this.hud.onSelectSlot = i => { if (this.hotbar.select(i)) this.flashSlotHint(); };
+    // The pack opened at someone (E, empty-handed): what you click goes to them.
+    this.hud.onGive = (id, n) => {
+      const mate = this.giveMate && this.net.remotes.get(this.giveMate.id);
+      const near = mate?.body.visible && mate.pose && this.player.pos.distanceTo(mate.pose.pos) < 5;
+      if (!near) { this.hud.log(`${this.giveMate?.name || 'They'} moved off — get close to hand things over.`, 'bad'); return; }
+      this.give(mate, id, n);
+      this.hud.refreshPack(this.inv, this.hotbar, true);
+    };
     this.hud.onAssign = (slot, id) => {
       this.hotbar.assign(slot, id);
       this.hud.log(`${ITEMS[id].name} registered to slot ${slot + 1}.`, 'good');
@@ -284,10 +338,71 @@ class Game {
 
     this.bindUI();
     window.game = this;          // debug handle: inspect or poke state from the console
-    this.renderer.setAnimationLoop(() => this.frame());
+    this.renderer.setAnimationLoop(() => this.tick());
+    this.keepTicking();
   }
 
   // ── plumbing ───────────────────────────────────────────────────────────────
+  /**
+   * Paused, playing together: you stand still — hunger and thirst wait, and
+   * nothing hunts you — but the world is everyone's, and goes on. The host's
+   * above all: its sky, its fires and collectors, the flotsam, the fish and
+   * the dinosaurs are what the others see, and would stop for them too.
+   */
+  worldTick(dt) {
+    const pl = this.player;
+    this.sky.update(dt, pl.pos);
+    this.rafts.update(dt, this.time, this.sky.night);
+    // Aboard, the raft still carries you where it goes.
+    if (pl.state !== 'swim' && !pl.onLand && this.raft.wasUnder(pl.pos.x, pl.pos.z)) pl.yaw += this.raft.carry(pl.pos);
+    this.updateFires(dt);
+    this.wildlife.setPlayerPos(pl.pos);
+    this.wildlife.update(dt, this.time, pl, false);
+    // A bite on one of the others is theirs to feel; a kill is everyone's.
+    for (const b of this.wildlife.events.splice(0)) {
+      if (b.to !== undefined) this.net.event({ k: 'bite', damage: b.damage, label: b.label }, b.to);
+    }
+    for (const k of this.wildlife.kills.splice(0)) this.together.world.killed(k);
+    this.tellHunted();
+    this.debris.update(dt, this.time, pl.pos);
+    this.fish.update(dt, this.time, this.eye.position);
+    this.whale.update(dt, this.time);
+    this.spears.update(dt, this.time);
+  }
+
+  /**
+   * A browser stops drawing a tab that is not in front — and with it the
+   * frames the game runs on. Alone, that is a pause; playing together it would
+   * stop the world for everyone (the host's game runs the time, the flotsam,
+   * the dinosaurs) and leave you standing frozen in theirs. So while the tab is
+   * hidden and you are in a game, a worker's timer — which the browser does not
+   * slow the way it does the page's — keeps it going four times a second, in
+   * steps no bigger than a frame, drawing nothing.
+   */
+  keepTicking() {
+    let worker = null;
+    const tick = () => {
+      if (!document.hidden || !this.net.connected) return;
+      const total = Math.min(this.clock.getDelta(), 1);
+      const n = Math.max(1, Math.ceil(total / 0.05));
+      for (let i = 0; i < n; i++) this.frame(total / n);
+    };
+    const watch = () => {
+      if (document.hidden && !worker) {
+        try {
+          worker = new Worker(URL.createObjectURL(new Blob(['setInterval(() => postMessage(0), 250);'], { type: 'text/javascript' })));
+          worker.onmessage = tick;
+        } catch { worker = { terminate: clearInterval.bind(null, setInterval(tick, 250)) }; }
+        this.clock.getDelta();                // from now, not from the last frame drawn
+      } else if (!document.hidden && worker) {
+        worker.terminate();
+        worker = null;
+      }
+    };
+    document.addEventListener('visibilitychange', watch);
+    watch();                                  // opened in the background: hidden from the start
+  }
+
   /**
    * Pointer lock is refused outright in some contexts — an embedded frame, for
    * one. That is not an error: free look covers it, so we stop asking.
@@ -369,20 +484,30 @@ class Game {
     const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } },
                     set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* fine */ } } };
     const name = $('mpName');
-    name.value = store.get('adrift.name') || `Castaway ${Math.floor(Math.random() * 90 + 10)}`;
+    name.value = store.get(NAME_KEY) || `Castaway ${Math.floor(Math.random() * 90 + 10)}`;
     const who = () => (name.value.trim() || 'Castaway').slice(0, 20);
     for (const el of box.querySelectorAll('input, button')) el.addEventListener('click', e => e.stopPropagation());
     // Renamed, you are renamed in the game you are in too, once you stop typing.
     let typing;
     name.oninput = () => {
-      store.set('adrift.name', who());
+      store.set(NAME_KEY, who());
       clearTimeout(typing);
       typing = setTimeout(() => this.net.rename(who()), 500);
     };
-    const go = code => { store.set('adrift.name', who()); this.net.join(code, who(), this.character); };
+    const go = code => { store.set(NAME_KEY, who()); this.net.join(code, who(), this.character); };
     $('mpHost').onclick = () => go(newCode());
-    $('mpJoin').onclick = () => { const c = cleanCode($('mpCode').value); if (c.length >= 4) go(c); };
-    $('mpLeave').onclick = () => this.net.leave();
+    $('mpJoin').onclick = () => {
+      const c = cleanCode($('mpCode').value);
+      if (c.length >= 4) go(c);
+      else $('mpStatus').textContent = c ? 'That code is too short — a game code is 4 to 8 letters.' : 'Type the code of the game to join — the host has it.';
+    };
+    $('mpCode').addEventListener('keydown', e => { if (e.code === 'Enter' || e.code === 'NumpadEnter') $('mpJoin').click(); });
+    // Left is left: the invite link in the address bar must not take you back in on a reload.
+    const unlink = () => {
+      const u = new URL(location.href);
+      if (u.searchParams.has('room')) { u.searchParams.delete('room'); history.replaceState(null, '', u); }
+    };
+    $('mpLeave').onclick = () => { this.net.leave(); unlink(); };
     $('mpRejoin').onclick = () => { const c = this.net.lastRoom; if (c) go(c); };
     $('mpCopy').onclick = () => {
       navigator.clipboard?.writeText(this.net.invite).then(() => { $('mpCopy').textContent = 'Copied'; },
@@ -393,12 +518,20 @@ class Game {
       const n = this.net;
       box.classList.toggle('off', !n.available);
       box.classList.toggle('in', !!n.code && n.connected);
-      $('mpStatus').textContent = n.status;
+      // In a game, its code, big enough to read out to someone.
+      if (n.code && n.connected) {
+        $('mpStatus').innerHTML = `Room code <b class="roomcode"></b> — read it out, or send the link`;
+        $('mpStatus').querySelector('.roomcode').textContent = n.code;
+      } else $('mpStatus').textContent = n.status;
       const again = n.lastRoom;
       $('mpRejoin').hidden = !again || (!!n.code && !!n.ws);
       $('mpRejoin').textContent = again ? `Rejoin ${again}` : '';
       $('mpInvite').value = n.invite;
-      const crew = n.crew();
+      const crew = n.crew(at => this.arrowTo(at));
+      // On the splash too — the HUD's list is hidden while it is up.
+      $('mpCrew').hidden = crew.length === 0;
+      $('mpCrew').innerHTML = crew.length ? `<b>In ${n.code} · ${crew.length} castaway${crew.length === 1 ? "" : "s"}</b>` + crew.map(() => '<div></div>').join('') : '';
+      [...$('mpCrew').querySelectorAll('div')].forEach((d, i) => { d.textContent = crew[i]; });
       $('crew').hidden = crew.length === 0;
       $('crew').innerHTML = crew.length ? `<b>${n.code}</b>` + crew.map(c => `<div></div>`).join('') : '';
       [...$('crew').querySelectorAll('div')].forEach((d, i) => { d.textContent = crew[i]; });
@@ -406,8 +539,22 @@ class Game {
     this.net.onChange = refresh;
     this.refreshCrew = refresh;          // and twice a second, for how far off everyone is
     refresh();
+    // Opened from an invite link: straight in, if you have played before and
+    // have a name. New, you are asked for one first — or everyone would meet
+    // you as "Castaway 57", and then see you renamed.
     const code = cleanCode(new URLSearchParams(location.search).get('room'));
-    if (code.length >= 4 && this.net.available) { $('mpCode').value = code; go(code); }
+    if (code.length >= 4 && this.net.available) {
+      $('mpCode').value = code;
+      if (store.get(NAME_KEY)) go(code);
+      else {
+        $('mpStatus').textContent = `You are invited to ${code}. Type your name, then Join.`;
+        name.select();
+        setTimeout(() => name.focus(), 0);
+      }
+    }
+    name.addEventListener('keydown', e => {
+      if ((e.code === 'Enter' || e.code === 'NumpadEnter') && cleanCode($('mpCode').value).length >= 4 && !this.net.code) $('mpJoin').click();
+    });
   }
 
   /**
@@ -425,6 +572,7 @@ class Game {
       box.value = '';
       box.blur();
       box.parentElement.hidden = true;
+      this.hud.showChatHistory(false);
       this.input.enabled = true;
     };
     this.openChat = () => {
@@ -433,6 +581,7 @@ class Game {
       this.input.held.clear();
       this.input.enabled = false;
       box.parentElement.hidden = false;
+      this.hud.showChatHistory(true);
       // After this key's own keydown, or it types into the box.
       setTimeout(() => box.focus(), 0);
     };
@@ -487,16 +636,22 @@ class Game {
   get cursorPanel() { return this.hud.craftOpen || this.hud.adminOpen || this.hud.packOpen; }
 
   // ── crafting & eating ──────────────────────────────────────────────────────
-  craft(id) {
+  /** Make `n` of a recipe — as many of them as there is the stuff for. */
+  craft(id, n = 1) {
     const r = RECIPES.find(x => x.id === id);
     if (!r) return;
     const item = ITEMS[r.out[0]];
     if (item.tool && this.inv.count(r.out[0]) > 0) { this.hud.log(`You already have a ${item.name.toLowerCase()}.`); return; }
-    if (!this.inv.pay(r.cost)) { this.hud.log('Not enough materials.', 'bad'); return; }
-    this.inv.add(r.out[0], r.out[1]);
-    this.hud.log(`Crafted ${item.name}${r.out[1] > 1 ? ` ×${r.out[1]}` : ''}.`, 'good');
+    if (item.tool) n = 1;
+    let made = 0;
+    while (made < n && this.inv.pay(r.cost)) { this.inv.add(r.out[0], r.out[1]); made++; }
+    if (!made) { this.hud.log('Not enough materials.', 'bad'); return; }
+    const total = made * r.out[1];
+    this.hud.log(`Crafted ${item.name}${total > 1 ? ` ×${total}` : ''}` +
+                 (made < n ? ` — the materials ran out after ${made}.` : '.'), 'good');
     const slot = this.hotbar.autoAssign(r.out[0]);
     if (slot !== -1) this.hud.log(`${item.name} goes to slot ${slot + 1}.`);
+    else if (item.pack) this.hud.log(`${item.name} works from your pack — it needs no slot.`);
     // Something to use, and no room for it in the slots: say where it went.
     else if (item.action && !this.hotbar.slots.includes(r.out[0])) {
       this.hud.log(`${item.name} is in your pack — the slots are full. Press I to put it in one.`);
@@ -530,8 +685,8 @@ class Game {
       this.debris.harvest(it);                   // gone here at once; what it gives comes from the host
       return;
     }
-    it.takenAt = this.time;
-    it.takenBy = null;
+    const [x, z] = it.hookedAt || [it.x, it.z];
+    it.took = { x, z, at: this.time, by: this.net.name };
     it.hookedAt = null;
     this.together.world.gathered(it);
     const { label, yield: y } = this.debris.harvest(it);
@@ -602,7 +757,8 @@ class Game {
         this.placeStatue(eye, dir);
         break;
       case 'drill':
-        this.hud.log('Hold click at an unlit campfire to drill an ember.');
+        // At a fire, the prompt says what there is to do; anywhere else, say where it works.
+        if (!this.fireInView(eye, dir)) this.hud.log('Hold E (or click) at an unlit campfire to drill an ember.');
         break;
       case 'torch':
         this.clickTorch();
@@ -616,10 +772,12 @@ class Game {
         break;
       }
       case 'strike':
-        this.hud.log('Look at an unlit campfire and press E to strike a spark into it. With the striker in your pack, a torch lights anywhere.');
+        if (!this.fireInView(eye, dir)) this.hud.log('Look at an unlit campfire and press E to strike a spark into it. With the striker in your pack, a torch lights anywhere.');
         break;
+      case 'build':
+        break;                         // the hammer's click places a piece: build mode, in frame()
       default:
-        this.hud.log(`${ITEMS[id].name} is raw material — nothing to do with it in hand.`);
+        if (!ITEMS[id].action) this.hud.log(`${ITEMS[id].name} is a material — nothing to do with it in hand. See crafting (C).`);
     }
   }
 
@@ -714,6 +872,7 @@ class Game {
       const body = this.reef.take(octo);
       this.viewmodel.skewer(body);
       if (!this.view.first) this.body.skewer(this.reef.bodyFor('octopus', 0.6));
+      this.net.event({ k: 'caught', key: 'octopus' });   // on the spear they see you hold
       this.addCatch('octopus');
       this.hud.log('You spear an octopus. Its arms wrap the shaft.', 'good');
       this.hud.refreshInventory(this.inv);
@@ -727,7 +886,7 @@ class Game {
     }
     this.fish.take(f);
     this.viewmodel.skewer(this.fish.bodyFor(f));
-    this.net.event({ k: 'caught', i: this.fish.fish.indexOf(f) });   // on the spear they see you hold
+    this.net.event({ k: 'caught', i: this.fish.fish.indexOf(f), key: f.sp.key });   // on the spear they see you hold
     if (!this.view.first) this.body.skewer(this.fish.bodyFor(f));   // on the spear you can see
     this.addCatch(f.sp.key);
     this.hud.log(`You spear a ${f.sp.name}.`, 'good');
@@ -765,45 +924,68 @@ class Game {
    * frame() to saw at while the button is down.
    */
   fireInteraction(o) {
-    const done = o.spitFish.filter(f => f.t >= FIRE.cook);
-    if (done.length) {
-      return { prompt: `<b>E</b> take ${this.describeCatch(done)} off the fire`, act: () => this.takeCooked(o) };
-    }
     const held = this.hotbar.held;
     const cooking = o.spitFish.length ? ` — ${this.describeCatch(o.spitFish)} cooking` : '';
+    const pct = Math.round(o.fuel / FIRE.max * 100);
+    // Wood goes on with R whatever else E is doing here, while there is room for it.
+    const wood = o.lit && this.inv.has('wood') && o.fuel <= FIRE.max - FIRE.perWood / 2
+      ? { key: 'KeyR', act: () => this.feedFire(o) } : null;
+    const orWood = wood ? ` · <b>R</b> add wood (${pct}%)` : '';
+    const done = o.spitFish.filter(f => f.t >= FIRE.cook);
+    if (done.length) {
+      return { prompt: `<b>E</b> take ${this.describeCatch(done)} off the fire${orWood}`, act: () => this.takeCooked(o), alt: wood };
+    }
     if (!o.lit) {
       if (o.fuel <= 0) {
         return this.inv.has('wood')
           ? { prompt: `<b>E</b> lay wood in the burnt-out fire${cooking}`, act: () => this.feedFire(o) }
           : { prompt: `Burnt out — it needs Wood before it will light again${cooking}`, act: null };
       }
-      if (held === 'striker' && this.inv.has('striker')) {
-        if (!this.inv.has('leaf')) return { prompt: 'You need 1 Palm as tinder to catch the spark', act: null };
-        return { prompt: '<b>E</b> strike a spark into the tinder (1 Palm)', act: () => this.strikeFire(o) };
+      // The striker and the bow drill work from the pack: neither needs a slot.
+      if (this.inv.has('striker')) {
+        if (!this.inv.has('leaf')) return { prompt: 'You need 1 Palm fibre as tinder to catch the spark', act: null };
+        return { prompt: '<b>E</b> strike a spark into the tinder (1 Palm fibre)', act: () => this.strikeFire(o) };
       }
-      if (held === 'bowdrill' && this.inv.has('bowdrill')) {
-        if (!this.inv.has('leaf')) return { prompt: 'You need 1 Palm as tinder to catch the ember', act: null };
+      if (this.inv.has('bowdrill')) {
+        if (!this.inv.has('leaf')) return { prompt: 'You need 1 Palm fibre as tinder to catch the ember', act: null };
         const p = this.drill?.rec === o ? this.drill.p : 0;
+        const how = held === 'bowdrill' ? '<b>Hold E</b> or <b>hold click</b>' : '<b>Hold E</b>';
         return { prompt: p > 0 ? `Drilling an ember <span class="meter"><i style="width:${Math.round(p * 100)}%"></i></span>`
-                               : '<b>Hold click</b> to drill an ember (1 Palm for tinder)',
+                               : `${how} to drill an ember with the bow drill (1 Palm fibre)`,
                  act: null, drill: o };
       }
-      return { prompt: (this.inv.has('bowdrill') ? 'Unlit — take out the bow drill to light it'
-                                                 : 'Unlit — craft a bow drill (C) to light it') + cooking, act: null };
+      return { prompt: 'Unlit — craft a bow drill (C) to light it' + cooking, act: null };
     }
     if (held === 'torch' && this.inv.has('torch') && !this.torch.lit) {
-      return { prompt: `<b>E</b> light your torch${cooking}`, act: () => this.lightTorch('at the fire') };
+      return { prompt: `<b>E</b> light your torch${cooking}${orWood}`, act: () => this.lightTorch('at the fire'), alt: wood };
     }
-    const raw = fishOf(held) && !isCooked(held) && this.inv.has(held) ? held : null;
+    // The fish in hand — or failing that, one from the pack.
+    const inHand = fishOf(held) && !isCooked(held) && this.inv.has(held) ? held : null;
+    const raw = inHand || this.anyRawFish();
     if (raw && o.spitFish.length < FIRE.spit) {
-      return { prompt: `<b>E</b> cook the ${ITEMS[raw].name.toLowerCase()}${cooking}`, act: () => this.cook(o, raw) };
+      return { prompt: `<b>E</b> cook ${inHand ? 'the' : 'a'} ${ITEMS[raw].name.toLowerCase()}${cooking}${orWood}`,
+               act: () => this.cook(o, raw), alt: wood };
     }
-    const pct = Math.round(o.fuel / FIRE.max * 100);
-    if (this.inv.has('wood') && o.fuel <= FIRE.max - FIRE.perWood / 2) {
-      return { prompt: `<b>E</b> add wood — burning, ${pct}%${cooking}`, act: () => this.feedFire(o) };
+    if (wood) return { prompt: `<b>E</b> add wood — burning, ${pct}%${cooking}`, act: wood.act };
+    return { prompt: `Burning, ${pct}%${cooking}`, act: null };
+  }
+
+  /**
+   * The bow drill is sawn, not clicked: the ember builds while E is held at
+   * an unlit fire — or the button, with the drill in hand — and cools if you
+   * stop. It works from the pack; it needs no slot.
+   */
+  sawDrill(act, dt, input) {
+    const sawing = act?.drill && (input.down('KeyE') || (this.hotbar.held === 'bowdrill' && input.mouseDown(0)));
+    if (sawing) {
+      if (this.drill?.rec !== act.drill) this.drill = { rec: act.drill, p: 0 };
+      this.drill.p += dt / FIRE.light;
+      this.viewmodel.drilling = this.hotbar.held === 'bowdrill';
+      if (this.drill.p >= 1) this.lightFire(act.drill);
+    } else {
+      this.viewmodel.drilling = false;
+      if (this.drill && (this.drill.p -= dt * 0.35) <= 0) this.drill = null;
     }
-    const hint = !cooking && !raw && this.anyRawFish() ? ' — hold a raw fish to cook it' : '';
-    return { prompt: `Burning, ${pct}%${cooking}${hint}`, act: null };
   }
 
   anyRawFish() {
@@ -838,6 +1020,8 @@ class Game {
     // A torch put away keeps what it had left; a spent one, a new torch.
     if (this.torch.fuel <= 0) this.torch.fuel = TORCH.burn;
     this.torch.lit = true;
+    this.torch.embers = 0;
+    this.torchLitOnce = true;
     this.useAnim('eat');
     this.hud.log(how === 'with the striker' ? 'Sparks from the striker, and the palm fibre flares: your torch is lit.'
                                             : 'You hold the torch in the flames until it catches.', 'good');
@@ -846,7 +1030,28 @@ class Game {
   /** Once a frame: the torch burns down, goes out in the water, and gives its light. */
   updateTorch(dt, held) {
     const t = this.torch;
-    if (t.lit && held !== 'torch') t.lit = false;                       // put away: out
+    // Put away, a lit torch is not out at once: it smoulders for a while, and
+    // taken out again it blows back into flame — so a slot changed in a cave
+    // (to eat, or for the axe) does not leave you in the dark for good.
+    if (t.lit && held !== 'torch') {
+      t.lit = false;
+      t.embers = TORCH_EMBERS;
+      this.hud.log('You tuck the torch away, smouldering. Take it out again soon and it will catch.');
+    } else if (!t.lit && t.embers > 0) {
+      if (this.player.state === 'swim') t.embers = 0;
+      else if (held === 'torch' && this.inv.has('torch')) {
+        t.lit = true; t.embers = 0;
+        this.hud.log('You blow on the embers, and the torch flares up again.', 'good');
+      } else if ((t.fuel -= dt) <= 0) {
+        t.embers = t.fuel = 0;
+        this.inv.remove('torch', 1);
+        this.hud.log('The torch you put away has burned down to nothing.', 'bad');
+        this.hud.refreshInventory(this.inv);
+      } else if ((t.embers -= dt) <= 0) {
+        t.embers = 0;
+        this.hud.log('The torch you put away has gone out. It will need lighting again.', 'bad');
+      }
+    }
     if (t.lit && this.player.state === 'swim') {
       t.lit = false;
       this.hud.log('The water hisses over your torch, and it is out.', 'bad');
@@ -865,7 +1070,7 @@ class Game {
     const mine = this.torchLights[0], p = this.player, yaw = p.yaw;
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
     mine.position.set(p.pos.x + fx * 0.45 + rx * 0.3, p.pos.y + 1.75, p.pos.z + fz * 0.45 + rz * 0.3);
-    mine.intensity = t.lit ? 11 * flicker : 0;
+    mine.intensity = t.lit ? TORCH_LIGHT * flicker : 0;
     this.viewmodel.glow.intensity = t.lit && this.view.first ? 1.6 * flicker : 0;
     // The others' torches, as many as there are lights for.
     let k = 1;
@@ -873,15 +1078,99 @@ class Game {
       if (k >= this.torchLights.length) break;
       if (r.held !== 'torch_lit' || !r.body?.visible) continue;
       this.torchLights[k].position.copy(r.body.gripPos).y += 0.45;
-      this.torchLights[k++].intensity = 11 * flicker;
+      this.torchLights[k++].intensity = TORCH_LIGHT * flicker;
     }
     for (; k < this.torchLights.length; k++) this.torchLights[k].intensity = 0;
   }
 
+  /** Whether a campfire on the raft is under the crosshair, within reach. */
+  fireInView(eye, dir) {
+    this.ray.set(eye, dir);
+    this.ray.far = 4.2;
+    const hit = this.ray.intersectObjects(this.raft.pickables, false)[0];
+    this.ray.far = Infinity;
+    return hit?.object.userData.piece?.id === 'campfire';
+  }
+
   /** A plant down, or picked: what it gives, into the pack. */
   takePlant(plant, how = null) {
-    this.gain(this.terrain.harvest(plant), how);
     this.chops.delete(plant.key);
+    const got = this.takeShared(plant, null, how);
+    if (got) this.gain(got, how);
+  }
+
+  /**
+   * A plant taken, cut down (falling `away`) or picked: gone for everyone.
+   * Playing together, the host settles who had it (two of you at one tree get
+   * one lot of wood): a guest's is gone at once here, and what it gives comes
+   * from the host (claimPlant), so this gives nothing — or someone was
+   * quicker. Otherwise, what it gives.
+   */
+  takeShared(plant, away = null, how = null) {
+    const a = away ? [+away.x.toFixed(2), +away.z.toFixed(2)] : null;
+    const got = this.terrain.harvest(plant);
+    if (this.net.connected && !this.net.isHost) {
+      this.plantClaims.set(plant.key, { how: how || got.label, wait: !!a && !!plant.sp.falls, y: undefined });
+      this.net.event({ k: 'claimplant', key: plant.key, a, r: plant.sp.regrow, y: got.yield }, this.net.host);
+      return null;
+    }
+    this.plantTakers.set(plant.key, this.net.name || 'Someone');
+    this.together.world.plantTaken(plant.key, a, plant.sp.regrow);
+    return got;
+  }
+
+  /** A guest's plant, settled: what it gave (the host said), once any tree it was is down. */
+  settlePlant(key) {
+    const c = this.plantClaims.get(key);
+    if (!c || c.wait || c.y === undefined) return;
+    this.plantClaims.delete(key);
+    if (c.y) this.gain({ label: c.how, yield: c.y }, c.how);
+    else this.hud.log(`${c.who || 'Someone else'} got to it first.`, 'bad');
+  }
+
+  /** Someone else took a plant: gone here too — and a tree, near enough, comes down where you can see it. */
+  plantGone(key, a, regrow) {
+    const p = this.terrain.takenElsewhere(key, regrow);
+    this.chops.delete(key);
+    if (!p || !p.sp.falls || !Array.isArray(a)) return;
+    if (Math.hypot(p.x - this.player.pos.x, p.z - this.player.pos.z) > 300) return;
+    const away = new THREE.Vector3(a[0], 0, a[1]);
+    if (away.lengthSq() < 1e-6) return;
+    this.fellTree(p, away.normalize());
+  }
+
+  /** Someone's axe at a tree: it shudders and the chips fly here too, and the stroke counts. */
+  chopSeen(key, a) {
+    const p = this.terrain.plantsByKey.get(key);
+    if (!p || this.terrain.felled.has(key)) return;
+    const c = this.chops.get(key) || { n: 0 };
+    c.n++; c.at = this.time;
+    this.chops.set(key, c);
+    if (!Array.isArray(a) || Math.hypot(p.x - this.player.pos.x, p.z - this.player.pos.z) > 120) return;
+    const away = new THREE.Vector3(a[0], 0, a[1]);
+    if (away.lengthSq() < 1e-6) return;
+    away.normalize();
+    const bamboo = p.sp.name === 'bamboo';
+    const bite = this.terrain.bitePoint(p, away);
+    this.terrain.burst(bite, away, bamboo ? 'bamboo' : 'wood', 12);
+    sound.chop(bite, { bamboo, last: false });
+    this.terrain.shake(p, away);
+  }
+
+  /** A tree coming down, away from the axe: the creak, the rush, the crash, felt underfoot. `onDown` as it lands. */
+  fellTree(plant, away, onDown = null) {
+    const fell = this.terrain.topple(plant, away, f => {
+      onDown?.(f);
+      sound.crash(new THREE.Vector3(plant.x + away.x * f.H * 0.45, plant.y + 1, plant.z + away.z * f.H * 0.45), Math.min(1, f.H / 45));
+      // Felt underfoot, if you are near.
+      const d = Math.hypot(plant.x + away.x * f.H * 0.5 - this.player.pos.x, plant.z + away.z * f.H * 0.5 - this.player.pos.z);
+      const k = Math.max(0, 1 - d / 40) * Math.min(1, f.H / 20);
+      if (k > 0) this.quake = { t: 0, amp: 0.09 * k };
+    });
+    // As it goes: the creak of it giving way, then the rush of it coming down.
+    const size = Math.min(1, fell.H / 45);
+    sound.creak(new THREE.Vector3(plant.x, plant.y + 2, plant.z), fell.fall * 0.55);
+    sound.fall(new THREE.Vector3(plant.x + away.x * fell.H * 0.35, plant.y + fell.H * 0.35, plant.z + away.z * fell.H * 0.35), fell.fall, size);
   }
 
   /** What a plant gave (terrain.harvest()), into the pack, and said. */
@@ -921,41 +1210,82 @@ class Game {
     const c = this.chops.get(plant.key) || { n: 0 };
     c.n++; c.at = this.time;
     this.chops.set(plant.key, c);
-    const last = c.n >= plant.sp.chop;
+    const last = c.n >= (plant.chop ?? plant.sp.chop);
     this.terrain.burst(bite, away, bamboo ? 'bamboo' : 'wood', last ? 26 : 12);
     sound.chop(bite, { bamboo, last });
-    if (!last) { this.terrain.shake(plant, away); return; }
+    if (!last) {
+      this.terrain.shake(plant, away);
+      this.together.world.chopped(plant.key, [+away.x.toFixed(2), +away.z.toFixed(2)]);
+      return;
+    }
     const name = plant.sp.label.toLowerCase();
     this.chops.delete(plant.key);
-    const got = this.terrain.harvest(plant);
-    if (!plant.sp.falls) { this.gain(got, `You chop the ${name} up`); return; }
+    if (!plant.sp.falls) {
+      const how = `You chop the ${name} up`, got = this.takeShared(plant, away, how);
+      if (got) this.gain(got, how);
+      return;
+    }
+    const how = `The ${name} comes down with a crash`, got = this.takeShared(plant, away, how);
     this.hud.log(`The ${name} creaks, and leans…`);
-    const fell = this.terrain.topple(plant, away, f => {
-      this.gain(got, `The ${name} comes down with a crash`);
-      sound.crash(new THREE.Vector3(plant.x + away.x * f.H * 0.45, plant.y + 1, plant.z + away.z * f.H * 0.45), Math.min(1, f.H / 45));
-      // Felt underfoot, if you are near.
-      const d = Math.hypot(plant.x + away.x * f.H * 0.5 - this.player.pos.x, plant.z + away.z * f.H * 0.5 - this.player.pos.z);
-      const k = Math.max(0, 1 - d / 40) * Math.min(1, f.H / 20);
-      if (k > 0) this.quake = { t: 0, amp: 0.09 * k };
+    this.fellTree(plant, away, () => {
+      if (got) { this.gain(got, how); return; }
+      const claim = this.plantClaims.get(plant.key);
+      if (claim) { claim.wait = false; this.settlePlant(plant.key); }
     });
-    // As it goes: the creak of it giving way, then the rush of it coming down.
-    const size = Math.min(1, fell.H / 45);
-    sound.creak(new THREE.Vector3(plant.x, plant.y + 2, plant.z), fell.fall * 0.55);
-    sound.fall(new THREE.Vector3(plant.x + away.x * fell.H * 0.35, plant.y + fell.H * 0.35, plant.z + away.z * fell.H * 0.35), fell.fall, size);
   }
 
   /** Chip a flint face off a cave wall. */
   chipFlint(f) {
     const n = this.caves.chip(f);
+    this.useAnim('eat');
+    // A guest's is gone at once; the flint itself comes when the host says
+    // nobody had it first (two of you at one face used to get a lot each).
+    if (this.asksHost()) { this.net.event({ k: 'claimflint', key: f.key, n }, this.net.host); return; }
+    this.takenBy.set(`flint:${f.key}`, this.net.name || 'Someone');
+    this.together.world.chipped(f.key);
+    this.gotFlint(n);
+  }
+
+  /** Flint out of the rock, into the pack. */
+  gotFlint(n) {
+    n = Math.max(1, Math.min(2, n | 0));
     this.inv.add('flint', n);
     this.hotbar.autoAssign('flint');
-    this.useAnim('eat');
     this.hud.log(`You work ${n === 1 ? 'a nodule of flint' : 'two nodules of flint'} out of the rock.` +
                  (this.inv.count('flint') === n && !this.inv.has('striker') ? ' Struck on scrap iron, flint makes fire — see crafting (C).' : ''), 'good');
     this.hud.refreshInventory(this.inv);
     this.hud.refreshHotbar(this.hotbar, this.inv);
     this.hud.refreshCraft(this.inv);
   }
+
+  /**
+   * A statue taken up off the land, to set up somewhere else. Playing
+   * together that is the host's to settle, as a plant is: a guest's is gone
+   * at once, and comes to their hands when the host says nobody had it first
+   * (two of you lifting one had a statue each) — and nobody else wakes there.
+   */
+  liftStatue(s) {
+    this.statues.remove(s.id);
+    if (this.asksHost()) {
+      (this.statueClaims ||= new Map()).set(s.id, { id: s.id, x: s.x, z: s.z, yaw: s.yaw });
+      this.net.event({ k: 'claimstatue', id: s.id }, this.net.host);
+      return;
+    }
+    this.takenBy.set(`statue:${s.id}`, this.net.name || 'Someone');
+    this.together.world.statueDown(s);
+    this.gotStatue(s.id);
+  }
+
+  gotStatue(id) {
+    this.inv.add('statue', 1);
+    this.hotbar.autoAssign('statue');
+    if (this.registered?.id === id) { this.registered = null; this.setWake(null); }
+    this.hud.log('You lift the statue. Carry it, and click to set it down somewhere else — on land, or on the raft.', 'good');
+    this.hud.refreshInventory(this.inv);
+  }
+
+  /** Playing together as a guest: what is the host's to settle is asked for, not taken. */
+  asksHost() { return this.net.connected && !this.net.isHost; }
 
   /** The ember catches: the fire is lit, and the tinder is gone. */
   lightFire(o) {
@@ -971,7 +1301,7 @@ class Game {
     if (!this.inv.remove('wood', 1)) return;
     const was = o.fuel;
     o.fuel = Math.min(FIRE.max, o.fuel + FIRE.perWood);
-    this.together.touched(o);
+    this.together.fed(o);
     this.hud.log(was <= 0 ? 'You lay fresh wood in the ashes. It will need lighting.' : 'You feed the fire.', 'good');
     this.hud.refreshInventory(this.inv);
   }
@@ -983,7 +1313,7 @@ class Game {
     this.hotbar.refillFish(this.inv);
     this.hang(o, id);
     this.layoutSpit(o);
-    this.together.touched(o);
+    this.together.hung(o, id);
     this.hud.log(`You hang the ${sp.name} over the fire.`, 'good');
     this.hud.refreshInventory(this.inv);
   }
@@ -1082,13 +1412,59 @@ class Game {
     this.settleCooked(this.raft, o, null);
   }
 
+  /**
+   * A drink from a collector. Playing together that is the host's to settle,
+   * as the fish on a fire are: each drinking from their own copy, two of you
+   * at the last of it both drank, and it went down by one — so a guest asks,
+   * and drinks when the host says there was some.
+   */
+  drinkCollector(c) {
+    if (this.net.connected && !this.net.isHost) {
+      this.net.event({ k: 'claimdrink', ri: this.raft.id, cx: c.cx, cz: c.cz }, this.net.host);
+      return;
+    }
+    this.settleDrink(this.raft, c, null);
+  }
+
+  /** Hosting: what a guest reached for on a deck is not there now — they are told, not left waiting. */
+  notThere(raft, e, r, what) {
+    const t = raft && this.together.taken?.get(`${raft.id}:object,${e.cx},${e.cz}`);
+    const who = t && performance.now() / 1000 - t.at < 5 ? t.by : null;
+    this.net.event({ k: 'grant', none: true, items: {},
+                     note: who ? `${who} took the ${what} apart first.` : `The ${what} is not there any more.` }, r.id);
+  }
+
+  /** Hosting, or alone: a drink from a collector for `taker` (a Remote), or null for you — if there is one. */
+  settleDrink(raft, c, taker) {
+    if (!(c.water >= 1)) {
+      const who = c.drank && this.time - c.drank.at < 5 ? c.drank.by : null;
+      if (taker) this.net.event({ k: 'grant', none: true, items: {}, note: `${who || 'Someone else'} drank the last of it first.` }, taker.id);
+      return;
+    }
+    c.water -= 1;
+    c.drank = { by: taker ? taker.name : this.net.name, at: this.time };
+    raft.refreshCollector(c);
+    this.together.touched(c, raft);
+    if (taker) this.net.event({ k: 'drank' }, taker.id);
+    else this.drank();
+  }
+
+  drank() {
+    this.player.thirst = Math.min(100, this.player.thirst + 32);
+    this.hud.log('Cool rainwater. That buys you time.', 'good');
+    this.hud.updateVitals(this.player);
+  }
+
   /** Hosting, or alone: a fire's cooked fish to whoever took them off — `taker` (a Remote), or null for you. */
   settleCooked(raft, o, taker) {
     const done = o.spitFish.filter(f => f.t >= FIRE.cook);
     if (!done.length) {
-      if (taker) this.net.event({ k: 'grant', none: true, items: {}, note: 'Someone else took the fish off first.' }, taker.id);
+      // (Who, if it was only just now: the other hand at the same fish.)
+      const who = o.took && this.time - o.took.at < 5 ? o.took.by : null;
+      if (taker) this.net.event({ k: 'grant', none: true, items: {}, note: `${who || 'Someone else'} took the fish off first.` }, taker.id);
       return;
     }
+    o.took = { by: taker ? taker.name : this.net.name, at: this.time };
     o.spitFish = o.spitFish.filter(f => f.t < FIRE.cook);
     this.layoutSpit(o);
     for (const f of done) this.unhang(f);
@@ -1098,6 +1474,7 @@ class Game {
       for (const f of done) items[f.done] = (items[f.done] || 0) + 1;
       this.net.event({ k: 'grant', items, note: `You take ${what} off the fire, cooked.` }, taker.id);
     } else {
+      this.cookedOnce = true;
       for (const f of done) { this.inv.add(f.done, 1); this.hotbar.takeFish(f.done); }
       this.hud.log(`You take ${what} off the fire, cooked.`, 'good');
     }
@@ -1109,11 +1486,23 @@ class Game {
   updateFires(dt) {
     for (const o of this.raft.objs.values()) {
       if (o.type !== 'campfire' || !o.lit) continue;
+      // Burning low: said once, while there is still time to feed it — to
+      // anyone close enough to do something about it.
+      if (o.fuel > FIRE.perWood) o.lowSaid = false;
+      else if (!o.lowSaid && o.fuel < FIRE.perWood / 2) {
+        o.lowSaid = true;
+        const at = this.raft.cellWorld(o.cx, o.cz);
+        if (Math.hypot(at.x - this.player.pos.x, at.z - this.player.pos.z) < 60) {
+          this.hud.log(`The campfire is burning low — under a minute left. ${this.inv.has('wood') ? 'Feed it wood: R at the fire.' : 'It needs wood.'}`, 'bad', 8000);
+        }
+      }
+      // Done: said to whoever is by the fire — not to someone away up a hill.
+      const by = () => { const at = this.raft.cellWorld(o.cx, o.cz); return Math.hypot(at.x - this.player.pos.x, at.z - this.player.pos.z) < 40; };
       for (const f of o.spitFish) {
         const was = f.t;
         f.t = Math.min(FIRE.cook, f.t + dt);
         this.brown(f);
-        if (was < FIRE.cook && f.t >= FIRE.cook) this.hud.log(`The ${f.name} is done — take it off the fire.`, 'good');
+        if (was < FIRE.cook && f.t >= FIRE.cook && by()) this.hud.log(`The ${f.name} is done — take it off the fire.`, 'good');
       }
     }
     for (const o of this.raft.wentOut.splice(0)) {
@@ -1155,13 +1544,33 @@ class Game {
     if (st.kind === 'raft') this.raft.startingRaft();
     else if (st.kind === 'debris') this.raft.place('foundation', { cx: 0, cz: 0, force: true });
     // Come to on a raft, it is where you come back to, wherever it goes.
-    if (this.raft.size) { st.raft = this.raft.id; this.player.respawnOnRaft(); }
-    else this.player.standAt(st.x, st.z, st.yaw);
-    for (const line of WAKING[st.kind]) this.hud.log(line);
+    if (this.raft.size) { st.raft = this.raft.id; this.player.respawnOnRaft(); this.faceUpstream(); }
+    // In the open sea, facing up the current too: the flotsam you are to gather is coming from there.
+    else this.player.standAt(st.x, st.z, st.kind === 'sea' ? Math.atan2(CURRENT.x, CURRENT.y) : st.yaw);
+    for (const line of WAKING[st.kind]) this.hud.log(line, '', 9000);
     // Statues stand here and there over the land: places to wake, if you die.
     this.statues.clear();
     for (const s of scatter()) this.statues.add(s);
     this.registered = null;
+    // And the land as it grew: a new castaway finds none of the last one's stumps.
+    this.terrain.clearFelled();
+    this.caves.restoreChipped([]);
+    this.chops.clear();
+  }
+
+  /**
+   * The first look on waking aboard: up the current, where the flotsam comes
+   * from, and from the back of the square you are on, looking a little down —
+   * so the deck is in front of you and the first piece of wood is in view.
+   */
+  faceUpstream() {
+    const p = this.player, r = this.raft;
+    p.yaw = Math.atan2(CURRENT.x, CURRENT.y);           // forward (-sin, -cos) = -CURRENT
+    p.pitch = -0.32;
+    const bx = p.pos.x + CURRENT.x * 0.75, bz = p.pos.z + CURRENT.y * 0.75;
+    if (r.solidAtWorld(bx, bz) && !r.objs.has(r.cellAtWorld(bx, bz).join(','))) {
+      p.pos.x = bx; p.pos.z = bz; p.pos.y = r.deckY(bx, bz);
+    }
   }
 
   /** The world you are in: null your own, else the code of the game you are a guest in. */
@@ -1230,7 +1639,10 @@ class Game {
    * Dead: you wake beside your statue, if you registered at one and it
    * still stands; if not, where you first came to.
    */
-  respawn() {
+  respawn(died = true) {
+    this.died = died;
+    // Playing together, the others hear of it.
+    if (died && this.net.connected) this.net.event({ k: 'died' });
     const mine = this.myStatue();
     if (mine?.o) {
       // Aboard, beside it — wherever that raft has got to.
@@ -1241,7 +1653,7 @@ class Game {
       p.pos.set(side.x, this.raft.deckY(side.x, side.z), side.z);
       p.state = 'deck'; p.onLand = false; p.vel.set(0, 0, 0); p.vy = 0;
       p.yaw = Math.atan2(-(side.x - at.x), -(side.z - at.z));
-      this.hud.log('You black out, and wake on the deck beside your statue.', 'bad');
+      this.deathSay('You black out, and wake on the deck beside your statue.', 'bad');
       return;
     }
     const s = mine?.s;
@@ -1249,7 +1661,7 @@ class Game {
       // In front of it, facing the way it faces.
       const fx = -Math.sin(s.yaw), fz = -Math.cos(s.yaw);
       this.player.standAt(s.x + fx * 1.4, s.z + fz * 1.4, s.yaw);
-      this.hud.log('You black out, and wake beside your statue.', 'bad');
+      this.deathSay('You black out, and wake beside your statue.', 'bad');
       return;
     }
     const st = this.origin || { x: 0, z: 0, yaw: 0 };
@@ -1257,14 +1669,21 @@ class Game {
     const home = st.raft && this.rafts.byId(st.raft);
     if (home?.size) {
       this.setRaft(home);
-      this.player.respawnOnRaft();
-      this.hud.log(this.registered ? 'You black out. Your statue is gone — you wake on the raft you came to on.'
+      if (this.net.connected) this.placeAmong(home);
+      else this.player.respawnOnRaft();
+      this.deathSay(this.registered ? 'You black out. Your statue is gone — you wake on the raft you came to on.'
                                    : 'You black out, and wake on the raft you came to on. A statue would bring you back elsewhere.', 'bad');
       return;
     }
     this.player.standAt(st.x, st.z, st.yaw);
-    this.hud.log(this.registered ? 'You black out. Your statue is gone — you wake where you first came to.'
+    this.deathSay(this.registered ? 'You black out. Your statue is gone — you wake where you first came to.'
                                  : 'You black out, and wake where you first came to. A statue would bring you back nearer.', 'bad');
+  }
+
+  /** What dying says: in the log, and over the blackout. */
+  deathSay(text, kind) {
+    this.hud.log(text, kind, 9000);
+    if (this.died) this.hud.blackout(text);
   }
 
   /** Set the statue in hand up on the raft's deck, or on the land, where you are looking. */
@@ -1312,10 +1731,10 @@ class Game {
   }
 
   // ── a room's world: kept on the relay ──────────────────────────────────────
-  /** The world as it stands, for the room to keep: the rafts, the statues, the time of day. */
+  /** The world as it stands, for the room to keep: the rafts, the statues, the time of day, what is cut and chipped. */
   worldJSON() {
     return { v: 1, rafts: this.rafts.toJSON(), statues: this.statues.toJSON(), sky: [+this.sky.time.toFixed(1), this.sky.day],
-             wakers: this.wakersJSON() };
+             wakers: this.wakersJSON(), felled: this.terrain.felledList(), chipped: this.caves.chippedList() };
   }
 
   /** You, in the room's world. */
@@ -1342,13 +1761,20 @@ class Game {
     this.save();
     this.clearSpits();
     this.room = code;
+    // The trees you cut at home are standing in this world, and its own are down.
+    this.terrain.clearFelled();
+    this.caves.restoreChipped([]);
+    this.chops.clear();
+    this.plantClaims.clear();
     if (world) this.loadWorld(world);
     else if (host) this.freshWorld();
     else { this.rafts.load([]); this.raft = null; this.setRaft(this.rafts.make()); this.statues.clear(); }
+    // What was said at home is not what is so here: a clean log for the room.
+    this.hud.clearLog();
     if (me) this.loadMe(me);
-    else this.newHere();
+    else this.newHere(host);
     this.refreshAll();
-    this.hud.log(me ? `You are back in ${code}'s world.` : `You come to in ${code}'s world — somewhere on its edge.`, 'good');
+    if (me) this.hud.log(`You are back in ${code}'s world.`, 'good');
     if (host && !world) this.keepRoom();      // a new world, kept from the start
   }
 
@@ -1358,6 +1784,11 @@ class Game {
     this.room = null;
     this.wakers = new Map();
     this.clearSpits();
+    this.hud.clearLog();
+    this.terrain.clearFelled();
+    this.caves.restoreChipped([]);
+    this.chops.clear();
+    this.plantClaims.clear();
     if (!this.loadSave()) this.newStart();
     this.refreshAll();
     this.hud.log('You are back in your own world.');
@@ -1382,6 +1813,8 @@ class Game {
     this.statues.load(w.statues);
     this.loadWakers(w.wakers);
     if (Array.isArray(w.sky)) [this.sky.time, this.sky.day] = w.sky;
+    this.terrain.restoreFelled(Array.isArray(w.felled) ? w.felled : []);
+    this.caves.restoreChipped(w.chipped);
   }
 
   /** You, as the room kept you: what you carry, how you are, and where — aboard your raft, wherever it has got to. */
@@ -1404,22 +1837,35 @@ class Game {
       p.state = 'deck'; p.onLand = false; p.vel.set(0, 0, 0); p.vy = 0;
       if (Number.isFinite(w.localYaw)) p.yaw = w.localYaw + raft.heading;
     } else if (w.where && w.where !== 'deck' && Array.isArray(w.pos)) this.player.standAt(w.pos[0], w.pos[2], w.yaw, w.pos[1]);
-    else this.respawn();
+    else this.respawn(false);
     this.markMine();
   }
 
   /**
-   * New to this world: nothing in your hands, and a start of your own
-   * somewhere on its edge — apart from everyone else. A raft or wreckage you
-   * come to on is the world's from the start: the others hear of it.
+   * New to this world: nothing in your hands. Hosting a new one, you come to
+   * on the crew's raft — four lashed pallets, a first deck for everyone. Joining,
+   * you come to aboard the biggest raft there is, among the others rather than
+   * a long swim from them; only a world with no raft at all puts you
+   * somewhere on its edge. A raft or wreckage you come to on is the world's
+   * from the start: the others hear of it.
    */
-  newHere() {
+  newHere(host = false) {
     this.inv = new Inventory();
     this.build.inv = this.inv;
     this.hotbar = new Hotbar();
     Object.assign(this.player, { health: 100, hunger: 100, thirst: 100 });
-    const st = this.origin = pickStart();
     this.registered = null;
+    const crew = !host && this.rafts.list.filter(r => r.size).sort((a, b) => b.size - a.size)[0];
+    if (crew) {
+      const at = crew.group.position;
+      this.origin = { kind: 'raft', x: at.x, z: at.z, yaw: 0, raft: crew.id };
+      this.setRaft(crew);
+      this.placeAmong(crew);
+      this.hud.log(`You come to aboard the crew's raft — ${crew.size} deck${crew.size === 1 ? '' : 's'} of it.`, 'good');
+      this.hud.log('The others are about: the crew list, under the clock, says how far and which way.');
+      return;
+    }
+    const st = this.origin = pickStart(host ? 'raft' : undefined);
     const heading = Math.random() * Math.PI * 2;
     // The empty raft you were given coming in will do; there is no need of two.
     const blank = () => (this.raft && !this.raft.size && this.rafts.list.includes(this.raft) ? this.raft : this.rafts.make());
@@ -1441,16 +1887,40 @@ class Game {
       this.player.standAt(st.x, st.z, st.yaw);
     }
     for (const line of WAKING[st.kind]) this.hud.log(line);
+    if (host) this.hud.log('A new world, and the crew\'s raft in it: whoever joins comes to aboard.', 'good');
+  }
+
+  /**
+   * Aboard a raft others are on too: a square of its own for each of you —
+   * picked by your number in the room, so two who come to at once are not
+   * one inside the other — facing in, toward the rest of the deck.
+   */
+  placeAmong(raft) {
+    const open = [...raft.cells.values()].filter(c => !raft.objs.has(`${c.cx},${c.cz}`))
+      .sort((a, b) => a.cx - b.cx || a.cz - b.cz);
+    if (!open.length) { this.player.respawnOnRaft(); return; }
+    // A square nobody is standing on, if there is one.
+    const taken = new Set([...this.net.remotes.values()].filter(r => r.snaps.length && r.body.visible)
+      .map(r => raft.cellAtWorld(r.pose.pos.x, r.pose.pos.z).join(',')));
+    const clear = open.filter(c => !taken.has(`${c.cx},${c.cz}`));
+    const free = clear.length ? clear : open;
+    const c = free[(this.net.id ?? 0) % free.length], p = this.player;
+    const at = raft.cellWorld(c.cx, c.cz), mid = { x: 0, z: 0 };
+    for (const k of raft.cells.values()) { const w = raft.cellWorld(k.cx, k.cz); mid.x += w.x / raft.size; mid.z += w.z / raft.size; }
+    p.pos.set(at.x, raft.deckY(at.x, at.z), at.z);
+    p.state = 'deck'; p.onLand = false; p.vel.set(0, 0, 0); p.vy = 0;
+    if (Math.hypot(mid.x - at.x, mid.z - at.z) > 0.3) p.yaw = Math.atan2(-(mid.x - at.x), -(mid.z - at.z));
+    p.pitch = -0.15;
   }
 
   // ── who is who, playing together ───────────────────────────────────────────
   deckKey(raft, cx, cz) { return `r:${raft.id}:${cx},${cz}`; }
 
-  /** Who else (not you) wakes at this statue: a name, or null. */
-  otherWaker(key) {
+  /** Who else (not you — or not `me`, someone else asking) wakes at this statue: a name, or null. */
+  otherWaker(key, me = PUB) {
     const w = key && this.wakers.get(key);
     if (!w) return null;
-    for (const [tag, name] of w) if (tag !== PUB) return name || 'Someone';
+    for (const [tag, name] of w) if (tag !== me) return name || 'Someone';
     return null;
   }
 
@@ -1549,40 +2019,110 @@ class Game {
       if (!r.body.visible) continue;
       c.copy(r.pose.pos).y += r.pose.state === 'swim' ? 1.4 : 1.1;     // the chest (a swimmer's head)
       const along = c.clone().sub(eye).dot(dir);
-      if (along < 0 || along > bestD) continue;
+      // Not someone standing in you (the same spot, a moment after waking): that is not who you look at.
+      if (along < 0.45 || along > bestD) continue;
       const off = c.clone().sub(eye).addScaledVector(dir, -along).length();
       if (off < 0.55) { best = r; bestD = along; }
     }
     return best;
   }
 
-  /** One of what is in hand, to someone else. */
-  give(mate, id) {
-    if (!this.net.connected || !this.inv.remove(id, 1)) return;
-    this.net.event({ k: 'give', id }, mate.id);
+  /**
+   * Twice a second, playing together: someone coming aboard the raft you are
+   * on is said. Off it yourself, who is aboard is not known — not "no one":
+   * that had you, climbing back on (or waking there), told everyone already
+   * standing on it had just climbed aboard.
+   */
+  watchCrew() {
+    if (!this.onDeck()) { for (const r of this.net.remotes.values()) r.aboard = null; return; }
+    for (const r of this.net.remotes.values()) {
+      // Not yet placed (just joined, or back after a dropped connection): no telling yet.
+      if (!r.snaps.length || !r.body.visible) continue;
+      const p = r.pose, on = p.state === 'deck' && !p.onLand && this.raft.solidAtWorld(p.pos.x, p.pos.z);
+      if (on && r.aboard === false) this.hud.log(`${r.name} climbs aboard.`);
+      r.aboard = on;
+    }
+  }
+
+  /** Warned that something is hunting you — the first time, and again if it has been a while. */
+  sayHunted(label) {
+    if (this.time - (this.huntedSaid ?? -1e9) <= 180) return;
+    this.huntedSaid = this.time;
+    this.hud.log(`A ${label.toLowerCase()} is coming for you. You cannot fight it: sprint (Shift) for the water, or into a cave — it will not follow.`, 'bad', 9000);
+  }
+
+  /**
+   * Hosting: the dinosaurs are yours to run, so what they hunt only you know.
+   * Someone else they have turned on is told — once a hunt — so they get the
+   * same warning you would.
+   */
+  tellHunted() {
+    if (!this.net.connected || !this.net.isHost) return;
+    for (const a of this.wildlife.all) {
+      const who = a.state === 'hunt' && !a.dead ? a.prey?.remote : undefined;
+      if (who !== undefined && a.told !== who) this.net.event({ k: 'hunted', label: a.sp.label }, who);
+      a.told = who;
+    }
+  }
+
+  /** The pack, open to hand things to `mate` (E at them, empty-handed). */
+  openGive(mate) {
+    this.giveMate = { id: mate.id, name: mate.name };
+    if (this.hud.packOpen) this.hud.closePack();
+    this.hud.togglePack(this.inv, this.hotbar, mate.name);
+    this.hud.closeCraft(); this.hud.closeAdmin();
+    this.input.allowLook = false;
+    document.exitPointerLock?.();
+  }
+
+  /** Hand `n` of what you carry to `mate` — as many as you have, up to that. */
+  give(mate, id, n = 1) {
+    if (!this.net.connected) return;
+    n = Math.min(n, this.inv.count(id));
+    if (n < 1 || !this.inv.remove(id, n)) return;
+    this.net.event({ k: 'give', id, n }, mate.id);
     if (fishOf(id)) this.hotbar.refillFish(this.inv);
     this.body.gesture('toss');                    // handed over, underarm
     this.net.event({ k: 'g', g: 'toss' });
-    this.hud.log(`You give ${mate.name} 1 ${ITEMS[id].name}.`, 'good');
+    this.hud.log(`You give ${mate.name} ${n} ${ITEMS[id].name}.`, 'good');
     this.hud.refreshInventory(this.inv);
     this.hud.refreshHotbar(this.hotbar, this.inv);
   }
 
   /** Something the others did that is yours to deal with (net.js onEvent). */
   fromCrew(e, r) {
+    if (e.k === 'hunted' && typeof e.label === 'string') {
+      this.sayHunted(e.label.slice(0, 24));
+      return true;
+    }
+    if (e.k === 'died') {
+      this.hud.log(`${r.name} blacks out — and comes round again, where they wake.`, 'bad');
+      return true;
+    }
     if (e.k === 'give') {
       if (!ITEMS[e.id]) return true;
-      this.inv.add(e.id, 1);
+      const n = Math.max(1, Math.min(99, Math.floor(e.n) || 1));
+      this.inv.add(e.id, n);
       this.hotbar.autoAssign(e.id);
-      this.hud.log(`${r.name} gives you 1 ${ITEMS[e.id].name}.`, 'good');
+      this.hud.log(`${r.name} gives you ${n} ${ITEMS[e.id].name}.`, 'good');
       this.hud.refreshInventory(this.inv);
       this.hud.refreshHotbar(this.hotbar, this.inv);
       this.hud.refreshCraft(this.inv);
       return true;
     }
+    if (e.k === 'landed' && typeof e.key === 'string') {
+      const sp = this.fish.species(e.key);
+      if (sp) this.hud.log(`${r.name} lands a ${sp.name}.`);
+      return true;
+    }
     if (e.k === 'caught') {
-      const f = this.fish.fish[e.i];
-      if (f && r.body.heldId === 'spear') r.body.skewer(this.fish.bodyFor(f));
+      if (r.body.heldId !== 'spear') return true;
+      // A fish of the shared schools, by which; an octopus (each of you has your own), by kind.
+      if (e.key === 'octopus') { r.body.skewer(this.reef.bodyFor('octopus', 0.6)); return true; }
+      // (In a sea of their own, the fish in that slot here may be some other kind: then one of theirs.)
+      const f = this.fish.fish[e.i], sp = e.key && this.fish.species(e.key);
+      if (f && (!e.key || f.sp.key === e.key)) r.body.skewer(this.fish.bodyFor(f));
+      else if (sp) r.body.skewer(this.fish.displayBody(e.key, (sp.length[0] + sp.length[1]) / 2));
       return true;
     }
     // Handed things (what you gathered, fish off a fire, a piece of yours
@@ -1605,24 +2145,112 @@ class Game {
       this.hud.refreshCraft(this.inv);
       return true;
     }
+    // A guest chipped out a flint face, or lifted a statue: theirs, if nobody
+    // had it first — gone for everyone, then — or, a statue someone else
+    // wakes at, it stays.
+    if (e.k === 'claimflint') {
+      if (!this.net.isHost || typeof e.key !== 'string') return true;
+      const k = `flint:${e.key}`;
+      if (this.caves.chipped.has(e.key)) {
+        this.net.event({ k: 'grant', none: true, items: {}, note: `${this.takenBy.get(k) || 'Someone else'} got to it first.` }, r.id);
+        return true;
+      }
+      if (this.takenBy.size > 400) this.takenBy.clear();
+      this.takenBy.set(k, r.name);
+      this.caves.chippedElsewhere(e.key);
+      this.together.world.chipped(e.key);
+      this.net.event({ k: 'flintok', n: e.n }, r.id);
+      return true;
+    }
+    if (e.k === 'flintok') {
+      this.gotFlint(e.n);
+      return true;
+    }
+    if (e.k === 'claimstatue') {
+      if (!this.net.isHost || typeof e.id !== 'string') return true;
+      const s = this.statues.find(e.id), keeper = s && this.otherWaker(e.id, r.pub);
+      if (!s || keeper) {
+        this.net.event({ k: 'statueno', id: e.id, keeper: keeper || null,
+                         who: keeper ? null : this.takenBy.get(`statue:${e.id}`) || null }, r.id);
+        return true;
+      }
+      if (this.takenBy.size > 400) this.takenBy.clear();
+      this.takenBy.set(`statue:${e.id}`, r.name);
+      this.statues.remove(e.id);
+      this.together.world.statueDown(s);
+      this.net.event({ k: 'statueok', id: e.id }, r.id);
+      return true;
+    }
+    if (e.k === 'statueok' || e.k === 'statueno') {
+      const s = this.statueClaims?.get(e.id);
+      if (!s) return true;
+      this.statueClaims.delete(e.id);
+      if (e.k === 'statueok') { this.gotStatue(e.id); return true; }
+      const name = v => (typeof v === 'string' ? v.slice(0, 20) : null);
+      if (e.keeper) {
+        // Someone wakes there: it stays — back up here, too.
+        if (!this.statues.find(s.id)) this.statues.add(s);
+        this.markMine();
+        this.hud.log(`${name(e.keeper)} wakes at this statue — it stays.`, 'bad');
+      } else this.hud.log(`${name(e.who) || 'Someone else'} got to it first.`, 'bad');
+      return true;
+    }
+    if (e.k === 'claimdrink') {
+      if (!this.net.isHost) return true;
+      const raft = this.rafts.byId(e.ri);
+      const o = raft?.objs.get(`${e.cx},${e.cz}`);
+      if (o?.type === 'collector') this.settleDrink(raft, o, r);
+      else this.notThere(raft, e, r, 'collector');
+      return true;
+    }
+    if (e.k === 'drank') {
+      this.drank();
+      return true;
+    }
     if (e.k === 'claimfish') {
       if (!this.net.isHost) return true;
       const raft = this.rafts.byId(e.ri);
       const o = raft?.objs.get(`${e.cx},${e.cz}`);
       if (o?.type === 'campfire') this.settleCooked(raft, o, r);
+      else this.notThere(raft, e, r, 'fire');
+      return true;
+    }
+    // A guest took a plant: theirs, if nobody had it first — it is gone for
+    // everyone, and what it gives (the guest's own count) goes to them.
+    if (e.k === 'claimplant') {
+      if (!this.net.isHost || typeof e.key !== 'string') return true;
+      if (this.terrain.felled.has(e.key)) {
+        this.net.event({ k: 'plantno', key: e.key, who: this.plantTakers.get(e.key) || null }, r.id);
+        return true;
+      }
+      if (this.plantTakers.size > 400) this.plantTakers.clear();
+      this.plantTakers.set(e.key, r.name);
+      this.plantGone(e.key, e.a, e.r);
+      this.together.world.plantTaken(e.key, e.a, e.r);
+      const y = {};
+      for (const [id, n] of Object.entries(e.y || {})) if (ITEMS[id] && n > 0) y[id] = Math.min(20, n | 0);
+      this.net.event({ k: 'plantok', key: e.key, y }, r.id);
+      return true;
+    }
+    if (e.k === 'plantok' || e.k === 'plantno') {
+      const c = this.plantClaims.get(e.key);
+      if (!c) return true;
+      c.y = e.k === 'plantok' && e.y && typeof e.y === 'object' ? e.y : null;
+      if (e.k === 'plantno') { c.who = typeof e.who === 'string' ? e.who.slice(0, 20) : null; c.wait = false; }
+      this.settlePlant(e.key);
       return true;
     }
     if (e.k === 'claimgather') {
       if (!this.net.isHost) return true;
       const it = this.debris.items[e.i];
-      const near = it && !it.held && Array.isArray(e.p) && Math.hypot(it.x - e.p[0], it.z - e.p[1]) < 6;
-      if (!near || this.time - (it.takenAt ?? -99) < 2) {
-        const who = near ? it.takenBy ?? this.net.name : null;
-        this.net.event({ k: 'grant', none: true, items: {}, note: `${who || 'Someone else'} got to it first.` }, r.id);
+      const at = (x, z) => Array.isArray(e.p) && Math.hypot(x - e.p[0], z - e.p[1]) < 6;
+      // Taken there a moment ago: the slot floats in somewhere else now, but it was that piece.
+      const gone = it?.took && this.time - it.took.at < 2 && at(it.took.x, it.took.z);
+      if (!it || it.held || gone || !at(it.x, it.z)) {
+        this.net.event({ k: 'grant', none: true, items: {}, note: `${(gone && it.took.by) || 'Someone else'} got to it first.` }, r.id);
         return true;
       }
-      it.takenAt = this.time;
-      it.takenBy = r.name;
+      it.took = { x: e.p[0], z: e.p[1], at: this.time, by: r.name };
       this.together.world.gathered(it);
       const { label, yield: y } = this.debris.harvest(it);
       this.net.event({ k: 'grant', items: y, note: `${label}: ${Object.entries(y).map(([id, n]) => `${n} ${ITEMS[id].name}`).join(', ')}` }, r.id);
@@ -1643,7 +2271,15 @@ class Game {
   /** Where the end of your line is, if one is out: the rod's float, or the hook. [x, y, z, kind] */
   lineOut() {
     const f = this.fishing.float;
-    if (f.visible) return [f.position.x, f.position.y, f.position.z, 0];
+    if (f.visible) {
+      // A fish on it: that too, for the others to see it fight (net.js drawCatch).
+      const c = this.fishing.catch, m = c?.mesh;
+      if (m?.parent) {
+        return [f.position.x, f.position.y, f.position.z, 0, c.key, c.length,
+                m.position.x, m.position.y, m.position.z, m.rotation.x, m.rotation.y, m.rotation.z];
+      }
+      return [f.position.x, f.position.y, f.position.z, 0];
+    }
     const h = this.hook;
     if (h.state !== 'idle' && h.head.visible) return [h.head.position.x, h.head.position.y, h.head.position.z, 1];
     return null;
@@ -1654,13 +2290,18 @@ class Game {
   findInteraction(eye, dir) {
     const reach = this.player.state === 'swim' ? 4.2 : 3.6;
     // Someone else, close enough to hand something to.
-    const mate = this.crewAt(eye, dir, 3.2);
+    // Not with the hammer out: E there is for the fire and the flotsam, and a
+    // press meant for them must not hand your hammer to whoever is in the way.
+    const mate = !this.build.active && this.crewAt(eye, dir, 3.2);
     if (mate) {
       const id = this.hotbar.held;
+      const five = () => this.input.down('ShiftLeft') || this.input.down('ShiftRight');
       if (id && this.inv.has(id)) {
-        return { prompt: `<b>E</b> give ${ITEMS[id].name.toLowerCase()} to ${mate.name}`, act: () => this.give(mate, id) };
+        const more = !ITEMS[id].tool && this.inv.count(id) > 1 ? ' (<b>Shift+E</b> five)' : '';
+        return { prompt: `<b>E</b> give ${ITEMS[id].name.toLowerCase()} to ${mate.name}${more}`,
+                 act: () => this.give(mate, id, five() ? 5 : 1) };
       }
-      return { prompt: `${mate.name} — hold something to give it`, act: null };
+      return { prompt: `<b>E</b> give ${mate.name} something from your pack`, act: () => this.openGive(mate) };
     }
     const spear = this.spears.pick(eye, dir, reach);
     if (spear) {
@@ -1706,13 +2347,7 @@ class Game {
       if (c.water >= 1) {
         return {
           prompt: `<b>E</b> drink (${Math.floor(c.water)} left)`,
-          act: () => {
-            c.water -= 1;
-            this.raft.refreshCollector(c);
-            this.together.touched(c);
-            this.player.thirst = Math.min(100, this.player.thirst + 32);
-            this.hud.log('Cool rainwater. That buys you time.', 'good');
-          },
+          act: () => this.drinkCollector(c),
         };
       }
       return { prompt: `Collector is filling (${Math.round(c.water / c.capacity * 100)}%)`, act: null };
@@ -1754,7 +2389,7 @@ class Game {
         const name = plant.sp.label.toLowerCase();
         if (this.hotbar.held === 'axe' && this.inv.has('axe')) {
           const done = this.chops.get(plant.key)?.n ?? 0;
-          return { prompt: `<b>Click</b> or <b>E</b>: chop the ${name}${done ? ` — ${done} of ${plant.sp.chop}` : ''}`,
+          return { prompt: `<b>Click</b> or <b>E</b>: chop the ${name}${done ? ` — ${done} of ${plant.chop ?? plant.sp.chop}` : ''}`,
                    act: () => this.chop(plant, dir) };
         }
         return { prompt: this.inv.has('axe') ? `Take out the axe to chop the ${name}`
@@ -1771,8 +2406,10 @@ class Game {
       const fleeing = beast.state === 'flee';
       return {
         prompt: beast.sp.diet === 'meat'
-          ? `${beast.sp.label} — ${hunting ? 'it has your scent' : 'hunting'}`
-          : `${beast.sp.label} — ${fleeing ? 'it is running from something' : 'grazing'}`,
+          ? `${beast.sp.label} — ${hunting ? (beast.prey === 'player' ? 'it has your scent. Get to the water, or into a cave!' : 'on the hunt') : 'prowling'}`
+          : `${beast.sp.label} — ${fleeing ? 'it is running from something'
+                                 : beast.state === 'defend' ? 'standing its ground, tail to a hunter'
+                                 : beast.state === 'rest' ? 'resting' : beast.speed > 0.2 ? 'on the move' : 'grazing'}`,
         act: null,
       };
     }
@@ -1809,8 +2446,23 @@ class Game {
   }
 
   // ── frame ──────────────────────────────────────────────────────────────────
-  frame() {
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+  /**
+   * Each frame the browser draws. Alone, a slow one is a step of no more than
+   * a twentieth of a second — a slow machine plays slower. Playing together
+   * the time is everyone's (a host's world is the others' too, and they carry
+   * its animals on in real time), so a slow frame is made up, in steps no
+   * bigger than that, only the last of them drawn.
+   */
+  tick() {
+    const total = Math.min(this.clock.getDelta(), this.net.connected ? 0.25 : 0.05);
+    const n = Math.max(1, Math.ceil(total / 0.05 - 1e-6));
+    for (let i = 1; i < n; i++) this.frame(total / n, false);
+    this.frame(total / n);
+  }
+
+  frame(step = null, draw = true) {
+    const dt = step ?? Math.min(this.clock.getDelta(), 0.05);
+    const drawn = draw && !document.hidden;   // hidden, the world goes on (keepTicking) but nothing is drawn
     const input = this.input;
     const now = performance.now();
 
@@ -1819,10 +2471,13 @@ class Game {
       // and a host still keeps the shared raft in step.
       // Playing together, the sea's clock keeps going, paused or not, so
       // the others' seas are not held back by yours.
-      if (this.net.connected) this.time = this.net.seaTime(this.time + dt, dt);
+      if (this.net.connected) {
+        this.time = this.net.seaTime(this.time + dt, dt);
+        this.worldTick(dt);
+      }
       this.net.update(dt, this.player, this.body.heldId, this.time, this.lineOut(), this.camera.position);
       this.together.update(dt);
-      this.renderer.render(this.scene, this.camera);
+      if (drawn) this.renderer.render(this.scene, this.camera);
       input.endFrame();
       return;
     }
@@ -1861,6 +2516,15 @@ class Game {
       if (open) { this.hud.closeCraft(); this.hud.closeAdmin(); document.exitPointerLock?.(); }
       else this.lockPointer();
     }
+    // Esc closes an open panel; with none open it pauses — also in free look,
+    // where there is no pointer lock for the browser to let go of (and pause on).
+    if (input.pressed('Escape') && !this.chatting) {
+      if (this.hud.craftOpen || this.hud.packOpen || this.hud.adminOpen) {
+        this.hud.closeCraft(); this.hud.closePack(); this.hud.closeAdmin();
+        input.allowLook = true;
+        this.lockPointer();
+      } else { this.pause(); input.endFrame(); return; }
+    }
     if (this.hud.packOpen && input.pressed('Backspace')) {
       if (this.hotbar.clear(this.hotbar.selected)) {
         this.hud.log(`Slot ${this.hotbar.selected + 1} emptied.`);
@@ -1889,7 +2553,7 @@ class Game {
       if (input.pressed('KeyG')) this.hud.onAdminGive('materials');
       if (input.pressed('KeyK')) this.hud.onAdminGive('equipment');
     }
-    if (input.pressed('KeyH')) { this.pause(); return; }
+    if (input.pressed('KeyH')) { this.pause(); input.endFrame(); return; }
 
     // Q eats whatever there is, coconut first — it does not cost you water.
     if (!panelOpen && input.pressed('KeyQ')) {
@@ -1940,15 +2604,24 @@ class Game {
       pl.yaw += this.raft.carry(pl.pos);
       pl.drift.set(pl.pos.x - x0, 0, pl.pos.z - z0);
     }
-    if (this.raft.aground && !this.wasAground && this.raft.speed > 0.05 && this.time - (this.groundedSaid ?? -99) > 10) {
-      this.groundedSaid = this.time;
-      this.hud.log('The raft grinds onto the bottom. Paddle it back off.', 'bad');
+    // Aground: said once for a place — it bumps on and off as the swell lifts
+    // it — and, run in to the shore, as the landing it is.
+    if (this.raft.aground && !this.wasAground && this.raft.speed > 0.05) {
+      const at = this.raft.group.position, was = this.groundedAt;
+      if (!was || Math.hypot(at.x - was.x, at.z - was.z) > 15 || this.time - was.t > 120) {
+        this.groundedAt = { x: at.x, z: at.z, t: this.time };
+        const shore = this.landNear(at.x, at.z, 30);
+        this.hud.log(shore ? 'The raft runs aground — as close to the shore as it will go. Walk to the edge and press F to wade in.'
+                           : 'The raft grinds onto a shoal. Back-paddle (right-click) to float it off.', shore ? '' : 'bad', 8000);
+      }
     }
     this.wasAground = this.raft.aground;
     if (this.paddleIn > 0) this.paddleIn -= dt;
     if ((this.lookIn = (this.lookIn ?? 0) - dt) <= 0) { this.lookIn = 0.5; this.lookForStatues(); this.markMine(); }
     this.updateFires(dt);
     this.player.update(dt, this.time, input, panelOpen);
+    // The dinosaurs are solid: you go round one, and one coming through shoves you aside.
+    if (this.player.onLand || this.player.state === 'swim') this.wildlife.keepOff(this.player.pos);
     if (!panelOpen && input.pressed('KeyV')) this.cycleView();
     this.view.update(dt, this.time);
     this.ocean.update(this.time, this.camera.position);
@@ -1956,6 +2629,9 @@ class Game {
     const eye = this.eye.position;
     const dir = this.player.forward(this.tmpDir);
     // Stream terrain around whoever is looking at it, then run the ecosystem.
+    // The plants bend to the wind the sail takes.
+    const wind = windAt(this.time, this._wind ||= { x: 0, z: 0, strength: 0 });
+    setFloraWind(wind.x, wind.z, wind.strength);
     this.terrain.update(dt, this.player.pos, this.time, this.sky.night);
     this.caves.update(dt, this.player.pos);
     this.wildlife.setPlayerPos(this.player.pos);
@@ -1974,6 +2650,21 @@ class Game {
     if (!panelOpen) {
       if (this.build.active) {
         prompt = this.build.update(eye, dir, input);
+        // Ashore, away from the water, there is nothing to build: no nagging to look at it.
+        const pl = this.player;
+        if (!this.build.target && pl.onLand && (pl.cave || !this.waterNear(pl.pos.x, pl.pos.z, 14))) prompt = null;
+        // The hammer in hand still leaves E free: the fire, the collector, the
+        // flotsam you are looking at answer it as they would empty-handed.
+        const act = this.findInteraction(eye, dir);
+        this.sawDrill(act, dt, input);
+        const sub = prompt ? `<span class="sub">${prompt}</span>` : '';
+        if (act?.act || act?.drill) {
+          prompt = act.prompt + sub;
+          if (act.act && input.pressed('KeyE')) act.act();
+        } else if (pl.state === 'swim' && this.raft.nearestDeck(pl.pos.x, pl.pos.z, 2.1)) {
+          prompt = '<b>Space</b> climb aboard' + sub;
+        }
+        if (act?.alt && input.pressed(act.alt.key)) act.alt.act();
         if (input.clicked(0)) {
           this.useAnim('build');
           const placed = this.build.place();
@@ -1986,20 +2677,11 @@ class Game {
         }
       } else {
         const act = this.findInteraction(eye, dir);
-        // The bow drill is sawn, not clicked: the ember builds while the
-        // button is held at an unlit fire, and cools if you stop.
-        if (act?.drill && input.mouseDown(0)) {
-          if (this.drill?.rec !== act.drill) this.drill = { rec: act.drill, p: 0 };
-          this.drill.p += dt / FIRE.light;
-          this.viewmodel.drilling = true;
-          if (this.drill.p >= 1) this.lightFire(act.drill);
-        } else {
-          this.viewmodel.drilling = false;
-          if (this.drill && (this.drill.p -= dt * 0.35) <= 0) this.drill = null;
-        }
+        this.sawDrill(act, dt, input);
         if (act) {
           prompt = act.prompt;
           if (act.act && input.pressed('KeyE')) act.act();
+          if (act.alt && input.pressed(act.alt.key)) act.alt.act();
         } else if (this.player.state === 'swim' && this.raft.nearestDeck(this.player.pos.x, this.player.pos.z, 2.1)) {
           prompt = '<b>Space</b> climb aboard';
         } else if (this.hotbar.held === 'statue' && this.inv.has('statue')) {
@@ -2033,24 +2715,19 @@ class Game {
       const standing = input.pressed('KeyX') && this.statues.pick(eye, dir);
       const keeper = standing && this.otherWaker(standing.id);
       if (keeper) this.hud.log(`${keeper} wakes at this statue — it stays.`, 'bad');
-      else if (standing) {
-        // Taken up again, to set up somewhere else.
-        this.statues.remove(standing.id);
-        this.together.world.statueDown(standing);
-        this.inv.add('statue', 1);
-        this.hotbar.autoAssign('statue');
-        if (this.registered?.id === standing.id) { this.registered = null; this.setWake(null); }
-        this.hud.log('You lift the statue. Carry it, and click to set it down somewhere else — on land, or on the raft.', 'good');
-        this.hud.refreshInventory(this.inv);
-      } else if (input.pressed('KeyX')) {
+      else if (standing) this.liftStatue(standing);
+      else if (input.pressed('KeyX')) {
         this.ray.set(eye, dir);
-        const r = this.build.salvage(this.ray);
+        // A guest's comes off at once, and what it gives comes from the host
+        // (together.js), which knows if someone else had it apart first.
+        const asks = this.net.connected && !this.net.isHost;
+        const r = this.build.salvage(this.ray, !asks);
         if (r?.blocked) this.hud.log(r.blocked, 'bad');
         else if (r) {
           this.together.took(r.piece);
           // A statue comes back to your hands (its "cost" is itself); yours no longer is.
           if (r.refund.statue && this.registered?.raft && !this.myStatue()) { this.registered = null; this.setWake(null); }
-          this.hud.log(r.piece.id === 'statue' ? 'You unlash the statue and lift it.' : `Salvaged ${r.name}.`, 'good');
+          if (!asks) this.hud.log(salvaged(r.piece.id), 'good');
           this.hud.refreshInventory(this.inv);
         }
       }
@@ -2099,8 +2776,10 @@ class Game {
     this.ocean.uniforms.uShade.value = day;
     if (this.player.cave && day < 0.25 && !this.torch.lit && !this.saidDark) {
       this.saidDark = true;
-      this.hud.log('Past the first few metres it is black. A torch would light the way in — Wood and Palm, crafting (C). ' +
-                   'Nothing that hunts you out there can follow you in here.');
+      const striker = this.inv.has('striker') || this.inv.has('torch');
+      this.hud.log('Past the first few metres it is black. A torch would light the way in — Wood and Palm fibre, crafting (C)' +
+                   (striker ? '. ' : ' — and back by the mouth, in the light, is flint: struck on scrap, it lights a torch anywhere. ') +
+                   'Nothing that hunts you out there can follow you in here.', '', 9000);
     }
 
     // After underwater.update(), which has just dimmed the lights the tool
@@ -2126,18 +2805,21 @@ class Game {
     if (inHand !== this.body.heldId) this.body.hold(inHand, inHand ? this.viewmodel.cloneBody(inHand) : null);
     this.body.update(dt, this.player);
     this.net.update(dt, this.player, inHand, this.time, this.lineOut(), this.camera.position);
-    if (this.net.connected && (this.crewIn = (this.crewIn ?? 0) - dt) <= 0) { this.crewIn = 0.5; this.refreshCrew?.(); }
+    if (this.net.connected && (this.crewIn = (this.crewIn ?? 0) - dt) <= 0) { this.crewIn = 0.5; this.refreshCrew?.(); this.watchCrew(); }
     this.together.update(dt);
     if (this.pendingThrow != null && (this.pendingThrow -= dt) <= 0) {
       this.pendingThrow = null;
       this.launchSpear(eye, dir);
     }
     document.body.classList.toggle('view-second', this.view.mode === 'second');
+    document.body.classList.toggle('view-out', this.view.mode !== 'first');
+    document.body.classList.toggle('building', this.build.active);
 
     // After the viewmodel, so the line hangs from where the rod tip is now.
     this.fishing.update(dt, this.time, this.player, held === 'rod' && this.inv.has('rod'));
     for (const e of this.fishing.events.splice(0)) {
       if (e.catch) {
+        this.net.event({ k: 'landed', key: e.catch });     // "Ben lands a grouper", for the others
         this.addCatch(e.catch, e.count);
         this.hud.refreshInventory(this.inv);
       }
@@ -2178,6 +2860,11 @@ class Game {
         this.hud.log(`A ${k.hunter.toLowerCase()} brings down a ${k.victim.toLowerCase()}.`);
       }
     }
+    // Hunted: there is no fighting one off, so say what does work — the first
+    // time, and again if it has been a while.
+    const hunter = this.wildlife.all.find(a => a.state === 'hunt' && a.prey === 'player' && !a.dead);
+    if (hunter) this.sayHunted(hunter.sp.label);
+    this.tellHunted();
     if (bites.length && this.time > this.lastBite + 0.8) {
       this.lastBite = this.time;
       const worst = bites.reduce((a, b) => (b.damage > a.damage ? b : a));
@@ -2186,7 +2873,8 @@ class Game {
     }
 
     this.hud.updateVitals(this.player);
-    this.hud.updateClock(this.sky, this.player, this.raft);
+    this.warnLow();
+    this.hud.updateClock(this.sky, this.player, this.raft, this.raftWay());
     this.hud.refreshInventory(this.inv);
     this.hud.refreshHotbar(this.hotbar, this.inv);
     this.hud.refreshPack(this.inv, this.hotbar);
@@ -2208,18 +2896,142 @@ class Game {
       this.camera.position.add(quake);
     } else this.quake = null;
     sound.listen(this.camera);
-    this.renderer.render(this.scene, this.camera);
-    if (this.view.first) this.viewmodel.render();
+    if (drawn) {
+      this.renderer.render(this.scene, this.camera);
+      if (this.view.first) this.viewmodel.render();
+    }
     if (quake) this.camera.position.sub(quake);
     input.endFrame();
   }
 
   checkGoals() {
+    let ticked = null;
     for (const g of GOALS) {
-      if (this.goalsDone.has(g.id)) continue;
-      if (g.test(this)) { this.goalsDone.add(g.id); this.hud.log(g.text); }
+      if (!this.goalsDone.has(g.id) && g.test(this)) { this.goalsDone.add(g.id); ticked = g; }
     }
+    // The first look (a save just loaded, a world just joined) ticks off
+    // quietly whatever was already so: only what you do from then on is said.
+    if (!this.goalsSeen) { this.goalsSeen = true; ticked = null; }
+    // What can be done where you are, first; failing that, whatever is left.
+    const here = this.player.onLand ? 'land' : 'sea';
+    const open = GOALS.filter(g => !this.goalsDone.has(g.id));
+    const next = open.find(g => !g.where || g.where === here) || open[0];
+    const todo = next && (typeof next.todo === 'function' ? next.todo(this) : next.todo);
+    this.hud.setObjective(todo, ticked?.done, GOALS.length - GOALS.filter(g => !this.goalsDone.has(g.id)).length, GOALS.length);
   }
+
+  /**
+   * Thirst or hunger running low: said once as it drops under 25, and again
+   * at empty — with what would help — then not until it has been put right.
+   */
+  warnLow() {
+    const p = this.player, w = this._low ||= {};
+    const say = (key, v, low, empty) => {
+      if (v > 40) { w[key] = 0; return; }
+      if (v <= 0 && w[key] < 2) { w[key] = 2; this.hud.log(empty, 'bad', 8000); }
+      else if (v < 25 && !w[key]) { w[key] = 1; this.hud.log(low, 'bad', 8000); }
+    };
+    const drink = [...this.raft.objs.values()].some(o => o.type === 'collector')
+      ? 'drink from the collector (E)' : 'build a collector, or find fresh water ashore';
+    say('thirst', p.thirst, `Your mouth is dry. Drink soon — ${drink}.`,
+        'You are parched, and it is costing you health. Drink!');
+    say('hunger', p.hunger, 'Your stomach cramps. Eat — a coconut (Q), or a fish.',
+        'You are starving, and it is costing you health. Eat something.');
+  }
+
+  /** Whether there is water deep enough to float a foundation within `r` metres of (x, z). */
+  waterNear(x, z, r) {
+    for (let d = 3; d <= r; d += 3.5) {
+      for (let a = 0; a < 12; a++) {
+        const b = (a / 12) * Math.PI * 2;
+        if (landHeight(x + Math.cos(b) * d, z + Math.sin(b) * d) < -0.6) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Whether there is dry land within `r` metres of (x, z). */
+  landNear(x, z, r) {
+    for (let d = 5; d <= r; d += 5) {
+      for (let a = 0; a < 16; a++) {
+        const b = (a / 16) * Math.PI * 2;
+        if (landHeight(x + Math.cos(b) * d, z + Math.sin(b) * d) > 0.3) return true;
+      }
+    }
+    return false;
+  }
+
+  /** The nearest dry land, {x, z, d}, or null — looked for every two seconds. */
+  nearestLand() {
+    if (this._land && this.time - this._land.at < 2) return this._land.best;
+    const p = this.player.pos;
+    let best = null;
+    for (let d = 20; d <= 900 && !best; d += 20) {
+      for (let a = 0; a < 48; a++) {
+        const b = (a / 48) * Math.PI * 2, x = p.x + Math.cos(b) * d, z = p.z + Math.sin(b) * d;
+        if (landHeight(x, z) > 0.5) { best = { d, x, z }; break; }
+      }
+    }
+    this._land = { at: this.time, best };
+    return best;
+  }
+
+  /** The nearest cave mouth, {x, z, d}, or null. */
+  nearestCave() {
+    const p = this.player.pos;
+    let best = null;
+    for (const c of CAVES) {
+      const d = Math.hypot(c.mouth.x - p.x, c.mouth.z - p.z);
+      if (!best || d < best.d) best = { x: c.mouth.x, z: c.mouth.z, d };
+    }
+    return best;
+  }
+
+  /**
+   * Off your raft — ashore, or swimming — how far it is and which way, for the
+   * tags under the clock: "Raft 87 m ↓". Null aboard, close by, or with no raft.
+   */
+  raftWay() {
+    const r = this.raft;
+    if (!r?.size || this.onDeck()) return null;
+    let near = null;
+    for (const c of r.cells.values()) {
+      const w = r.cellWorld(c.cx, c.cz), d = Math.hypot(w.x - this.player.pos.x, w.z - this.player.pos.z);
+      if (!near || d < near.d) near = { x: w.x, z: w.z, d };
+    }
+    if (!near || near.d < 12) return null;
+    return `Raft ${near.d < 100 ? Math.round(near.d) : Math.round(near.d / 10) * 10} m ${this.arrowTo(near)}`;
+  }
+
+  /** Which way a place is from where you are looking, as an arrow: ↑ ahead, ↓ behind. */
+  arrowTo(at) {
+    const p = this.player.pos, dx = at.x - p.x, dz = at.z - p.z;
+    if (Math.hypot(dx, dz) < 3) return '';
+    const yaw = this.player.yaw, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const ahead = fx * dx + fz * dz, right = -fz * dx + fx * dz;
+    const a = Math.atan2(right, ahead);                       // 0 ahead, + to the right
+    return ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'][((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
+  }
+
+  /**
+   * How far a place is, and which way from where you are looking: "about 80 m
+   * ahead, to your left" — for the objective line, which has no map to point at.
+   */
+  wayTo(at) {
+    if (!at) return 'somewhere out there';
+    const p = this.player.pos, d = Math.hypot(at.x - p.x, at.z - p.z) || 1;
+    if (d < 12) return 'right here';
+    // Relative to the way you face: forward is (-sin yaw, -cos yaw).
+    const yaw = this.player.yaw;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw), dx = (at.x - p.x) / d, dz = (at.z - p.z) / d;
+    const ahead = fx * dx + fz * dz, right = -fz * dx + fx * dz;
+    const side = `to your ${right > 0 ? 'right' : 'left'}`;
+    const way = ahead > 0.8 ? 'straight ahead' : ahead < -0.8 ? 'behind you'
+              : ahead > 0.3 ? `ahead, ${side}` : ahead < -0.3 ? `behind you, ${side}` : side;
+    const far = d < 100 ? Math.round(d / 10) * 10 : Math.round(d / 50) * 50;
+    return `about ${far} m ${way}`;
+  }
+
 
   /** Briefly explain the newly selected item instead of nagging permanently. */
   flashSlotHint() { this.slotHintUntil = performance.now() + 2600; }
@@ -2277,6 +3089,10 @@ class Game {
         time: this.sky.time,
         day: this.sky.day,
         goals: [...this.goalsDone],
+        // The trees you cut and the plants you took, until they grow back —
+        // or a reload would put them all back at once.
+        felled: this.terrain.felledList(),
+        chipped: this.caves.chippedList(),
       }));
     } catch { /* storage full or blocked — not worth interrupting play */ }
   }
@@ -2317,6 +3133,8 @@ class Game {
     this.sky.time = d.time ?? this.sky.time;
     this.sky.day = d.day ?? 1;
     for (const g of d.goals || []) this.goalsDone.add(g);
+    this.terrain.restoreFelled(d.felled);
+    this.caves.restoreChipped(d.chipped);
     if (d.view) this.view.set(d.view);
     if (d.character) this.character = d.character;
     return true;

@@ -66,7 +66,7 @@ export class ThrownSpears {
    */
   constructor(scene, terrain, raft, fish, makeBody, ghost = false) {
     this.ghost = ghost;
-    this.onSkewer = null;      // (spear, fish index) — playing together, the others hear of it
+    this.onSkewer = null;      // (spear, fish index or -1, its kind, where) — playing together, the others hear of it
     this.next = 1;
     this.scene = scene;
     this.terrain = terrain;
@@ -157,13 +157,15 @@ export class ThrownSpears {
       for (const f of this.fish.hitSegment(this._prevTip, tip, this._hits)) {
         if (s.catch.length >= SKEWER_MAX) break;
         this.skewer(s, this.fish.bodyFor(this.fish.take(f)));
-        this.onSkewer?.(s, this.fish.fish.indexOf(f));
+        this.onSkewer?.(s, this.fish.fish.indexOf(f), f.sp.key, f.pos);
         s.vel.multiplyScalar(FISH_DRAG);
       }
       // And an octopus in the way (reeflife.js).
       for (const o of this.extra ? this.extra.hitSegment(this._prevTip, tip) : []) {
         if (s.catch.length >= SKEWER_MAX) break;
         this.skewer(s, this.extra.take(o));
+        // (Each of you has your own octopus: the others hear of the kind, not which.)
+        this.onSkewer?.(s, -1, o.kind);
         s.vel.multiplyScalar(FISH_DRAG);
       }
     }

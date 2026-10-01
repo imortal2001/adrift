@@ -19,6 +19,7 @@ import { heightAt } from './terrain.js';
 import { archLegsNear } from './caves.js';
 import { statueBody } from './statue.js';
 import { mergeGeometries } from '../vendor/jsm/utils/BufferGeometryUtils.js';
+import { DECK_BOUNCE } from './sky.js';
 
 export const CELL = 2;
 export const DECK_Y = 0;        // walkable surface, in raft-local space
@@ -71,11 +72,33 @@ function edgeCells(cx, cz, s) {
 const G = {};
 function geo(name, make) { return G[name] || (G[name] = make()); }
 
+/**
+ * Lit from below by the deck as well (DECK_BOUNCE): a face looking straight
+ * down gets all of it, a wall half, the deck none. Without it the underside
+ * of a roof had only the sky's light from below — the sea's, next to nothing
+ * — and came out black.
+ */
+function fromBelow(m) {
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uDeckBounce = DECK_BOUNCE;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uDeckBounce;')
+      .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>
+        {
+          vec3 upView = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+          float below = 0.5 - 0.5 * dot(normal, upView);
+          reflectedLight.indirectDiffuse += uDeckBounce * below * BRDF_Lambert(material.diffuseColor);
+        }`);
+  };
+  m.customProgramCacheKey = () => 'raft-from-below';
+  return m;
+}
+
 let MATS = null;
 function mats() {
   if (MATS) return MATS;
   const t = textures();
-  const std = (map, o = {}) => new THREE.MeshStandardMaterial({ map, roughness: 0.82, metalness: 0.02, ...o });
+  const std = (map, o = {}) => fromBelow(new THREE.MeshStandardMaterial({ map, roughness: 0.82, metalness: 0.02, ...o }));
   MATS = {
     deck:  std(t.deck),
     wall:  std(t.wall),
@@ -964,6 +987,15 @@ export class Raft {
     const drop = obj => this.group.remove(obj);   // geometry/material are shared caches
     // Fish on a campfire's spit come back with it — cooked if they were done.
     const spit = o => { for (const f of o?.spitFish || []) add({ [f.t >= FIRE.cook ? f.done : f.raw]: 1 }); };
+    // What a thing on a deck gives back: its cost — but a fire only the wood
+    // it has not burned (its three laid logs are FIRE.laid seconds of it, and
+    // so on for any fed to it), or burning one down and taking it apart
+    // would be wood for nothing.
+    const objCost = o => {
+      const cost = { ...BUILDABLE_BY_ID[o.type].cost };
+      if (o.type === 'campfire') cost.wood = Math.floor((o.fuel ?? 0) / (FIRE.laid / BUILDABLE_BY_ID.campfire.cost.wood) + 1e-6);
+      return cost;
+    };
 
     if (piece.kind === 'cell') {
       const { cx, cz } = piece.rec;
@@ -972,7 +1004,7 @@ export class Raft {
       const top = this.tops.get(key(cx, cz));
       if (top) { drop(top.obj); this.tops.delete(key(cx, cz)); add(BUILDABLE_BY_ID.roof.cost); }
       const o = this.objs.get(key(cx, cz));
-      if (o) { spit(o); drop(o.obj); this.objs.delete(key(cx, cz)); add(BUILDABLE_BY_ID[o.type].cost); }
+      if (o) { spit(o); drop(o.obj); this.objs.delete(key(cx, cz)); add(objCost(o)); }
 
       this.cells.delete(key(cx, cz));
       // Edges that were only held up by this cell come away with it.
@@ -996,11 +1028,11 @@ export class Raft {
       drop(piece.rec.obj);
       add(BUILDABLE_BY_ID.roof.cost);
     } else {
-      const { cx, cz, type } = piece.rec;
+      const { cx, cz } = piece.rec;
       spit(piece.rec);
       this.objs.delete(key(cx, cz));
       drop(piece.rec.obj);
-      add(BUILDABLE_BY_ID[type].cost);
+      add(objCost(piece.rec));
     }
     this.rebuildIndex();
     return refund;
@@ -1105,8 +1137,20 @@ export class Raft {
    * Set a deck object's state from objState(). The fish on a spit are the
    * game's to hang (they are fish.js bodies): `spit(o, [[raw, t], …])`.
    */
-  setObj(o, [, , , water, fuel, lit, fish], spit) {
+  /**
+   * `whole` false — a guest's word on it: only what they can do to it
+   * outright (light it, raise or furl it). What is on the spit, how much
+   * wood is in it and how much water: the host's, which hears every fish
+   * hung and every log fed (together.js) — a guest's copy of those, sent a
+   * moment behind someone else's, undid theirs.
+   */
+  setObj(o, [, , , water, fuel, lit, fish], spit, whole = true) {
     if (!o) return;
+    if (!whole) {
+      if (o.type === 'sail') o.raised = !!lit;
+      if (o.type === 'campfire' && lit && o.fuel > 0) o.lit = true;
+      return;
+    }
     if (o.type === 'collector') { o.water = Math.min(o.capacity, water || 0); this.refreshCollector(o); }
     if (o.type === 'sail') o.raised = !!lit;
     if (o.type === 'campfire') {

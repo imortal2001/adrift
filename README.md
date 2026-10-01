@@ -1,8 +1,8 @@
 # Adrift — Ocean Raft Survival (prototype)
 
-You wake on four lashed pallets in open ocean. Debris drifts past on the
-current; everything you will ever own starts as something you pulled out of the
-water. This prototype covers the first ring of the loop:
+You wake adrift — on four lashed pallets, a scrap of wreckage, in the open
+water or on a beach. Debris drifts past on the current; everything you will
+ever own starts as something you pulled out of the water. This prototype covers the first ring of the loop:
 
 **Gather → Craft → Build → Upgrade the raft**
 
@@ -24,12 +24,13 @@ And roughly **80 metres off the bow there is land** — a continent, not an
 island, two and a half kilometres across. Swim for it and you come ashore on a
 beach under a wall of giant redwoods, fifty metres tall and three across at
 the foot, hung with vines, with tree ferns, cycads and ferns under them. Past
-the forest are open plains of waist-high grass, rivers cutting down to the
-sea over waterfalls and through lakes, stepped sandstone escarpments, sea cliffs with stacks standing off them,
-and in the middle a range of jagged peaks, snow on the tops, that you can see
-from the raft. It is inhabited: sauropods and stegosaurs
-browse the slopes, parasaur herds bolt at the first sign of trouble, raptors
-hunt in the treeline and a pair of tyrannosaurs work the high ground. They hunt
+the forest are open plains of waist-high fern, mountain streams stepping down to the
+sea over waterfalls and through lakes, stepped sandstone escarpments, sea cliffs with arches and stacks off their headlands,
+and in the middle a range of jagged peaks, cloud forest to the tops, that you can see
+from the raft. It is inhabited: sauropod herds browse the araucaria woods and
+the river corridors, stegosaurs graze the open ground near water, parasaur herds
+keep to the river banks and bolt at the first sign of trouble, raptors
+hunt the forest edges and a pair of tyrannosaurs work the rivers and clearings. They hunt
 *each other*, not just you — stand still long enough and you will hear a kill
 somewhere in the trees.
 
@@ -85,14 +86,16 @@ code and models, runs on this machine only, and has its own
 | `I` | pack — register tools and items into the five slots |
 | `Backspace` | (in the pack) empty the selected slot |
 | `C` / `B` | crafting / take out the hammer |
-| wheel, `[` `]` | with the hammer out: pick a build piece |
+| `Shift`-click | (in crafting) make five of a recipe at once |
+| wheel, `[` `]` | with the hammer out: pick a build piece — it skips what you cannot afford yet |
 | Right-click | throw what is in hand — the spear, or the hook |
 | Hold left / right click | with the paddle, on the deck: paddle forward / back-paddle |
 | `Q` | eat — a coconut if you have one, otherwise a fish (the one in hand, else the one you have most of) |
-| `X` | salvage the piece under the crosshair — materials come back |
+| `R` | at a lit campfire, feed it wood — whatever `E` is doing there |
+| `X` | salvage the piece under the crosshair — materials come back (from a campfire, only the wood it has not burned) |
 | `F` | step off into the water |
 | `Z` / `Space` | swim down / swim up — `Space` climbs out when the deck is in reach |
-| `H` | pause and show the help |
+| `H` / `Esc` | pause and show the help — `Esc` closes the crafting or pack panel first, if one is open |
 
 ### The hotbar
 
@@ -102,15 +105,15 @@ instead of a key per tool:
 
 | In hand | Left-click |
 |---|---|
-| Hammer | build mode is on; click places the piece (wheel or `[` `]` picks it) |
+| Hammer | build mode is on; click places the piece (wheel or `[` `]` picks it). `E` still works on what you look at — feed the fire, drink, gather |
 | Hook | throw it at debris and reel the debris in |
 | Coconut, any fish | eat it (raw or cooked) |
-| Bow drill | **hold** at an unlit campfire to saw up an ember — it takes 1 Palm for tinder |
+| Bow drill | **hold** at an unlit campfire to saw up an ember — it takes 1 Palm fibre for tinder. It works from the pack too (hold `E`), so it takes no slot of its own |
 | Spear | a thrust that skewers the fish on the crosshair; **right-click throws it** — pull it back out with `E` |
 | Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
-| Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes, and goes out if you put it away or get in the water — keeping what it had left |
-| Fire striker | nothing in hand — `E` at an unlit campfire strikes a spark into it (1 Palm for tinder), at once |
-| Axe | a stroke at the tree, log, stump or bamboo on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
+| Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes. Put away, it smoulders for 45 seconds and flares up again if you take it out in that time; after that it needs lighting again, keeping what it had left. The water puts it straight out |
+| Fire striker | nothing in hand — it works from the pack: `E` at an unlit campfire strikes a spark into it (1 Palm fibre for tinder), at once, and a torch lights anywhere |
+| Axe | a stroke at the tree, log, stump or giant horsetail on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
 | Material, or nothing | nothing |
 
 Build mode is no longer a toggle: it is simply *holding the hammer*. Take out
@@ -123,7 +126,41 @@ minute. Press `I` for the pack to register anything by hand — click a slot chi
 it somewhere else moves it rather than duplicating it.
 
 A registration is independent of whether you still own the item. Eat your last
-coconut and the slot stays bound and greyed out, ready for the next one.
+coconut and the slot stays bound and greyed out, ready for the next one (the
+pack marks it *none left*).
+
+Off your raft — ashore, or swimming — a tag under the clock says where it
+is: "Raft 87 m ↓".
+
+In the pack, a material says what it goes into — the recipes and building
+pieces that take it.
+
+The bow drill and the fire striker work from the pack, so they never claim a
+slot for themselves (they can still be put in one by hand).
+
+### What to do next
+
+There is no tutorial, but there is always one thing on screen to do next: the
+**objective line**, top left, over the message log. It runs through what a
+castaway needs, in order — driftwood, planks, a hammer, getting aboard, a
+bigger raft, a collector, a hook, a fire lit and a fish cooked, a roof; then
+land (it says how far, and which way from where you are looking), a statue
+(one of those standing on the land will do), an axe, a torch, the nearest
+cave (how far and which way, again) and its flint, and a fire striker. Each
+counts as done once it has happened, whatever order you got there in, and
+says so for a moment before the next. It prefers what can be done where you
+are: ashore, the island's goals come first, afloat the raft's. It is `GOALS`
+in `main.js`.
+
+The rest of the guidance is said when it matters: thirst or hunger under 25
+(the bar pulses red too) and again at empty, with what would help; a
+campfire burning low; the raft running aground — once for a place, and as a
+landing when it is by the shore; a dinosaur coming for you — there is no
+fighting one, and a sprint alone only just outruns it — it keeps after you
+until you are out of its sight, forty-odd metres off — so it says to make
+for the water or a cave; and dying, which blacks the screen out with where you have
+woken. Nothing said on the start screen is lost: the log's clock stops while
+it is up.
 
 ### Mouse look
 
@@ -191,7 +228,7 @@ pause screen starts over.
 
 | File | Responsibility |
 |---|---|
-| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. |
+| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an ocean blue, not the near-black it was under the raft. |
 | `src/sky.js` | Sun, sky dome, stars and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
@@ -204,10 +241,10 @@ pause screen starts over.
 | `src/together.js` | Playing together on one raft, the host's: your own put by while you are away from it, each change sent as it happens, and the host's copy settling anything contested. |
 | `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
-| `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current. |
+| `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current — past each of you, playing together, and round an island up the current. A move of more than 10 m in a frame (a new start, a waking) scatters it afresh round you. A palm frond is a rib with leaflets off both sides, lying on the water. |
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
-| `src/whale.js` | One humpback, ambient: cruises, surfaces to blow, sounds flukes-up. Not catchable. |
+| `src/whale.js` | One humpback, passing by: a few minutes' company, then gone a while; cruises, surfaces to blow, sounds flukes-up. Not catchable. |
 | `src/reeflife.js` | The animals that move, other than fish and dinosaurs: sea turtles, stingrays, octopus and crabs on the reef, tortoises on land and pond turtles in the lakes — each with its own way of moving and of reacting to you; crab and octopus as catches. |
 | `src/reefmodels.js` | Their glTF bodies, when the models are here: the octopus's arm chains curled in code, the stingray's clip, and the tortoise's and pond turtle's limbs found in the mesh and moved in the vertex shader. |
 | `src/reef.js` | What lives on the sea bed: coral, sponges, anemones, seagrass, kelp, urchins, starfish, giant clams and rock, plus the surge that bends the soft ones. |
@@ -218,6 +255,7 @@ pause screen starts over.
 | `src/waterfall.js` | The lakes' still water, cut to their shores, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
 | `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks. |
+| `src/dinopose.js` | How the dinosaurs move on top of their clips, put right from the palaeontology: gaits (no running T. rex or stegosaur), mouths shut, heads down to graze and feed, level tails, the sauropod's neck. |
 | `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
 | `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
 | `tools/build_fish.py` | Builds all fifteen sea-life bodies in Blender — each species' own face, textured skin (via `tools/fish_textures.py`), fins with rays, gills, eyes, every vertex tagged with its part for the swim shader — and exports them as one `.glb`. |
@@ -258,14 +296,34 @@ nothing lines up in rows:
 - **The coast** — a radial mask with headlands and bays swung round it by
   bearing. The sheltered side, where the raft is, is beach; the exposed side
   rises straight out of the sea as cliffs, 25–50 m high, with sea stacks
-  standing off them. Cliffs are kept 300 m and more from the raft, so the first
-  landing is always sand.
+  standing off them and cobble and shingle, not sand, at their feet (sand is
+  for the bays). Cliffs are kept 300 m and more from the raft, so the first
+  landing is always sand. The beach is gentle, a foreshore of 3–5° (tanβ
+  ~0.06, medium sand) rising to the back of the beach, and the cliff's height
+  varies along the coast over a few hundred metres.
+  Past the waterline the sand never dips below the sea: a hollow up the
+  beach bottoms out dry instead of holding a pool of ocean, waves and all,
+  cut off from the water.
 - **Hills and plains** — rolling fbm hills behind the beach, flattened in
-  places into wide plains of tall grass.
-- **Escarpments** — patches of harder rock stepped into flat benches and
-  cliff risers (terracing), in sandstone.
+  places into wide plains of fern thicket, the hills dying away onto them
+  over a long edge. The surf zone's swell stays at the surf zone; inland
+  only a gentle version of it and fine detail by landform — rough on the
+  rock, smooth on soil, barely any on the plains — so the plains are flat and
+  the ground is not a field of pits (measured: pits per km² down from
+  ~350–800 to ~25–270; plains' median slope 7°).
+- **Escarpments** — patches of harder rock stepped into benches, each a
+  near-level bench, then a talus slope at ~33° up to a cap cliff of hard
+  sandstone at ~70°: the profile of a scarp in horizontal beds.
 - **The range** — ridged multifractal noise deep inland, peaks near 400 m,
-  snow above ~250 m, bare rock above the treeline at ~190 m.
+  broad enough that its slopes average ~34°, the ~35° at which a warm, wet
+  range's slopes are held by landsliding (DiBiase et al. 2012),
+  forested to the tops: above ~190 m the lowland forest gives way to a
+  stunted, dripping cloud forest of araucarias, tree ferns and moss, with bare
+  rock and scree only where it is too steep to hold soil. No snow and no bare
+  treeline: in the Late Cretaceous greenhouse, frostless in the lowlands, the
+  treeline stood somewhere around 2.5–4 km (from a ~6 °C growing-season
+  treeline, Körner & Paulsen, and Maastrichtian lowland temperatures, Wolfe &
+  Upchurch 1987) — ten times these peaks.
 - **Rivers** — two, each a curve in polar coordinates from a spring in the
   range to a mouth on the coast. Their water level is surveyed once from the
   land they cross (always a little under it, never rising downstream), and
@@ -273,6 +331,27 @@ nothing lines up in rows:
   banked into a flood plain across hollows. The first reaches the sea about
   200 m up the coast from the landing beach. The water is a ribbon at the
   surveyed level, flowing, reflecting the sky; you wade it, about a metre deep.
+  At the mouth it slopes down over the last few metres of beach and slides
+  under the sea, rather than ending in a square slab on top of the waves; and
+  a lake's water stops at its shore where the river leaves it over a cascade,
+  instead of hanging out over the drop.
+  The land and the sea floor meet at the waterline without a ledge: by a
+  mouth the banks no longer hold the river's level out into the sea, and the
+  bed's reef and ripples come in only past the first few metres of water —
+  the worst step from shore to sea floor round the whole coast was 1.8 m, and
+  is about half a metre now (a few centimetres along most of it).
+  They are sized as rivers are: a channel widens downstream as the land it
+  drains, to the ~0.4 power of the area (Leopold & Maddock 1953; Hack's law
+  for the area), so from ~3 m at the spring to 11–12 m at the mouth — about
+  what a few square kilometres of wet catchment makes — and deepens more
+  slowly. And they are mountain streams: coming ~90 m down in ~550 m, they
+  fall ~20% most of the way, so they do not meander (that takes under ~1.5%,
+  Leopold & Wolman 1957) but run straight in their valleys as a **staircase
+  of pools** — each held up by a step at its lip, the water dropping a metre
+  or three over it into the next, the steps one to two channel widths apart
+  (step-pool and cascade reaches, Montgomery & Buffington 1997). The pools are
+  sunk into the valley floor, so the banks you walk along keep the smooth
+  fall of the valley.
 - **Waterfalls and lakes** (`placeWater` in `terrain.js`, drawn by
   `src/waterfall.js`) — where each river comes off the range fastest, it goes
   over a lip and drops, sheer, up to 22 m: a notch cut through the rock across
@@ -284,11 +363,24 @@ nothing lines up in rows:
   layers of foam turning against each other, a trail of it carried off
   downstream — droplets are flung up out of the impact, and spray boils off
   it all and drifts away. Above each fall the river is
-  flattened into a **tarn** that spills over the lip; below it is the
-  **plunge pool** it has dug. Lower down, where the first river falls least,
-  it widens into a **lake** on the plain, with a wobbled, sandy shore. All of
-  it is wading water — chest deep at most — so the reeds, horsetails and
-  bamboo of the river banks grow round the shores too, and dinosaurs keep
+  flattened into a **lake held back by the rock of the lip**, spilling over it
+  (the code calls it a tarn; a true tarn is a glacier's, and there were
+  none), the stream coming down into it over a cascade of short steps, not
+  off a ledge — and the river's water runs right to the lip across the whole
+  curtain, which is as wide as the channel where it crosses the cliff; beside
+  it the banks stand at the water's height to the brink, a ledge of rock
+  either side, before the valley sides fall away at a talus slope's ~36°;
+  below it is the
+  **plunge pool** it has dug, as wide as about half the drop (Scheingross &
+  Lamb 2016), its back straight along the foot of the cliff and wider than
+  the curtain, so the fall lands in water all the way across. Lower down, where the first river falls least,
+  it widens into a **lake** on the plain, with a wobbled, sandy shore. Where a
+  river comes into a lake it drops what it carries: a **delta**, a
+  shallow flat out into the water at the inflow. Every lake is on its river,
+  so each has an outlet at its lowest point — in a climate this wet none
+  would be closed. All of
+  it is wading water — chest deep at most — so the cattails, horsetails and
+  giant horsetails of the river banks grow round the shores too, and dinosaurs keep
   out of it past their knees; wading slows you, the deeper the more (the
   badge says how deep). The top of a fall is a walk round, up the valley
   side; step off the lip and you fall into the pool — walking off any edge
@@ -299,20 +391,35 @@ nothing lines up in rows:
 - **Caves and overhangs** (`src/caves.js`) — what a heightfield cannot be.
   Found once, from the land itself, the same on every machine:
   - **Caves** (8), at the foot of the cliffs inland — none by the landing
-    beach. A mouth under a hood of rock, a tunnel three metres wide winding
-    twenty-odd metres back into the hill, and a chamber at the end with
-    stalactites, and a **spring pool** in it to drink from (**E**). Past the
-    first few metres it is black: the daylight — sun, moon and sky — falls
-    away with how far in you are, and only a **torch** lights it. Low on the
+    beach. A mouth under a hood of rock — an **alcove**, wider and higher
+    than the passage, where the seep that made the cave has sapped the cliff
+    foot back — then a tunnel three metres wide that doglegs and winds
+    twenty-odd metres back into the hill, to a chamber with a **spring pool** in
+    it to drink from (**E**). The floor is sand, with blocks fallen from the
+    roof heaped against the walls: a cave in sandstone widens by its roof
+    coming down, and grows no stalactites — those are limestone's. Round the
+    dogleg it is black: the daylight — sun, moon and sky — falls away with how
+    far in you are, and only a **torch** lights it. (Its light falls off
+    gentler than the inverse square — `TORCH_LIGHT` and `TORCH_DECAY` in
+    `main.js` — so the wall beside you is plain and the tunnel ahead dim for a
+    dozen metres, rather than the ground at your feet burnt white and the
+    trees three steps off black, as it was at night in the forest.) Low on the
     walls, deep in, is **flint** (**E** chips it out; it comes back in a
-    while), and nowhere else has it. The mouths are too narrow for a
+    while) — and one face of it a few metres in from the mouth, still in the
+    daylight, so that someone who came without a torch can make a fire
+    striker and light one. Nowhere else has it. The mouths are too narrow for a
     dinosaur: nothing that is hunting you will follow you in.
   - **Sea caves** (3), at the waterline under the sea cliffs: swim in under
     the arch of the mouth, and at the back is a shingle beach to climb out
     on, flint in the walls. The sea inside is as dark as the rock — and it
     puts a torch out.
-  - **Sea arches** (3), in the shallows off the cliffs, to swim or sail
-    under; their legs are solid to you and to the raft.
+  - **Sea arches** (4), off the headlands: one foot in the cliff, one out in
+    the sea, the way under them along the shore. That is how a sea arch
+    comes to be — the waves working into a headland from both sides cut a
+    cave through it, and what is left over the cave is the arch (its seaward
+    foot, when it falls, a stack) — so they stand only where the coast juts
+    out and the cliff behind is as high as they are. Swim or sail under; their
+    legs are solid to you and to the raft.
   - **Rock shelves** (11), ledges out from the lips of the cliffs, to walk
     out onto or under.
 
@@ -320,7 +427,10 @@ nothing lines up in rows:
   rock set into the hill with the ground above it untouched; where it comes
   out through the cliff face, the terrain's shader throws that bit of the
   ground away (`CAVE_CUT`, the nearest mouths) so the mouth opens, and the
-  tube's outer skin is what shows round the cut. Inside, its floor and walls
+  tube's outer skin is what shows round the cut. The mouth is set in from
+  the foot to where the rock stands over the way in within a few metres —
+  started at the foot of a 50° slope, the tube stood out of it for five
+  metres, a dome of rock on the grass. Inside, its floor and walls
   are what you stand on and walk within — `floorAt()` and `clampInCave()`,
   asked by the player before the ground is — and the third-person camera
   keeps inside it too.
@@ -328,39 +438,87 @@ nothing lines up in rows:
 It is streamed in **64m chunks** around whoever is looking: fine near you,
 progressively coarser out to about 450m, rebuilt two chunks per frame so
 walking never stutters, and disposed once out of range. Normals are sampled
-across the chunk edges and each chunk hangs a skirt, so there are no seams.
+across the chunk edges and each chunk hangs a skirt, so there are no seams —
+hung deeper where the ground along the edge climbs steeply, since across a
+cliff a coarser neighbour's edge can be ten metres off a finer one's.
 Beyond the chunks the **far land** takes over: the whole continent at 16 m, in
 two sheets — the ground, and the forest canopy as a lumpy shell over it — each
 sunk out of sight inside the square the chunks draw for real (and well inside
 it, not drawn at all — sunk only a little, it would run through the hills, and
-the caves in them). That is what you see of the far coast and the range from
+the caves in them). It is sunk from the lowest of each vertex's neighbours,
+not its own height, so a 16 m cell across a cliff cannot stand out of the
+ground at its foot. That is what you see of the far coast and the range from
 the raft.
 
 The ground's colour comes from what the land is — sand, straw on the plains,
 leaf litter and moss under the canopy, mud and pebbles on the river banks,
-sandstone on the escarpments, rock, scree and snow up high — and `detail.js`
+sandstone on the escarpments, cobbles under the sea cliffs, moss on the misty
+tops with rock and scree where they are steep — and `detail.js`
 adds grain, blotches and relief in world space on top, triplanar on the
-steep faces.
+steep faces. The grain's noise is only a centimetre or two across, so at arm's
+length — a cave wall at your shoulder — its squares showed in the relief:
+close to, it keeps its colour and gives up its relief, and the rock reads by
+its blotches and cracks.
 
 ### The forest
 
 Everything that grows is in `flora.js`, built the way a real plant is: a
 trunk that flares into buttresses at the ground, branches, and foliage on the
 branches — not geometry but **painted cards**, cut-outs from one leaf atlas
-painted at load time (needle sprays, araucaria ropes, fern and cycad fronds,
-grass, reeds, vine strands). The species are the Mesozoic's, since the
+painted at load time (needle sprays, araucaria ropes shingled in pointed
+scales, glossy leathery broad leaves with their midribs, fern and cycad
+fronds, forked Gleichenia fronds, spike-moss, cattails, magnolia flowers —
+cream cups round a cone of carpels —, palm fans, vine strands). A frond is
+painted with daylight between its leaflets — a fern's pinnae narrow,
+scalloped and apart, a Gleichenia's a fine comb down every fork — for a floor
+carpeted in fronds painted as solid masses of overlapping leaves read as one
+sheet, banded in crescents. (The Gleichenia frond is painted stretched up its
+cell: drawn round, it filled only the lower half, and every leaf of a
+thicket was half empty.) Bark is
+painted too, one kind per kind of trunk, each a relief for the light and the
+normal map: the redwood's deep fibrous furrows, the araucaria's grey flaking
+plates ringed by old branch scars, the palm's leaf-scar rings, the tree
+fern's matted root mantle, the cycad's diamond-set leaf bases, and smooth,
+lenticelled bark for the magnolias, shrubs and horsetail canes (`bark` on
+each species). The species are the Mesozoic's, since the
 animals are:
 
 | | |
 |---|---|
-| Canopy | **giant redwoods** (~55 m, buttressed, crowns in the top half, some hung with vines) and **araucarias** (monkey puzzles: a tall grey trunk under a flat umbrella crown) |
-| Understorey | **tree ferns**, **cycads**, **shrubs**, stands of **giant horsetail** and groves of **bamboo** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
-| Ground | **ferns** thick on the forest floor; **grass** in the open, **tall grass** on the plains, **reeds** at the water |
+| Canopy | **giant redwoods**, old and young together: the old ~55 m, a flared buttressed base then an almost untapered column clear for half its height, a few massive limbs sweeping down and turning up at their ends with the foliage clumped out there, a trunk or two re-grown up through the crown, and a rounded or dead broken top; the young a narrow cone ~30 m. **Araucarias**: old, an umbrella of candelabra arms on a tall bare trunk ringed with the stubs of shed branches, the foliage in tufts at the arm ends; young, a strict tiered cone of dead-level whorls. **Dawn redwoods** (Metasequoia, Cenomanian onward) on the river banks and levees: a narrow cone of ascending branches over a fluted, buttressed base, the foliage soft, feathery and paler |
+| Understorey | **tree ferns** (their bases flared with roots, a skirt of dead fronds), **cycads** (stiff upturned leaves round a cone, the trunk armoured in old leaf bases), **shrubs**, clumps of **horsetail** and taller stands of **giant horsetail** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
+| Ground | **ferns** thick on the forest floor; **low ferns and spike-moss** in the open, **fern thickets** waist-high on the plains, **cattails** at the water |
 | Deadfall | **fallen logs** (mossy, snapped at one end, ferns growing out of them), **stumps** with their roots, **fallen branches** |
-| Rock | **boulders**, **crags** heaped on the slopes and escarpments, and **spires** — sea stacks and lone pillars on the plains |
+| Rock | **boulders**, **crags** heaped on the slopes and escarpments, and **spires** — sea stacks off the cliff coasts, and buttes out in front of the escarpments |
 
 Vines also hang down the steep faces — cliffs and escarpment risers — draped
 strand by strand down the rock.
+
+**Nothing that had not evolved yet.** There is no grass: grass was rare in
+the latest Cretaceous (a few phytoliths in titanosaur dung, Prasad et al.
+2005) and grasslands are ~26 million years younger; reeds are Eocene, bamboo
+Oligocene. So open ground is what it was then — ferns and spike-moss, about
+half the cover in a Late Cretaceous flora caught in ash (Wing et al. 1993) —
+the plains are Gleichenia-type fern thickets, the shallows cattails (their
+seeds are known from the Maastrichtian), and where bamboo would stand, giant
+horsetail, up to ~6 m (not the 20 m tree-horsetails of the Carboniferous).
+The ground is coloured to match: fern and moss green over dark soil, russet
+where the fronds die back on the dry plains, never a lawn. The flora as a
+whole is the Late Cretaceous's — the tyrannosaurs' — so the Jurassic
+stegosaurs and sauropods are its visitors. The coconuts adrift are the one
+stretch: the oldest *Cocos* fruit is from the very end of the Cretaceous, on a
+coast (Cocos binoriensis, Maastrichtian–Danian), which is when and where this
+is.
+
+**Each sways as it would.** A tree's sway is slower the taller it is — 0.1 to
+0.3 Hz for a big one (Moore & Maguire 2004) — and a shrub or a fern's much
+quicker, so the redwoods lean slowest of all and the ferns shiver; and leaves
+flutter as their kind does — broad leaves, palm fans and fern pinnae a lot, a
+cycad's rigid leaflets, an araucaria's scales and a horsetail's silica-stiff
+stems hardly at all (`aWind` in `flora.js`). The araucarias grow in tiers of
+level branches with daylight between them, their foliage in flat plates; the
+magnolias fork from two or three stems into a rounded crown, their flowers
+the size of a hand.
 
 Each species has a rule, `where(site)`, from what the land says the spot is:
 how wooded (moisture, shelter, the treeline, clearings), how wet, how steep,
@@ -370,37 +528,100 @@ landmarks) is a jittered grid at its own spacing, and each cell holds a
 weighted lottery among the layer's species — always over every species, so
 walking closer never changes what grows where, only how finely it is drawn.
 So the forest is dense where it is wet and sheltered, thins onto the beach,
-stops at the treeline, gives way to grass on the plains and to rock on the
-cliffs.
+stunts into cloud forest on the tops, gives way to fern on the plains and to
+rock on the cliffs.
 
-Detail falls off with distance: grass and ferns within ~100 m (fading out
+**How many.** The scatter is set against measured stands. Old-growth coast
+redwood on alluvial flats carries 45–74 canopy trees per hectare of 118–183
+stems (Dagley & Berrill); closed forest here has ~50 giants and ~40 younger
+trees per hectare, the canopy's layers from both. Tree ferns are a whole
+mid-layer in wet forest (~900/ha in Hawaii and Luquillo): ~250/ha here, and
+the ground ferns big enough to cover a third to a half of the floor.
+Cloud forest is shorter and closer-set than the forest below it (Luquillo:
+20–30 m, then 3–5 m on the tops): the araucarias up there a third of their
+size. Dry country is open araucarian woodland with cycads, not bare.
+A young tree grown in the shade has shed its lowest branches.
+
+**Where each grows** is from where its fossils lie, and where its nearest
+living kin grows now. A Late Cretaceous coastal-plain flora caught in
+volcanic ash where it stood (Big Cedar Ridge, Wing et al. 2012) shows the
+plants sorting by ground over a few metres: the first flowering plants on
+wet, freshly disturbed sand and silt, the fan palm on moist, settled,
+peaty ground, fern thickets on poor, organic soil.
+
+| Plant | Where it grows here, and why |
+|---|---|
+| Giant redwood | thickest on the raised flats along the rivers — deep, moist, well-drained alluvium a bank's height above the water, the modern coast redwood's best ground — and through the moist forest; thinning up the mountains; never in the water |
+| Araucaria | well-drained ground: the drier forest, rocky slopes and ridges, the escarpment rims, and the cliff-top headlands (as the Norfolk and Cook pines); open woodland where it is too dry for closed forest (~40–50/ha); away from the water; up to the tops, stunted there |
+| Dawn redwood | the river banks, levees and lake shores, in stands — wet, fresh-built ground (Metasequoia's modern habitat, and the Cantwell floodplains) |
+| Tree fern | under the wet canopy, the creeks and shaded gullies, and the cloud forest of the high slopes (Mesozoic Dicksoniaceae and Cyatheaceae: riverbanks, swamps, understorey) |
+| Cycad | dry, open, rocky or sandy ground: the dunes behind the beach, stony slopes, the escarpments, the open plains |
+| Fan palm | the coastal lowlands only: behind the beaches, the lake shores, the wet flats back from the rivers — settled ground, not fresh sand |
+| Magnolia | fresh, wet, sunny ground: river banks and bars, forest edges and clearings — the first flowering plants were weeds of disturbed ground (Wing & Boucher 1998) |
+| Horsetail | the wet sand of banks and lake shores, in the sun |
+| Fern thicket | the open plains, and the scars of slips on steep wet slopes (Gleicheniaceae pioneer landslides and hold them open) |
+| Cattails | still water under ~0.6 m (it drowns them) at the lake edges and slow lowland reaches, not the mountain streams |
+
+And the rocks: bedrock stays under soil on slopes below ~30° and shows fast
+above it (DiBiase et al. 2012), so **boulders** are on the steep ground and at
+its foot, in the mountains, along the mountain streams (a river's bed goes
+from gravel to sand abruptly on the way down: lowland rivers carry sand, not
+stones, Lamb & Venditti 2016), and on the beaches under the cliffs — and next
+to none out on the wet, flat lowlands, with no ice age to have left them
+there. **Crags** crown the steep slopes, the escarpment rims and the high
+drier crests; **sea stacks** stand close off the cliffed headlands, never a
+sandy shore; and the lone pillars that stood on the plains are **buttes** in
+front of the escarpments now, since hoodoos need a dry, frosty badland, not a
+wet forested plain.
+
+Detail falls off with distance: ground cover and ferns within ~100 m (fading out
 rather than stopping), full trees within ~100 m and a cheap build of each out
 to ~220 m, the far canopy beyond; landmarks — crags and spires — to the edge
-of the chunks. Foliage sways in the wind in the vertex shader. Trunks, stumps
+of the chunks. Foliage sways in the vertex shader in the wind that fills
+the sail (`setFloraWind()`): every tree leans downwind — the whole tree, a
+bend that grows up the trunk — as gust fronts cross the island, harder the
+stronger the wind, with the leaves fluttering on top in step with their
+branches. Trunks, stumps
 and rocks are solid; you walk round them. Anything with a harvest can be
-taken, and stays gone — through a rebuild or a reload of its chunk — until
-it grows back.
+taken, and stays gone — through a rebuild or a reload of its chunk, and
+through a reload of the game (it is saved) — until it grows back.
 
 What comes away in your hands, you take with **E**: fallen branches, and the
-fronds of the shrubs, palms, cycads, magnolias and tree ferns. What does not
+fronds of the shrubs, palms, cycads, magnolias and tree ferns. What the
+crosshair picks is the plant you are looking at anywhere up its height —
+fallen branches at your feet, a stump at its top — so the fern growing
+beside a log does not get in the way of the log. What does not
 — a standing **redwood** or **araucaria**, a **fallen log**, a **stump**,
-**bamboo** — takes an **axe** (an iron blade on a haft: 1 Plank,
+**giant horsetail** — takes an **axe** (an iron blade on a haft: 1 Plank,
 1 Rope, 1 Scrap — a third-party model, CREDITS.md). Hold it and click (or E) at the tree: each stroke is
 a woodcutter's swing — drawn up and back over your shoulder, driven across
 and down into the trunk, a jolt as the blade bites, pulled out — and the blow
 lands when the blade does, not on the click: the tree shudders and chips fly
-from the cut (pale wood and bark; green-gold off bamboo). A few strokes on —
-six for a redwood, four for an araucaria, three for a log or a stump, two
-for bamboo — it is down. A standing tree creaks and leans, slowly, then
-falls away from you ever faster, meets the ground where the ground is (on a
-slope uphill, it stops short), bounces, and throws up leaves and dust where
-it lands — the ground shakes if you are close — and the wood is yours as it
-hits. It lies a few seconds, then sinks out of sight. A log or a stump is
-chopped up where it lies, in a burst of chips. Leave one half-chopped a
-minute and you start again.
+from the cut (pale wood and bark; green-gold off horsetail). A few strokes on —
+six for an old redwood and three for a young one, four for an old araucaria
+and two for a young, five for a dawn redwood, three for a log or a stump, two
+for a horsetail stand — it is down. A standing tree creaks and leans, slowly, then
+falls away from you ever faster, hinged on the far edge of the cut, meets the
+ground where the ground is (on a slope uphill, it stops short), bounces, and
+throws up leaves and dust where it lands — the ground shakes if you are
+close — and the wood is yours as it hits. It lies a few seconds, then sinks
+out of sight. It is cut, not pulled up whole: what comes down is the tree
+above the cut, knee high or so (higher on a big trunk), its end a face of
+wood, and the **stump** stays where it stood — its own flared, fluted foot,
+bark and all — until the tree grows back; you can climb up and stand on it.
+The face is the trunk's own cross-section at the cut, buttresses and flutes
+and all: the heartwood (a redwood's cherry red, an araucaria's pale
+yellow-brown, a dawn redwood's red-brown), a narrow band of paler sapwood,
+the bark round it, growth rings closer together toward the outside, a few
+checks out from the pith. A horsetail stand leaves a stubble of hollow stems,
+and its canes go over each from its own: the clump leans by a shear about
+the cut, not turned as one body about a hinge — which lifted the canes behind
+the hinge half a metre off their stubble as they fell.
+A log or a stump is chopped up where it lies, in a burst of chips. Leave one
+half-chopped a minute and you start again.
 
 And you hear it (`src/sound.js`): the swish of the swing and the thunk and
-crack of the bite — a hollow tock off bamboo — then, the last stroke, the
+crack of the bite — a hollow tock off the horsetail's hollow canes — then, the last stroke, the
 creak of the tree giving way, the rush of the air and its leaves as it comes
 down, and the crash: a thump, branches snapping, the leaves settling. None of
 it is recorded: each sound is made on the spot from noise and oscillators
@@ -417,6 +638,27 @@ surface, and the waterline is just where it crosses zero. Out from the beach it
 shelves to a sand floor at about 18m, ridged noise piles coral heads up to 8m
 off that, and past the shelf edge it drops into a basin at 42m.
 
+**The waves die on the shore.** The sea knows how deep it is: `setSeabed()`
+hands the ocean the same `heightAt`, and a 900 m depth texture that follows
+the player lets the shader read it. Over a shelving bottom the swell calms —
+full height in 4 m of water and more, a fifth of it at the waterline, none
+over land — so the surface flattens as it comes up the beach instead of
+rolling on through the sand. The water turns from deep blue to turquoise over
+the shallows, with the sand showing through, the glare and the whitecaps
+going as it shoals, and where it meets the beach there is only a thin wash
+line of broken foam, lapping. `waveHeight()` is calmed the same way, so a
+barrel in the shallows rides the swell you see there.
+
+The water's edge is drawn from that map, too, not left to where the flat sea
+cuts the land: the sheet gives out where it is 5 cm deep over the bed (`EDGE`
+in `ocean.js`), as the swell has it, so the line is smooth and runs a little
+up and down the sand as the waves come and go. Left to the depth test, it was
+wherever the sea cut the ground's metre triangles — and the land's bumps, a
+couple of centimetres off the straight across each, are tens of centimetres
+of beach at a shallow slope: a sawtooth. For that the map is fine and exact:
+1.5 m cells, heights in metres as half floats (at 3 m and 256 steps it was up
+to 15 cm off the ground at the waterline; now within about 3 cm).
+
 The depths are set against the **air supply**, not against a reference photo.
 You have about 18 seconds and you descend at 2.4 m/s, so coral tops at ~10m are
 a comfortable visit, the sand at ~18m spends most of a breath, and the basin is
@@ -428,6 +670,24 @@ the colonies while the seagrass takes the sand between them, and the reef fish
 school over ground the mask likes. Species are picked by **weighted lottery**
 among everything that could live at that spot rather than first-match-wins,
 which is the difference between a reef and one coral repeated 800 times.
+Each prop is set down onto the lowest of the bed under its rim rather than the
+height at its middle — the reef floor is lumpy, and a brain coral set on a
+knoll's crown overhung the drop all round, floating by as much as two and a
+half metres (a third of them by more than 0.3 m). One that would go more than
+half under that way grows somewhere else; a starfish flat on the sand stays
+put.
+
+The solid pieces are smooth-shaded and their surfaces worked (`worked()` in
+`reef.js`): a brain coral's dome carries the meandering ridges of the real
+thing, raised off it with the valleys between darker; a rock is weathered
+stone, lumped and pitted, with moss over whatever faces up to the light; a
+barrel sponge is ribbed up its sides; the staghorn's branches have rounded
+knuckles and tips. They were flat-shaded raw polyhedra — a rock two
+twelve-faced dodecahedra — and every face showed as a facet, low-poly
+props on a smooth, textured sea bed among textured fish. Past the chunk you
+are in, 32 m and more off where the detail is lost in the haze, the reef is
+built from a lighter set of the same shapes (about 0.8 million triangles in
+view on the reef, against 1.4 million all fine).
 
 Besides the corals there is golden **kelp**, standing four and five metres tall
 in the shallower water and swaying in the surge; **sea urchins** and **giant
@@ -439,14 +699,22 @@ curve in `underwater.js`, opened up so you can see 25–30m on the shelf; the
 first cut fogged out at 12m and the sea bed came across as a grey wall you
 could never see enough of. And the sunlight is focused into **caustics** —
 three sine grids beaten together and sharpened, gated to fragments below the
-waterline, applied to the terrain and the reef from the same clock.
+waterline, applied to the terrain and the reef from the same clock. The water
+column behind it all is the fog's own colour, put out in the same colour space
+as the fogged sea bed, so the far reef fades into it with no line at the edge
+of the view (drawn linear, it showed as a navy band twice as dark).
 
 The props are geometry standing **on** the sea bed, not part of it, so nothing
 that reads `heightAt` knows they exist — which is how the first cut had a third
 of the reef fish swimming through boulders. `Terrain.clearanceAt(x, z)` answers
 the question they actually need: the height of the sea bed *or the top of
 whatever is standing on it*. It is backed by a 1.5m obstacle field stamped as
-the props are scattered, rebuilt whole whenever the reef chunk set changes
+the props are scattered — each by its shape, a mound highest at its middle
+and down to the bed at its rim, a barrel sponge a column (stamped at full
+height over every cell it touched, the fish beside a coral head hovered at its
+crown); and not the kelp, fans, anemones and seagrass, which bend in the surge
+and a fish swims in among (stamped too, a kelp stand's canopy was a floor
+they hovered on, nine metres off the sand) — rebuilt whole whenever the reef chunk set changes
 (props near a chunk edge stamp cells on both sides, and unpicking one chunk's
 contribution from a shared maximum costs more than the rebuild). One lookup per
 fish per frame, about 0.05ms for the lot.
@@ -518,16 +786,55 @@ cover and preopercle, eyes (size, height, shape, pupil) and markings.
 | Chromis | short snout, a big eye, a small, slightly upturned mouth |
 | Wrasse | pointed snout, thick lips, canines jutting at the front of the jaws |
 | Silverside | a head wider than the body, a huge eye (twice the snout), a small oblique mouth |
-| Red snapper | a triangular head, a large mouth reaching under the front of its red eye, canines |
+| Red snapper | a big triangular head (40% of its length), a large mouth reaching under the front of its big red eye, canines, a serrated preopercle |
 | Porgy | a long sloping snout, a large mouth with thick lips and a heavy lower jaw, orange at the corner; a brown face with a blue line under the eye and pale stripes below it |
 | Flounder | both eyes on the upper side, widely spaced and raised on short stalks; a small mouth ending under the lower eye |
-| King mackerel | a pointed snout shorter than the rest of the head, a large mouth with knife-like teeth |
+| King mackerel | a pointed snout shorter than the rest of the head, a large mouth with the end of the jaw bone showing and knife-like teeth; plain silver as an adult |
 | Yellowfin tuna | a conical snout, a small eye, a small mouth ending well before it |
 | Great barracuda | a long pike-like head, flat on top; the lower jaw jutting past the upper; fangs of unequal size |
 | Grouper | flat between the eyes, a huge mouth running back past the eye, a protruding lower jaw, thick lips, a rounded preopercle |
 | Mahi-mahi | a bull: the tall, flat forehead of the male, a small eye set low near the mouth |
 | Blacktip reef shark | a short, broadly rounded snout; oval eyes with slit pupils; nostrils under the snout with their nipple-shaped flaps; an arched, down-turned mouth with serrated teeth; five gill slits |
 | Humpback whale | (the procedural fallback; the game's whale is now a textured model, below) tubercles — golf-ball knobs — along the rostrum and on the jaw, twin blowholes behind a raised splashguard, a long arching mouth line with the eye just past its corner, throat pleats |
+
+**Measured, not guessed.** A second pass set every species against its
+published measurements — Fishes of Texas, the Smithsonian's Shorefishes of
+the Greater Caribbean, FishBase — as proportions of standard length, and
+most of what still looked wrong about the fish turned out to be numbers:
+
+- **Bodies.** The disc of the yellow tang was built as deep as it is long;
+  a real one is 55–70% (its fins are what make it tall, and those are now
+  taller). The chromis and the bluehead wrasse were half as deep again as
+  theirs, the mahi too; the snapper and the grouper a little too slender.
+- **Heads.** A snapper's or a grouper's head is some 40% of its length,
+  a porgy's, barracuda's or wrasse's about a third — they were 20–28%, which
+  is most of why they looked like toys. Eye, mouth, gill cover, pectoral and
+  dorsal all moved back with it: a snapper's eye is a tenth of its length, a
+  porgy's pectoral reaches past the start of its anal fin, a grouper's jaw
+  runs past the back of its eye.
+- **Fins.** Pectorals at their real lengths (a snapper's 0.28 of its length,
+  a porgy's 0.36, a chromis's 0.27) and a yellowfin's sickle reaching the
+  second dorsal; the snapper's anal fin pointed; tails forked as deeply as
+  each species' are — a snapper's barely, a chromis's deep and sharp, a blue
+  tang's with its corners drawn out.
+- **Marks.** The yellow tang is one even lemon yellow with a white scalpel on
+  its tail stalk (the dark bands were another tang's); the king mackerel is
+  plain silver (the yellow spots are the young's); the barracuda has its
+  twenty-odd bars.
+
+And three things every fish had wrong. **The pupil** was a slit on all of
+them — a cat's, or a shark's — where a bony fish's is round, the lens a
+glassy bead bulging through it; the iris now shades from the bright,
+silvery ring round the pupil (the argentea) to a darker rim, and the skin
+comes right up to it, not a dark socket: a fish has no lids. **The mouth**
+was a near-black band; shut, it is a fine crease, finest at the snout and in
+the corner, with the lips either side catching the light and, where the
+species shows it, the rear end of the maxilla drawn on the cheek (a
+wrasse's, a porgy's and a snapper's are hidden under the cheek bones, a
+mackerel's and a grouper's are not). **The spiny dorsal** was one sawtooth
+ramp; it is now a perch's — spines rising to the third or fourth, cut deep
+between them (shallow on a snapper or porgy), dipping where they meet the soft
+rays, and the soft part taller, rounded and falling away behind.
 
 The blacktip is the exception to "built from scratch": its body is a
 textured model of the real species ("Blacktip Reef Shark" by Lais.Marques,
@@ -617,6 +924,17 @@ couple of seconds between throws, spear hit rates are the same as before any
 of this — measured; a quick second throw into a school you have just scared
 is harder.
 
+**How near depends on how you come.** A fish's flight distance grows with a
+predator's approach speed (Stankowich & Blumstein 2005), and spearfishers
+work slow and low for it. Swim hard at a shoal and it bolts at the full
+distance — about 2.5 m, just outside a thrust's reach (1.9 m), which is why a
+thrust used to land on almost nothing; drift in, or hold still and let them
+come past, and they let you to about half that (measured: ~2.5 m at 2.4 m/s,
+~2.0 at 1.2, ~1.3 at 0.5). Held still at the edge of a shoal, a thrust takes
+one every twenty seconds or so. Only the ones that run from you: the curious,
+the wary and the big are as they were — and to someone else playing, whose
+approach this machine does not see, the full distance.
+
 **Caught.** A speared fish struggles on the spear in bursts that weaken over
 about ten seconds and stop. A hooked one fights as it pulls (see Fishing): it
 swims away on its runs, hangs off the line nose-away when resting, is towed in
@@ -632,7 +950,7 @@ big one landed on the deck flops.
 |---|---|---|
 | Red snapper | a few metres over the reef | small schools around structure |
 | Porgy | low over the reef | in ones and twos, picking at the bottom |
-| Flounder | on the open sand, between colonies | lies flat and still, camouflaged; bolts along the bottom if you get close |
+| Flounder | on the open sand, between colonies — beside a rock lying on it, never inside it | lies flat and still, camouflaged; bolts along the bottom if you get close |
 | Mackerel | mid-water | a fast school |
 | Barracuda | 3-6 m over a coral head | hangs almost motionless; turns to watch you rather than moving off |
 | Grouper | just off the bottom | solitary, stays by its hole, and backs into it if you come close |
@@ -692,7 +1010,11 @@ and deliberately tight (within ~10° of the crosshair). And fish scatter from
 anything within 3.2 m, so an underwater throw stays fast enough to skewer out
 to ~3.7 m; from the deck a spear stays deadly for 6-7 m of water. Measured:
 11 of 12 aimed throws hit. A speared fish is replaced in its school after 45
-seconds, and never while you are near enough to see it appear. In water it is a stick of wood — drag stops it within
+seconds, and never while you are near enough to see it appear. A school that
+has fallen too far behind you is put back near you with its fish — just past
+sight, on the far side, if it lands close — rather than leaving them to swim
+the whole way: sailing far, or a guest leaving the host's sea for one of their
+own, used to leave the water round you empty for minutes. In water it is a stick of wood — drag stops it within
 about three metres and it floats back up, so a spear thrown out over the basin
 is never lost at the bottom. Throwing takes it out of your inventory until you
 walk up to it and press `E`; if you have another, the next one is drawn up into
@@ -842,15 +1164,15 @@ raft can mix them square by square (`src/raft.js`, `src/items.js`):
 | Foundation | Cost | What it is |
 |---|---|---|
 | **Plank** | 2 planks | planks over three float logs — the raft you may start on |
-| **Bamboo** | 4 bamboo, 1 rope | fifteen poles lashed side by side, two cross-poles on top, four thick canes under it |
+| **Cane** | 4 horsetail cane, 1 rope | fifteen giant-horsetail canes lashed side by side, two cross-canes on top, four thick canes under it — hollow and braced at every joint, they float |
 | **Log** | 4 wood, 1 rope | driftwood and palm trunks side by side, two bars lashed across them |
 | **Barrel** | 2 scrap, 1 plank | a deck of seven boards on two stringers, lashed down onto two barrels |
 
 They look like what they are made of and handle the same. Poles and logs
 run the length of a square, and where one square's meet the next is set per
 row by the boundary between them, so both sides agree: the joints are
-staggered like a real raft's and the ends at its edges are ragged. Bamboo
-comes from the **bamboo groves** along the river banks (the axe cuts 4) and from
+staggered like a real raft's and the ends at its edges are ragged. Cane
+comes from the **giant horsetail** stands along the river banks (the axe cuts 4) and from
 **bundles of it adrift** (2).
 
 **Statues are respawn points, nothing more.** Two dozen stand here and there
@@ -891,25 +1213,40 @@ all follow the raft wherever it has got to, and it is saved where you left it.
 ### Playing together
 
 Co-op by invite link. On the splash screen, under *Play together*, give a
-name and **Host a game**: you get a five-letter room code and an invite link
-to send. Whoever opens the link (or types the code and **Join**s) is in your
-game — up to six of you. The crew is listed under the clock.
+name and **Host a game**: you get a five-letter room code — shown large, to
+read out — and an invite link to send. Whoever opens the link (or types the
+code and **Join**s) is in your game — up to six of you; someone new to the
+game, with no name yet, is asked for one before the link takes them in. The
+crew is listed under the clock, and on the start and pause screen.
 
 **Enter** opens a line to say something: it goes in everyone's log and in a
-speech bubble over your head; Enter sends it, Esc thinks better of it. If
+speech bubble over your head; Enter sends it, Esc thinks better of it. What
+is said keeps three lines of the log to itself, so the bustle of gathering
+does not push it off, and the line shows the last few things said above it. If
 your connection drops, the game reconnects on its own — you stay on the
 shared raft, in the shared world, and the others see that you lost the
 connection and then that you are back; after 45 seconds of trying, you are
-back on your own raft. Closing the page or pressing **Leave** is leaving, and
+back on your own raft. If the relay itself goes down and comes back, whoever
+is in first is the host, and runs the world from there on as it stood (it
+used to go on following a host that was not there: the fish, the flotsam and
+the dinosaurs stood still for everyone). Closing the page or pressing **Leave** is leaving, and
 the others see you have gone. A game you were in lately has a **Rejoin**
 button on the splash screen.
 
-Look at someone close by and **E** hands them one of what you are holding.
-Nothing tells you where anyone is. The crew list gives each of the others'
-distance from you — how far, never which way — a name fades beyond
-forty-odd metres, and behind a hill there is no telling
-anyone is there — finding each other is looking for each other. You see the others' lines out too — the
-rod's float, the hook on its rope — a fish on the spear they thrust with, the
+Look at someone close by and **E** hands them one of what you are holding
+(**Shift+E**, five). Empty-handed, **E** opens your pack to give them
+anything in it — a click hands over one, Shift-click five. With the hammer
+out, E is left for the fire and the flotsam, so it cannot hand your hammer
+to whoever is in the way. The crew list gives each of the others' distance
+from you and an arrow for which way (↑ ahead, ↓ behind); a name over
+someone's head fades beyond sixty-odd metres, and behind a hill there is no
+telling anyone is there. You are told when someone climbs aboard the raft
+you are on — not, as you climb back on yourself or wake there, that everyone
+already standing on it just did — and what the others build (gathered up: "Ben built 3
+Foundations and a Wall"). You see the others' lines out too — the
+rod's float, the hook on its rope, and the fish on the end of it — fighting
+under the float, leaping clear, swung in to the rod or hauled onto the deck,
+with word of what they landed — a fish on the spear they thrust with, the
 spears they threw before you joined, and the dinosaurs' kills wherever you are.
 
 You see each other as you are: where you stand or swim, which way you face,
@@ -927,14 +1264,17 @@ forest are built from the same code everywhere, and the raft sits at the
 same place.
 
 **A lasting world.** A room is a world of its own, and it lasts: the relay
-keeps it when everyone has gone — its rafts, its statues, the time of day —
+keeps it when everyone has gone — its rafts, its statues, the time of day,
+the trees cut down and the flint chipped out that have not grown back yet —
 and keeps each player's record in it: what you carry, how you are, your start
 and your statue, and where you were. Hosting a new room starts a fresh world.
 Joining one, you come back as you left: aboard your raft, wherever it has
-sailed since, or ashore or in the sea where you were. New to it, you come to
-somewhere on its edge like any castaway — apart from everyone else, to find
-them. Your own game waits at home, untouched, and is yours again when you
-leave.
+sailed since, or ashore or in the sea where you were. A new world starts the
+host on the crew's raft — four lashed pallets — and someone new to it comes
+to aboard the biggest raft there is, with the others rather than a long swim
+from them (only a world with no raft at all puts a newcomer on its edge, like
+any castaway). The log starts clean in each world. Your own game waits at home, untouched, and is yours again when you
+leave — the trees you cut there down still, and the room's standing.
 
 **Rafts, any number.** Anyone can build a raft — lay a first foundation on
 the water away from any raft — and anyone can board, build on and paddle any
@@ -948,15 +1288,24 @@ Cooked fish, likewise, go to whoever takes them off the fire. But a statue
 someone wakes at cannot be lifted or taken apart from under them
 (`src/together.js`, `src/main.js`).
 
-Each change goes to the others as it happens. The host's raft settles
+Each change goes to the others as it happens — a fish hung on a fire or a
+log fed to it as what was done, so two of you at one fire at once each add
+yours (sent as how the fire then stood, the second undid the first, and a
+fish went with it; the last place on a full spit goes to whoever the host
+hears first, and the other has theirs back). The host's raft settles
 anything contested: shortly after each change, and every twenty seconds
-regardless, the host sends it whole and the others' copies are brought into
-line with it — so fires burning down and collectors filling at slightly
+regardless, the host sends it whole (every raft there is, in one message —
+or, a crew's rafts built out coming to more than the relay passes on, one
+raft to a message: all in one, it was dropped without a word, and a newcomer
+had no raft) and the others' copies are brought into line with it — so fires burning down and collectors filling at slightly
 different rates on each machine never leave you on different rafts. Two of
 you at one thing at once is the host's to settle too: two people building
 on one spot get one piece, and whoever lost is paid back; two hooks on one
-crate, or two hands at one fire, get one crate and one lot of fish, and
-whoever was slower is told so. If the host leaves, the next player in takes
+crate, or two hands at one fire, get one crate and one lot of fish — and
+two of you at a collector with one drink left in it, one drink; two taking
+one piece apart, one lot of what it was made of (a guest's comes off at
+once, and what it gives comes from the host's copy) — and whoever was
+slower is told who was quicker. If the host leaves, the next player in takes
 over — everyone is told who — and the raft goes on.
 
 One sea, too. Every machine's waves come from how long it has been running,
@@ -973,16 +1322,70 @@ the dinosaurs. The host's game runs them as it would alone and tells the
 others how they stand three times a second; the others' games take that on
 and carry it forward. The dinosaurs are the host's alone — a guest's are
 drawn where the host says — so they hunt whichever of you is on land, and a
-bite on a guest is sent to that guest. The flotsam, the whale and the
-schools go on moving everywhere and are eased back onto the host's; each
-school's fish are every machine's own, swimming round it and shying from
-whoever is nearest, and a fish someone catches is gone for everyone. What
-someone gathers is gone for everyone too. A thrown spear flies on every
+bite on a guest is sent to that guest — as is the warning that one has
+turned on them, so a guest is told to run just as the host would be. The host
+has the trees only round itself, though, so round a guest far from it the
+guest's own copy of each animal is kept out of the trunks and rocks there —
+it used to walk through one a tenth of the time. The whale and the schools
+go on moving everywhere and are eased back onto the host's — kept round
+everyone in the host's sea, not round the host alone (a guest a hundred
+metres off, still taking the host's schools, used to swim in empty water;
+a school put back goes to whichever of you has the fewest near, and when one
+moves, its fish come in from just out of sight rather than appearing in front
+of you). Schools are put back only when they stray out of everyone's range,
+and round whoever has the raft they never do, so every few seconds the host
+also moves one from whoever has the most round them to whoever has the
+fewest — one no one can see, every fish of it 50 m from all of you — and only
+a kind that has somewhere to live there (a reef school sent to someone out
+over the deep used to sit stranded, gone from the host's reef too). The
+flotsam comes down the current past each of you in the host's sea the same
+way, and a guest's copy of it there takes the host's word for where every
+piece is: it used to recycle them round the guest, so pieces popped in and
+out as the host's word put them back, and one hooked there was refused as
+taken. With land up the current (an island), a piece comes out in its lee
+rather than sitting on the island — it used to be put back there every
+frame, and none came by. Each school's fish are every machine's own, swimming round it and shying from
+whoever is nearest — and from how fast each of you comes at them, the others
+too, so a guest stalking a shoal is not given away by the host's schools
+running from them at the full distance — and a fish someone catches is gone
+for everyone in the same sea (sent with where it was, so far apart, in seas
+of your own, a catch of yours does not take a fish from in front of someone
+else). What
+someone gathers is gone for everyone too — flotsam, and on land the fronds
+picked, the flint chipped out of a cave wall and the trees cut down. A tree
+shudders at every stroke on every screen and comes down on every screen near
+enough to see it, and every stroke counts, whoever makes it: two of you at
+one tree fell it in half the time, and the wood goes to whoever lands the
+last. Two of you taking one plant at once is the host's to settle, as with a
+crate: one gets it, and the other is told who was quicker — and so are two
+at one flint face, or lifting one statue (which stays, too, if someone else
+wakes at it). A thrown spear flies on every
 screen and lands in the same place; what it skewers, the thrower's game
-says. Your own time of day waits with your raft.
+says — a fish, or an octopus (each of you has your own, so the others see
+one like it), on their spear as on yours, and on the spear in the hand of
+someone who thrusts. A spear out in the world when someone joins is there
+for them, with what is on it. Your own time of day waits with your raft.
+
+Paused (the start screen, `H`, `Esc`) while playing together, you stand
+still — hunger and thirst wait, and nothing hunts you — but the world goes
+on: fires burn and cook, collectors fill, the flotsam drifts, and a host's
+sky and dinosaurs keep going for everyone else. Several of you come to on a
+raft (joining, or after dying) each on a square of your own; when someone
+blacks out, the others are told; and "the fish is done" is said to whoever
+is by the fire.
+
+**Leave** is leaving: the room comes off the address bar, so a reload does
+not take you back in.
+
+A tab in the background is still in the game: browsers stop drawing a
+hidden tab, and with it the frames a game runs on, which would stop the
+world for everyone if it was the host's. While hidden and in a game, a
+worker's timer keeps it going, four times a second, drawing nothing.
 
 On this machine, run the relay with `node server/dev-relay.mjs` and the game
-finds it. For the published game, deploy the relay to Cloudflare (free) and
+finds it. To try several players in one browser, give each tab a player of
+its own — `sessionStorage.setItem('adrift.pid', 'ben')` in its console, then
+reload — and it keeps its own name, its own game and its own Rejoin, too. For the published game, deploy the relay to Cloudflare (free) and
 put its address in `src/net.js` — `server/README.md` has the steps.
 
 ### Seeing yourself
@@ -1028,18 +1431,21 @@ mannequin built in code. The characters are **CC BY-NC-SA** — non-commercial
 A campfire is built with the hammer (3 Wood, 1 Scrap) and comes **unlit**,
 with its first wood laid. Fire has to be made: craft a **bow drill** (1 Plank,
 1 Rope — a bow with its cord round a spindle), hold it at the fire and hold
-the button. The bow saws back and forth, the spindle spins, and after five
+the button — or, with it in the pack, hold `E` at the fire. The bow saws back and forth, the spindle spins, and after five
 seconds of it an ember drops into a pinch of palm fibre — 1 **Palm**, the
-tinder — and the fire is lit. Stop sawing and the ember cools again.
+tinder — and the fire is lit. Stop sawing and the ember cools again. With a
+**fire striker** in the pack, `E` strikes a spark into it at once instead.
 
 It burns its wood. What it was built with lasts five minutes; each Wood fed
-to it (`E`) adds two, up to ten; as it runs low it shrinks to embers, and
+to it (`R`, or `E` when there is nothing else to do there) adds two, up to ten;
+under a minute from out, it says so, once; as it runs low it shrinks to embers, and
 when it is out the wood is ash and it needs wood laying and lighting again.
 Friction fire is the oldest method you could manage on a raft — wood and
-cord, both off the flotsam. Striking a spark takes flint and pyrite, which
-only the land has; that is left for later.
+cord, both off the flotsam. Striking a spark takes cave flint and scrap iron:
+the fire striker.
 
-**Cooking.** Hold a raw fish at a lit fire and press `E`: it is hung by the
+**Cooking.** At a lit fire, `E` cooks the raw fish in hand — or, with none
+in hand, one from the pack: it is hung by the
 tail from a spit over the flames, three at a time, and browns as it cooks.
 After fourteen seconds it is done — `E` takes it off as a **cooked** fish of
 the same species ("Cooked red snapper"), into the fish slot. Cooked fish fills
@@ -1069,31 +1475,35 @@ The fish are not alone (`src/reeflife.js`). Round you at sea — keeping to the
 same focus the fish do — and on the beaches when you are ashore:
 
 - **Sea turtles** (3) glide over the reef and the sand in water deeper than
-  4 m, on slow sweeps of their front flippers — slow up, fast down, the
+  4 m — over the coral heads and rocks, not through them, on slow sweeps of their front flippers — slow up, fast down, the
   flipper turning edge-on on the way back. Every minute or two one rises to
   the surface to breathe, lies there a few seconds, and dives again. Swim at
   one and it turns away, unhurried.
-- **Stingrays** (4) lie on the open sand between the reefs, mottled the colour
+- **Stingrays** (4) lie on the open sand between the reefs (never up on a rock), mottled the colour
   of it; now and then one lifts off and flies low on rippling wings — a wave
   running down each wing, front to back, growing toward the tips. Come within
   3.5 m and it is off at a rush.
 - **Octopus** (3) creep over the coral, eight arms reaching and curling, their
   colour sliding through the reef's to match what they are on. Come within
   2.8 m and one blanches, jets off backwards and leaves a cloud of ink — then
-  hides, still, where it lands, which is when you can get close. The spear
-  takes one — thrown, or thrust into one that is hiding.
+  hides, still, where it lands, which is when you can get close. Drift in
+  slowly and it trusts its camouflage to about half that, inside a thrust's
+  reach. The spear takes one — thrown, or thrust.
 - **Crabs** (7 on the reef, 8 on the beaches) scuttle sideways in short
   bursts. On the reef one runs a few metres from you; on a beach it runs for
   the sea and is gone. Get close and **E** grabs it.
 
 And away from the sea:
 
-- **Tortoises** (3) plod about the land near you — off the beach, on ground
-  that is not too steep, below the trees' end — a little way at a time,
+- **Tortoises** (up to 3) plod about the dry, open lowland near you — the
+  scrub and grass behind the beaches, on ground that is not too steep, below
+  70 m — as many as the country round you suits, and none in the wet forest
+  (anywhere on land, there were three within reach wherever you walked, and a
+  dry corner of a wet valley had all three crowded into it), a little way at a time,
   stopping to graze with their heads down. Come within 3 m and one stops
   where it is and draws in its head and legs, and stays that way until you
   have been gone a while.
-- **Pond turtles** (4) live in the lakes, tarns and plunge pools when one is
+- **Pond turtles** (4) live in the lakes and plunge pools when one is
   near you. They paddle about at the surface, shells just awash, and now and
   then haul out onto the bank to bask. Come near one there and it slides
   back into the water and dives, and stays down a while.
@@ -1133,8 +1543,13 @@ crabs three instanced meshes), and there are no tortoises or pond turtles.
 
 ### The whale
 
-One humpback (`src/whale.js`), about 12 m long, keeps to a ring 50-110 m out
-from the raft — in deep water only. The beach is ~80 m away on one side, so
+One humpback (`src/whale.js`), about 12 m long, passes by: for seven to twelve
+minutes it keeps to a ring 50-110 m out from you, then moves on — out of
+sight, under water, 360 m off — and is gone twelve to twenty-five minutes
+before it comes by again from somewhere else, its first blow out on the
+water how you know. (Kept within 110 m for good, wherever you went, the same
+whale swam every voyage at your side.) Playing together, its comings and
+goings are the host's. It keeps to deep water only. The beach is ~80 m away on one side, so
 it picks goals where the bed is at least 15 m down with deep water all the
 way there, looks 40 m ahead as it swims, and swings off anything shallower
 than 12.5 m; it is never lifted out of the water, whatever is under it. It
@@ -1177,10 +1592,76 @@ entry on that table, and often not the most convenient one. Herbivores watch
 for predators and bolt. A kill removes an animal and the population tops itself
 back up a minute or so later, so the island does not empty out.
 
-Raptors will not take on a sauropod — size is checked before a chase starts —
-and nothing follows you into the sea, which makes the water a genuine escape.
-A kill falls where it was made and lies there for half a minute, the hunter
-feeding at it, before the carcass is gone.
+They are solid, too (`Wildlife.keepOff()`): each one's trunk is a capsule
+along its heading, the middle half of its length, as wide as it is. You go
+round one, and one walking into you shoves you aside — before, a sauropod's
+legs went through you and you could stand inside a tyrannosaur.
+
+A raptor takes on nothing its own size or more — not a sauropod, and not a
+stegosaur's spiked tail — though a mob of them will run down a parasaur; a
+tyrannosaur goes for a grown sauropod only if it is right there, taking what
+it can bring down; size is checked before a chase starts. A grown sauropod or
+stegosaur pays no mind to raptors going by. Nor does anything hunt across a
+river: what is on the far bank of deep water is out of reach, you included.
+Now and then a hunter heads for where the herds are, stopping short of them,
+so hunter and hunted do meet; the hunt itself starts only when it sees one,
+and once after one it keeps after that one unless another is a good deal
+nearer. A stegosaur swings its tail at a hunter coming for it or for one of
+its group (not at one going by after something else), and one struck backs
+off and leaves stegosaurs be for a minute and a half. Wounds mend over five
+minutes or so. Prey runs flat out for a dozen seconds and then tires, so a
+long chase goes to the hunter; a hunter that gets no nearer gives up, takes a
+breather, and after three chases come to nothing lies up for a minute or two.
+Something fleeing a hunter will wade out into a river or lake to a third of
+its own height — a sauropod out of a tyrannosaur's reach — and comes back to
+the shallows when the danger is past. Nothing follows you into the sea, which
+makes the water a genuine escape.
+A kill falls where it was made — brought down onto its belly, level with the
+ground it lies on, down a slope as the slope goes, resting on the ground
+rather than propped on a jaw or sunk into it — and lies there for half a minute, the hunter
+feeding at it, before the carcass is gone; fed, it lies up a few minutes
+before it hunts again.
+
+### Where they live
+
+Each species has a habitat rule (`HABITAT` in `wildlife.js`), from where its
+fossils lie and what it ate, and where each animal is placed and where it
+wanders next are weighted by it. Nothing lives on the cliffs, up on the
+cloud-forest tops, or in the caves. They live in two ranges, each round a
+river and its lakes (`RANGES`): the western river, where castaways come
+ashore, with every species at its full count, and the south-eastern river
+valley with a smaller community of its own — 44 animals in all. Each animal
+keeps within about 420 m of its range's centre, a herd following its leader,
+and is put somewhere it can walk down to fresh water from. (All of them
+seeded round one point, the south-eastern valley had none; and a sea-cliff
+coast was taken for a cliff kilometres inland, so the whole valley, flat and
+watered, was barred. The dry lowlands beyond the range, with no river or
+lake for half a kilometre, are left to themselves.) A herd or group is of
+mixed ages — its young from about four-fifths the size of its leader — and a
+lone tyrannosaur is full grown; every machine draws the same animal the same
+size. Every few minutes each
+animal walks down to the water to drink — to the nearest bank or shore it can
+get to on its own side (nothing wades a river past its knees, so it does not
+pick the far bank), straight there without stopping to graze, and it drinks
+with its head at the water's edge: it turns to face the water, stops short by
+about a quarter of its length, and a grazer too short in the neck to reach
+leans down into it from the shoulders. The way there is one it can walk —
+not across deep water, and not down an escarpment too steep for it: water at
+the foot of a drop was "within reach" without that, and a herd on the
+plateau above walked at the edge for minutes on end. If it cannot get there in time enough for
+the distance, it gives up for a while and tries again; and one with no water
+within reach at all, time and again, sets off for the nearest river or lake a
+stretch at a time, its herd following. Nothing picks
+somewhere to wander on the far side of a river either, and an animal fleeing
+and cornered against the water bolts along the bank rather than freezing.
+
+| | Where, and why |
+|---|---|
+| Tyrannosaur | wherever its prey is — its bones turn up as often in floodplain beds as in river channels (Lyson & Longrich 2011) — so the river margins, forest edges and open plain; alone, or a pair |
+| Raptor | dromaeosaurs come from dune margins, deltas and forested plains alike: the forest edge, drier araucaria woodland, the edges of the fern plains; the one that goes up onto broken ground; loose mobs, not packs (Roach & Brinkman 2007) |
+| Parasaur | hadrosaurs keep to the coasts and river channels — 15:1 in channel sands (Lyson & Longrich; Butler & Barrett 2008): the river banks and lakes, the wet forest by them, the coastal lowland and the backs of the beaches; herds of eight (six in the south-east); ~9 m long, as Parasaurolophus is (it was drawn at 7, smaller than the stegosaur) |
+| Stegosaur | the Morrison's seasonally green floodplain: open fern plain and river flats near water, the forest edges; a low feeder in small groups (the one stegosaur herd trackway, Cobos et al. 2024); it stands its ground, tail to a hunter |
+| Sauropod | high browsers of the conifers, ranging far from the rivers and back (Engelmann et al. 2004): the araucaria woods and their edges, the river corridors and lakeshores, the gentle hills; herds of five (the Purgatoire trackways); ~6 m at the shoulder and the head ~15 m up on the move (drawn larger, its head rode at 19 m — a Brachiosaurus's is ~13) |
 
 ### How they move
 
@@ -1205,14 +1686,58 @@ The rest is in `wildlife.js`:
 - **Speed is eased**, by how heavy the animal is: a sauropod takes seconds to
   get going, a raptor a stride. Each animal has a pace of its own, so a herd
   does not march in step, and a hunter closes the last few metres at a walk
-  instead of backing off.
+  (a walk beside its prey: on a runner's heels it still gains) instead of
+  backing off.
 - **It looks ahead** a few times a second along the way it means to go and a
   few ways either side, and takes the best: clear of trunks and rocks, off
-  ground too steep to stand on, out of the sea. Anything the look-ahead misses,
-  it is pushed out of, as you are.
+  ground too steep to stand on, out of the sea; with everything ahead shut, it
+  turns right round. A big animal shoulders through ferns, cycads and palms,
+  and a sauropod through saplings too — only a real trunk turns it. Anything
+  the look-ahead misses, it is pushed out of, as you are.
+- **It never works its way onto a cliff.** A step onto ground too steep or too
+  deep for it is refused; one that finds itself there anyway (a bank, the
+  water it fled into) makes for the nearest easier going and may only step to
+  ground no worse than where it stands, so it cannot creep up a cliff or out
+  into a lake a hair at a time. Boxed in a while — a steep-sided channel — it
+  scrambles out up the bank; with its way refused, it turns about where it
+  stands.
 - **It stands on the ground as a body does**: pitched to the slope between its
   fore and hind feet, rolled a little across it, at their average height.
-- **It stops**: grazers to feed, everything now and then to stand and look.
+- **Its feet stay where they are put** (`plantFeet()` in `models.js`). A foot
+  the clip has on the ground is held there — its spot on the ground, at the
+  ground's height beneath it — for as long as the clip keeps it down, the leg
+  bent to reach it by a two-bone IK solve (knee kept to the side the clip
+  bends it), and let go smoothly as it lifts. Uneven ground no longer shows a
+  foot hanging in the air or pushed into a slope, and a turning or slowing
+  animal does not slide its planted feet. Only near you: past 70 m the clip
+  plays as it is.
+- **It keeps its room.** Two animals closer than their bodies allow are eased
+  apart — the lighter giving way more, and only onto ground either could stand
+  on — so a herd keeps its spacing instead of walking through itself.
+- **It stops**: grazers to feed, everything now and then to stand and look —
+  the hunters too, between hunts: they lie up and go down to drink like the
+  rest.
+
+**As the animals were, not as the films have them.** The five models share
+one set of clips — idle, walk, run, attack, death — made in the Jurassic Park
+mould. `src/dinopose.js` puts right, on top of the clip each frame, what the
+palaeontology says they did differently (its header cites the papers):
+
+| | What changed |
+|---|---|
+| Tyrannosaur | An adult could not run — no moment with both feet off the ground (Hutchinson & Garcia 2002; Sellers et al. 2017) — so it never plays the run: the walk is quickened to its 4.4 m/s instead. It ambles at 1.3 m/s, the measured preferred walk (van Bijlert et al. 2021). At a kill, puncture and pull: the head down, then yanked up and aside. |
+| Raptor | The mouth shut at rest (the clips leave it hanging open). At a kill it stands over the prey and tears at it in quick jerks, the arms flapping for balance (raptor prey restraint, Fowler et al. 2011). The sickle claw is carried off the ground already, as the two-toed trackways show. |
+| Parasaur | The tail held level off the ground, as ossified tendons held it (the model's droops to the dirt); it leans in to graze with the head down to the plants, and chews, grinding. |
+| Stegosaur | Never runs: a walk of ~0.8 m/s at ease, 1.5 at most (the trackways; a graviportal build). Grazes low and snips. Too slow to get away, it **stands its ground**: turns its tail on a hunter and swings — a hit hurts it and sends it off (the thagomizer wound in an Allosaurus vertebra, Carpenter et al. 2005). |
+| Sauropod | A walk only, 2 m/s at most (Sellers et al. 2013). The neck raised but not upright — ~65° at rest, ~45° on the move, up to ~75° to browse (Christian & Dzemski 2007) — where the model holds it near-vertical. Nips, and swallows: no chewing. |
+
+Not done, because it is the models' own shape rather than how they move: the
+theropods' hands (palms should face inward, not down), the raptor's feathers
+and size (Velociraptor was turkey-sized), a hadrosaur walking on all fours
+(this model's arms are 40% of its legs; the code for it is written and off),
+and the birdlike resting crouch (the rigs' leg bones do not sit at the joints,
+so they cannot be folded by IK). Speeds for the hunters stay below the
+literature's — a raptor could do ~10 m/s — so that you can still get away.
 
 Three ideas do most of the work:
 
@@ -1231,9 +1756,16 @@ Walls and railings canonicalise to a shared boundary, so a wall between two
 cells exists once. Salvaging a foundation flood-fills to refuse any cut that
 would split the raft in two.
 
+**Lit from the deck.** What is under a roof is planking in the sun, so the raft's
+pieces are lit from below by it as well (`DECK_BOUNCE` in `sky.js`, about a
+quarter of the sun and sky on the deck): a face looking down gets all of it,
+a wall half. The sky's own light from below is the sea's and the land's — and
+was a deep teal next to nothing, so the underside of a roof came out black.
+
 ## Tuning
 
-- Survival pressure: the rates in `Player.vitals()` (`player.js`).
+- Survival pressure: the rates in `Player.vitals()` (`player.js`) — thirst
+  empties in ~14 minutes in the open, hunger in ~20.
 - Debris density and drift: `POOL`, `SPEED`, `BAND` in `debris.js`.
 - Fish: the `SPECIES` table in `fish.js` — body, colour, zone, school count,
   size, and per species `hover`, `react`, `roam` and `bed` — plus `ZONES` for

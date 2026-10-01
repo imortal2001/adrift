@@ -26,7 +26,14 @@ export { BODY_LENGTH };
 export const BIG = 0.8;        // metres: longer than this will not go on a spear
 
 const HOME_RANGE = 78;         // schools beyond this are recycled closer in
+// Playing together, the host's schools are the sea for everyone within this
+// of the host (sharedworld.js takes the host's only that near) — so they are
+// kept round each of them, not round the host alone.
+const SHARED_SEA = 160;
 const DEEP_RANGE = 170;        // ...but the tuna live further out than that
+// Running the sea for others: how often the schools are shared out afresh
+// among you, and how far from all of you one must be to be moved unseen.
+const EVEN_OUT = 3, UNSEEN = 50;    // (the water's fog leaves a tenth of a fish there)
 const SPAWN_MIN = 14, SPAWN_MAX = 62;
 const DRIFT = 0.45;            // how much of the ocean current they give in to
 // How close you get before each kind of fish reacts, and how it does.
@@ -45,6 +52,47 @@ const DRIFT = 0.45;            // how much of the ocean current they give in to
 // 11 hits in 16 to 3. Close in and they bolt; stay at a throw and you get one.
 const SENSE = { school: 2.5, dart: 3.5, hide: 2.6, bolt: 2.0, curious: 6.0, retreat: 3.2, ignore: 1.8,
                 circle: 14 };
+// How near they let you come goes with how fast you come: a fish's flight
+// distance grows with a predator's approach speed (Stankowich & Blumstein
+// 2005; spearfishers' own "slow and low"). Swimming hard at a shoal, it bolts
+// at the full SENSE; drifting in, at about half — inside a thrust's reach
+// (viewmodel.js THRUST_REACH, 1.9 m), where at full it never was. Only for
+// the kinds that run from you; the curious and the big ones are as they were.
+// Everyone's, not only yours: playing together, the host's schools move for
+// the whole sea, and one that fled a guest drifting in at the full distance
+// on the host's screen took the guest's stealth away with it.
+const WARY = { school: 1, dart: 1, hide: 1, bolt: 1 };
+const STALK = [0.5, 0.25, 1.8];  // the fraction of SENSE drifting in, and the speeds (m/s) from calm to full
+
+/**
+ * How fast each of you is coming, from where your eyes are frame to frame —
+ * yours, and the others' as they are drawn here — smoothed over a quarter
+ * second or so. A jump (a respawn, a teleport) is capped and soon forgotten;
+ * someone just come into view is taken to be swimming until seen otherwise.
+ */
+export class Approach {
+  constructor() { this.seen = new Map(); this.frame = 0; }
+
+  /** Once a frame, with every eye there is. */
+  update(dt, eyes) {
+    this.frame++;
+    for (const e of eyes) {
+      if (!e) continue;
+      let r = this.seen.get(e);
+      if (!r) this.seen.set(e, r = { was: e.clone(), speed: STALK[2] });
+      const v = Math.min(6, r.was.distanceTo(e) / Math.max(dt, 1e-4));
+      r.speed += (v - r.speed) * Math.min(1, dt * 4);
+      r.was.copy(e);
+      r.at = this.frame;
+    }
+    for (const [e, r] of this.seen) if (this.frame - r.at > 2) this.seen.delete(e);
+  }
+
+  speed(e) { return this.seen.get(e)?.speed ?? STALK[2]; }
+
+  /** How much of its flight distance a wary animal keeps from the eye `e`: half drifting in, all of it swimming hard. */
+  stalk(e) { return STALK[0] + (1 - STALK[0]) * THREE.MathUtils.smoothstep(this.speed(e), STALK[1], STALK[2]); }
+}
 const CIRCLE = 6.5;            // how wide a great white circles something it is sizing up
 const ALARM = 3.0;             // seconds a frightened school keeps moving off
 const SURFACE_CLEARANCE = 0.32;
@@ -91,7 +139,8 @@ const ZONES = {
 const SPECIES = [
   { key: 'chromis', name: 'chromis',  mesh: 'chromis', color: 0x3f86d6, zone: 'reef',
     schools: 3, per: 24, length: [0.15, 0.21], speed: [0.9, 1.5], react: 'hide' },
-  { key: 'tang', name: 'yellow tang',     mesh: 'tang',    color: 0xf2bb3c, zone: 'reef',
+  // (A lemon yellow: over the grey, counter-shaded body an orange-yellow read ochre.)
+  { key: 'tang', name: 'yellow tang',     mesh: 'tang',    color: 0xf8d42a, zone: 'reef',
     schools: 2, per: 13, length: [0.24, 0.34], speed: [0.8, 1.3] },
   // Its own body now: a rounder disc than the yellow tang's, and the black
   // palette marking and yellow tail are in the mesh, so it wears no tint.
@@ -203,6 +252,7 @@ export class FishSchools {
     // they do to you; whether the schools follow the host's rather than
     // wander off on their own; and who to tell when a fish is taken.
     this.others = [];
+    this.approach = new Approach();   // how fast each of you is coming
     this.follow = false;
     this.onTake = null;
 
@@ -294,7 +344,7 @@ export class FishSchools {
 
     this.upgraded = [];        // reported once, like the wildlife models
     this.library = new ModelLibrary();
-    this.loadBodies();
+    this.ready = this.loadBodies();   // (the gallery waits on it for a fish in hand)
   }
 
   /**
@@ -371,16 +421,133 @@ export class FishSchools {
     return this.terrain ? this.terrain.clearanceAt(x, z) : heightAt(x, z);
   }
 
+  /** Is something standing on the sand at (x, z) — a rock, a coral head? A flatfish lies beside it, not in it. */
+  onSomething(x, z, bed = heightAt(x, z)) { return this.clearance(x, z) > bed + 0.25; }
+
   /**
    * Drop a school back into range. Reef schools look for sea bed at a depth
    * the coral actually grows at, so a shoal is never left hanging over the
    * basin with nothing under it.
    */
   respawn(school, initial = false) {
+    this.placeSchool(school, initial);
+    if (school.ashore) return;
+    this.gather(school, initial);
+  }
+
+  /**
+   * Who the schools are kept round: you — and, running the sea for others,
+   * whoever of them is in it. Keeping them round the host alone left a guest
+   * a hundred metres off, still in the host's sea, in empty water.
+   */
+  hubs() {
+    const hub = this.hub, out = this._hubs ||= [];
+    out.length = 0;
+    out.push(hub);
+    if (!this.follow) {
+      for (const o of this.others) {
+        if (Math.hypot(o.x - hub.x, o.z - hub.z) < SHARED_SEA) out.push(o);
+      }
+    }
+    return out;
+  }
+
+  /** How far (x, z) is from the nearest of them. */
+  fromHubs(x, z) {
+    let best = Infinity;
+    for (const h of this.hubs()) best = Math.min(best, Math.hypot(x - h.x, z - h.z));
+    return best;
+  }
+
+  /** How many schools are round `h` (not the dorado under the raft: they go where it goes). */
+  crowd(h) {
+    let n = 0;
+    for (const s of this.schools) {
+      if (!s.ashore && s.kind !== 'raft' && Math.hypot(s.center.x - h.x, s.center.z - h.z) < HOME_RANGE) n++;
+    }
+    return n;
+  }
+
+  /** Where a school put back goes round: whichever of you has the fewest near first, then the next. */
+  byCrowd() {
+    const hubs = this.hubs();
+    if (hubs.length === 1) return hubs;
+    return hubs.map(h => [this.crowd(h) + Math.random() * 0.5, h])    // (ties broken either way)
+      .sort((a, b) => a[0] - b[0]).map(e => e[1]);
+  }
+
+  /**
+   * Schools are put back only when they stray out of all your ranges, and
+   * round whoever has the raft they never do: one of you gone off a hundred
+   * metres, still in the host's sea, swam in empty water. So now and then one
+   * goes from whoever has the most round them to whoever has the fewest —
+   * one none of you can see go.
+   */
+  evenOut() {
+    const hubs = this.hubs();
+    if (hubs.length < 2) return;
+    let lo = Infinity, hi = -1, rich = null, poor = null;
+    for (const h of hubs) {
+      const n = this.crowd(h);
+      if (n < lo) { lo = n; poor = h; }
+      if (n > hi) { hi = n; rich = h; }
+    }
+    if (hi - lo < 3) return;
+    const eyes = [this.hub, ...this.others];
+    const seen = p => eyes.some(e => Math.hypot(p.x - e.x, p.z - e.z) < UNSEEN);
+    // Only a kind that has somewhere to live there: no reef grows under
+    // someone out over the deep, and a reef school sent there sat stranded.
+    const tried = this._tried ||= new Set();
+    tried.clear();
+    const was = this._was ||= new THREE.Vector3();
+    for (const s of this.schools) {
+      if (s.ashore || s.kind === 'raft' || s.alarm > 0 || tried.has(s.kind)) continue;
+      if (Math.hypot(s.center.x - rich.x, s.center.z - rich.z) >= HOME_RANGE) continue;
+      if (seen(s.center) || s.members.some(f => !(f.caught > 0) && seen(f.pos))) continue;
+      tried.add(s.kind);
+      was.copy(s.center);
+      const floor = s.floor;
+      if (this.spot(s, poor, SPAWN_MIN)) { this.gather(s); return; }
+      s.center.copy(was);
+      s.floor = floor;
+    }
+  }
+
+  /**
+   * A school moved a long way — put back, or where the host has it now — and
+   * its fish with it.
+   */
+  gather(school, initial = false) {
+    // Its fish come with it. Left where they were — the far side of the
+    // range it was recycled from, or a sea of someone else's, hundreds of
+    // metres off — they swam the whole way, and for minutes the school was
+    // empty water. (Only those far from it: nearer ones swim in as before.
+    // And not in front of you: a school put back within sight's reach gets
+    // its fish just past it, on the far side from you, to swim the last few
+    // metres in rather than appear out of the water.)
+    // (Out of sight of whichever of you is nearest it.)
+    const c = school.center;
+    let hub = this.hub, hd = Infinity;
+    for (const h of [this.hub, ...this.others]) {
+      const dd = Math.hypot(c.x - h.x, c.z - h.z);
+      if (dd < hd) { hd = dd; hub = h; }
+    }
+    const dx = c.x - hub.x, dz = c.z - hub.z, d = Math.hypot(dx, dz);
+    const k = initial || d >= 26 ? 1 : 26 / Math.max(d, 1);
+    const from = this._from ||= new THREE.Vector3();
+    from.set(hub.x + (d > 1 ? dx : 1) * k, c.y, hub.z + (d > 1 ? dz : 0) * k);
+    for (const f of school.members) {
+      if (f.caught > 0 || f.pos.distanceTo(c) < 30) continue;
+      f.pos.copy(from).add(f.offset);
+      f.vel.set(0, 0, 0);
+      f.fright = f.delay = 0;
+    }
+  }
+
+  placeSchool(school, initial) {
     const min = initial ? 8 : SPAWN_MIN;
-    const kind = school.kind;
     school.ashore = false;
-    if (kind === 'raft') {
+    if (school.kind === 'raft') {
       const r = this.raftPos();
       // Round the raft — on the side with water under it, if it is near the shore.
       for (let attempt = 0; attempt < 12; attempt++) {
@@ -394,15 +561,23 @@ export class FishSchools {
       this.strand(school);
       return;
     }
-    // Every kind looks for water deep enough for it; none nearby (you are
-    // far inland), and the school waits, out of sight, and tries again.
+    // Every kind looks for water deep enough for it, round whichever of you
+    // has the fewest, then the next; none near any of you (all far inland —
+    // or, for a reef school, all out over the deep), and the school waits, out
+    // of sight, and tries again.
+    for (const hub of this.byCrowd()) if (this.spot(school, hub, min)) return;
+    this.strand(school);
+  }
+
+  /** A place for a school of its kind round `hub`: put there, and true — or false, none found. */
+  spot(school, hub, min) {
+    const kind = school.kind;
     const tries = 24;
     for (let attempt = 0; attempt < tries; attempt++) {
       const last = false;
       const a = Math.random() * Math.PI * 2;
       const d = kind === 'deep' ? rand(...school.zone.range) : rand(min, SPAWN_MAX);
-      // Round the raft, wherever it has got to.
-      const hub = this.hub;
+      // Round the raft, wherever it has got to — or whichever of you it is for.
       const x = hub.x + Math.cos(a) * d, z = hub.z + Math.sin(a) * d;
       if (kind === 'deep') {
         // Past the drop-off, over water too deep for anything to grow on.
@@ -413,7 +588,7 @@ export class FishSchools {
         const bed = heightAt(x, z);
         const [lo, hi] = school.zone.floor;
         const coral = reefMask(x, z, -coastDistance(x, z));
-        if ((bed < lo || bed > hi || coral > 0.08) && !last) continue;
+        if ((bed < lo || bed > hi || coral > 0.08 || this.onSomething(x, z, bed)) && !last) continue;
         school.floor = bed;
         school.center.set(x, bed, z);
       } else if (kind === 'reef') {
@@ -429,9 +604,9 @@ export class FishSchools {
         const [top, bottom] = school.zone.band;
         school.center.set(x, rand(Math.max(bottom, bed + 1.5), top), z);
       }
-      return;
+      return true;
     }
-    this.strand(school);
+    return false;
   }
 
   /** No water for this school near enough: it keeps out of sight until there is. */
@@ -444,6 +619,10 @@ export class FishSchools {
   wet(kind, x, z) { return heightAt(x, z) <= SHALLOWEST[kind]; }
 
   update(dt, time, playerPos) {
+    if (!this.follow && (this.evenIn = (this.evenIn ?? EVEN_OUT) - dt) <= 0) {
+      this.evenIn = EVEN_OUT;
+      this.evenOut();
+    }
     for (const s of this.schools) {
       if (s.ashore) {
         // Waiting for water near enough — unless the host says where it is.
@@ -486,6 +665,11 @@ export class FishSchools {
       }
 
       if (s.kind === 'sand') {
+        // Round a rock lying on the sand, not into it.
+        if (this.onSomething(s.center.x, s.center.z)) {
+          s.center.x = px; s.center.z = pz;
+          s.wander += Math.PI;
+        }
         s.floor = heightAt(s.center.x, s.center.z);
         s.center.y = s.floor;
       } else if (s.kind === 'reef') {
@@ -504,13 +688,18 @@ export class FishSchools {
 
       // Following the host's schools, where they go is the host's to say.
       if (this.follow) continue;
-      const hub = this.hub;
-      const far = Math.hypot(s.center.x - hub.x, s.center.z - hub.z);
+      const far = this.fromHubs(s.center.x, s.center.z);
       if (far > (s.kind === 'deep' ? DEEP_RANGE : HOME_RANGE)) this.respawn(s);
       else if (s.kind === 'reef' && (s.floor < ZONES.reef.floor[0] - 6)) this.respawn(s);
       // A tuna school that has wandered back over the shelf goes back out.
       else if (s.kind === 'deep' && heightAt(s.center.x, s.center.z) > s.zone.floor + 4) this.respawn(s);
     }
+
+    // How fast each of you is coming (Approach, above).
+    this._eyes ||= [];
+    this._eyes.length = 0;
+    this._eyes.push(playerPos, ...this.others);
+    this.approach.update(dt, this._eyes);
 
     for (const f of this.fish) {
       const s = f.school;
@@ -547,8 +736,9 @@ export class FishSchools {
       const react = f.sp.react || 'school';
       if (f.delay > 0 && (f.delay -= dt) <= 0) this.bolt(f);
       let push = 0;
-      if (pd < SENSE[react] && pd > 0.001) {
-        const near = 1 - pd / SENSE[react];
+      const sense = SENSE[react] * (WARY[react] ? this.approach.stalk(you) : 1);
+      if (pd < sense && pd > 0.001) {
+        const near = 1 - pd / sense;
         switch (react) {
           case 'curious':
             // Turn and watch. Back off, slowly, only when you are close.
@@ -617,7 +807,7 @@ export class FishSchools {
       f.pos.addScaledVector(f.vel, dt);
       // No fish where there is no water to swim in — up the beach, or over
       // a reef flat too shallow to cover it: it turns back, towards its school.
-      if (heightAt(f.pos.x, f.pos.z) > -1.1) {
+      if (heightAt(f.pos.x, f.pos.z) > -1.1 || (s.kind === 'sand' && this.onSomething(f.pos.x, f.pos.z))) {
         f.pos.x = ox; f.pos.z = oz;
         this._v.set(s.center.x - ox, 0, s.center.z - oz).normalize();
         f.vel.x = this._v.x * f.speed * 0.5; f.vel.z = this._v.z * f.speed * 0.5;
@@ -718,8 +908,10 @@ export class FishSchools {
       s.ashore = false;
       const d = was ? Infinity : Math.hypot(x - s.center.x, z - s.center.z);
       if (d > 12) {
+        // Moved: its fish follow — just out of sight if it is near you, not
+        // set down in the water in front of you.
         s.center.set(x, y, z);
-        for (const f of s.members) f.pos.set(x, y, z).add(f.offset);
+        this.gather(s);
       } else s.center.lerp(this._v.set(x, y, z), 0.5);
       if (alarm > s.alarm) { s.alarm = alarm; s.threat.copy(s.center); }
     });
@@ -876,7 +1068,7 @@ export class FishSchools {
    * `told`: someone else took it, and has told everyone already.
    */
   take(f, told = false) {
-    if (!told) this.onTake?.(this.fish.indexOf(f));
+    if (!told) this.onTake?.(this.fish.indexOf(f), f.pos);
     // The rest of the shoal sees it go.
     this.startle(f.pos, 3.5, 0.05);
     f.caught = RESPAWN;

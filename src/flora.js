@@ -55,21 +55,21 @@ export const CELL = {
   ivy:      [1536, 0, 512, 512],
   fern:     [0, 512, 512, 1024],
   cycad:    [512, 512, 512, 1024],
-  grass:    [1024, 512, 512, 1024],
+  gleichenia:[1024, 512, 512, 1024],
   treefern: [1536, 512, 512, 1024],
   vine:     [0, 1536, 256, 512],
   horsetail:[256, 1536, 256, 256],
   flower:   [256, 1792, 256, 256],
   reeds:    [512, 1536, 512, 512],
-  tallgrass:[1024, 1536, 512, 512],
+  spikemoss:[1024, 1536, 512, 512],
   palmfan:  [1536, 1536, 512, 512],
 };
 
 // Base greens: dark and cool in the shade-tolerant, lighter in the open.
 const BACKING = {
   needles: '#2d4526', scales: '#33492b', leaves: '#3d5a2c', ivy: '#35522a', fern: '#48692f',
-  cycad: '#39562b', grass: '#62783a', treefern: '#4f7133', vine: '#3a5a2c', reeds: '#6c7a45',
-  tallgrass: '#8a8446', horsetail: '#4c6a33', flower: '#e8d6d2', palmfan: '#4f7036',
+  cycad: '#39562b', gleichenia: '#4a692e', treefern: '#4f7133', vine: '#3a5a2c', reeds: '#5f6e3c',
+  spikemoss: '#3f5c2b', horsetail: '#4c6a33', flower: '#efe6cf', palmfan: '#4f7036',
 };
 
 function leafShape(ctx, x, y, len, wid, ang, fill, rib) {
@@ -158,12 +158,15 @@ const PAINTERS = {
     }
   },
   // Araucaria: ropes of overlapping scale-leaves, fanning from a point.
+  // Araucaria: branchlets like green ropes, clothed all round in stiff,
+  // overlapping, pointed scale leaves (A. araucana: 30–50 mm, glossy; A.
+  // heterophylla's smaller) — shingled, not needles, not grass.
   scales(ctx, r, c, x, y, w, h) {
     // A dark mass the ropes spring from, as a real tuft is solid at its heart.
     for (let k = 0; k < 18; k++) {
       const a = -1.2 + r() * 2.4, d = h * (0.2 + r() * 0.45);
       const bx = x + w / 2 + Math.sin(a) * d, by = y + h * 0.97 - Math.cos(a) * d, rad = w * (0.06 + r() * 0.07);
-      ctx.fillStyle = c(green(r, 108, 32, 20 + r() * 6));
+      ctx.fillStyle = c(green(r, 108, 32, 18 + r() * 6));
       ctx.beginPath();
       for (let q = 0; q <= 10; q++) {
         const t = (q / 10) * Math.PI * 2, rr = rad * (0.7 + r() * 0.5);
@@ -171,29 +174,87 @@ const PAINTERS = {
       }
       ctx.fill();
     }
+    const scale = (px, py, a, s, light) => {
+      // A pointed scale, its tip out along the rope, lit toward the tip, its edge dark.
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(a);
+      const g = ctx.createLinearGradient(0, 0, 0, -s * 1.4);
+      g.addColorStop(0, c(`hsl(104, 34%, ${light - 9}%)`));
+      g.addColorStop(1, c(`hsl(96, 40%, ${light + 9}%)`));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(-s * 0.55, 0);
+      ctx.quadraticCurveTo(-s * 0.45, -s * 0.9, 0, -s * 1.4);
+      ctx.quadraticCurveTo(s * 0.45, -s * 0.9, s * 0.55, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = c('rgba(20,40,15,0.55)');
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.restore();
+    };
     for (let rope = 0; rope < 11; rope++) {
       const ang = -1.2 + rope * 0.24 + (r() - 0.5) * 0.2;
       let px = x + w / 2, py = y + h * 0.97;
       const len = h * (0.6 + r() * 0.35);
-      for (let i = 0; i < 38; i++) {
-        const t = i / 38;
+      const steps = 30;
+      for (let i = 0; i < steps; i++) {
+        const t = i / steps;
         const a = ang + Math.sin(t * 2.5) * 0.25;
-        px += Math.sin(a) * len / 38;
-        py -= Math.cos(a) * len / 38;
-        const s = 21 * (1 - t * 0.45);
-        for (const side of [-1, 1]) {
-          leafShape(ctx, px, py, s * 1.6, s * 0.62, a + side * 0.55, c(green(r, 102, 36, 27 + r() * 14)), null);
-        }
+        px += Math.sin(a) * len / steps;
+        py -= Math.cos(a) * len / steps;
+        const s = 17 * (1 - t * 0.45);
+        // Shingled round the rope: one each side and one lying over the middle.
+        for (const side of [-1, 1]) scale(px + Math.cos(a) * side * s * 0.45, py + Math.sin(a) * side * s * 0.45, a + side * 0.5, s, 24 + r() * 12);
+        scale(px, py, a, s * 0.9, 30 + r() * 12);
       }
     }
   },
-  // A broad-leaved cluster, for shrubs.
+  // Broad leaves, for the magnolias and the laurel-like shrubs: leathery,
+  // elliptic, glossy dark above, a pale midrib and veins, the sheen caught on
+  // one half — the evergreen dicots of the Late Cretaceous understorey.
   leaves(ctx, r, c, x, y, w, h) {
-    for (let i = 0; i < 70; i++) {
+    for (let i = 0; i < 64; i++) {
       const lx = x + w * (0.1 + r() * 0.8), ly = y + h * (0.12 + r() * 0.82);
-      const len = 50 + r() * 45;
-      leafShape(ctx, lx, ly, len, len * 0.38, (r() - 0.5) * 5,
-                c(green(r, 98, 42, 22 + r() * 18)), c('rgba(210,220,160,0.35)'));
+      const len = 48 + r() * 46, wid = len * (0.3 + r() * 0.08), ang = (r() - 0.5) * 5;
+      const light = 18 + r() * 14;
+      ctx.save();
+      ctx.translate(lx, ly);
+      ctx.rotate(ang);
+      const body = () => {
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.bezierCurveTo(wid, -len * 0.2, wid * 0.9, -len * 0.75, 0, -len);
+        ctx.bezierCurveTo(-wid * 0.9, -len * 0.75, -wid, -len * 0.2, 0, 0);
+      };
+      body();
+      ctx.fillStyle = c(`hsl(${100 + (r() - 0.5) * 12}, 40%, ${light}%)`);
+      ctx.fill();
+      // The sheen: a lighter half, lit from one side.
+      ctx.save();
+      body();
+      ctx.clip();
+      const g = ctx.createLinearGradient(-wid, 0, wid, 0);
+      g.addColorStop(0, c('rgba(215,235,170,0.0)'));
+      g.addColorStop(0.55, c('rgba(215,235,170,0.0)'));
+      g.addColorStop(1, c('rgba(215,235,170,0.28)'));
+      ctx.fillStyle = g;
+      ctx.fillRect(-wid, -len, wid * 2, len);
+      ctx.restore();
+      ctx.strokeStyle = c('rgba(215,225,160,0.5)');
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -len * 0.95);
+      for (let v = 1; v <= 5; v++) {
+        const vy = -len * v / 6.3;
+        ctx.moveTo(0, vy); ctx.lineTo(wid * 0.62, vy - len * 0.1);
+        ctx.moveTo(0, vy); ctx.lineTo(-wid * 0.62, vy - len * 0.1);
+      }
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      ctx.restore();
     }
   },
   // Small heart-ish leaves along a thin stem: ivy, creepers.
@@ -220,34 +281,66 @@ const PAINTERS = {
       }
     }
   },
-  // A pinnate frond: a rachis, and pinnae all the way up it, each one lobed.
+  // A pinnate frond: a rachis, and pinnae all the way up it, alternate, each
+  // one narrow, scalloped and tapering, with daylight between them — not a
+  // solid mass, or a carpet of them reads as one sheet.
   fern(ctx, r, c, x, y, w, h, light = 30) {
     const cx = x + w / 2;
+    const rachisAt = t => cx + Math.sin(t * 3.1) * 6;
     ctx.strokeStyle = c('#5b6b33');
     ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.moveTo(cx, y + h);
     ctx.quadraticCurveTo(cx + 10, y + h * 0.5, cx, y + 6);
     ctx.stroke();
-    const n = 30;
-    for (let i = 2; i < n; i++) {
-      const t = i / n;
-      const py = y + h - t * (h - 10);
-      const px = cx + Math.sin(t * 3.1) * 6;
-      const reach = w * 0.46 * Math.sin(Math.PI * Math.min(1, 0.12 + t * 0.95)) * (1 - t * 0.35);
-      for (const side of [-1, 1]) {
-        const ang = side * (1.25 - t * 0.35);
-        const lobes = 7;
-        for (let k = 0; k < lobes; k++) {
-          const kt = k / lobes;
-          const lx = px + Math.sin(ang) * reach * kt, ly = py - Math.cos(ang) * reach * kt;
-          const ll = (reach / lobes) * 2.1 * (1 - kt * 0.5);
-          for (const s2 of [-1, 1]) {
-            leafShape(ctx, lx, ly, ll, ll * 0.42, ang + s2 * 0.9,
-                      c(green(r, 96, 44, light + r() * 12 - kt * 6)), null);
-          }
-        }
+    const n = 22, step = (h - 10) / n;
+    for (let i = 1; i < n * 2 - 1; i++) {
+      const side = i % 2 ? 1 : -1;
+      const t = 0.04 + (i / (n * 2)) * 0.94;
+      const py = y + h - t * (h - 10), px = rachisAt(t);
+      const reach = w * 0.47 * Math.sin(Math.PI * Math.min(1, 0.12 + t * 0.95)) * (1 - t * 0.35);
+      if (reach < 6) continue;
+      const hw = Math.min(step * 0.3, reach * 0.16);
+      const ang = side * (1.18 - t * 0.3), bend = -side * 0.22;
+      // Along the pinna, curving up toward the frond's tip as it goes.
+      const along = u => {
+        const a = ang + bend * u;
+        return [Math.sin(a), -Math.cos(a)];
+      };
+      const pts = [];
+      let ax = px, ay = py;
+      const m = 14, lobes = 7 + Math.floor(r() * 3);
+      const mid = [[ax, ay]];
+      for (let k = 1; k <= m; k++) {
+        const [dx, dy] = along(k / m);
+        ax += dx * reach / m; ay += dy * reach / m;
+        mid.push([ax, ay]);
       }
+      for (const s of [1, -1]) {
+        const half = [];
+        for (let k = 0; k <= m * 2; k++) {
+          const u = k / (m * 2), f = u * m, j = Math.min(m - 1, Math.floor(f)), e = f - j;
+          const ox = mid[j][0] + (mid[j + 1][0] - mid[j][0]) * e, oy = mid[j][1] + (mid[j + 1][1] - mid[j][1]) * e;
+          const [dx, dy] = along(u);
+          const scallop = 1 - 0.4 * Math.abs(Math.sin(u * lobes * Math.PI));
+          const wd = hw * (1 - u) ** 0.75 * scallop * (s > 0 ? 1 : 0.92);
+          half.push([ox - dy * wd * s, oy + dx * wd * s]);
+        }
+        pts.push(...(s > 0 ? half : half.reverse()));
+      }
+      ctx.fillStyle = c(green(r, 102, 40, light - 2 + r() * 6 - t * 4));
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (const q of pts) ctx.lineTo(q[0], q[1]);
+      ctx.closePath();
+      ctx.fill();
+      // The midrib, a shade darker.
+      ctx.strokeStyle = c(green(r, 96, 38, light - 10));
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(mid[0][0], mid[0][1]);
+      for (const q of mid.slice(1, -2)) ctx.lineTo(q[0], q[1]);
+      ctx.stroke();
     }
   },
   treefern(ctx, r, c, x, y, w, h) { PAINTERS.fern(ctx, r, c, x, y, w, h, 34); },
@@ -280,48 +373,105 @@ const PAINTERS = {
   },
   // Grass: tapering blades, green at the root to straw at the tips, a few
   // seed heads.
-  grass(ctx, r, c, x, y, w, h, tall = false) {
-    const blades = tall ? 60 : 85;
-    for (let i = 0; i < blades; i++) {
-      const bx = x + w * (0.05 + r() * 0.9), by = y + h;
-      const len = h * (tall ? 0.55 + r() * 0.42 : 0.35 + r() * 0.6);
-      const lean = (r() - 0.5) * w * 0.45;
-      const wd = 5 + r() * 6;
-      const grad = ctx.createLinearGradient(0, by, 0, by - len);
-      const base = tall ? [58, 28, 30] : [95, 40, 24];
-      grad.addColorStop(0, c(`hsl(${base[0] + 10}, ${base[1] + 10}%, ${base[2] - 6}%)`));
-      grad.addColorStop(0.6, c(green(r, base[0], base[1] + 6, base[2] + 12)));
-      grad.addColorStop(1, c(`hsl(${tall ? 46 : 70}, 36%, ${tall ? 62 : 52}%)`));
-      ctx.fillStyle = grad;
+  // A Gleichenia frond: its stalk forking and forking again, a comb of
+  // narrow leaflets down every last branch — the fern thickets' leaf.
+  gleichenia(ctx, r, c, x, y, w, h) {
+    // The pinnules: narrow, straight-sided, blunt, set close but each one
+    // apart from the next — a comb, not a row of overlapping leaves, which
+    // a floor of them reads as solid bands of colour.
+    const pinnule = (px, py, len, wid, a, fill) => {
+      const dx = Math.sin(a), dy = -Math.cos(a), nx = -dy, ny = dx;
+      ctx.fillStyle = fill;
       ctx.beginPath();
-      ctx.moveTo(bx - wd / 2, by);
-      ctx.quadraticCurveTo(bx + lean * 0.3, by - len * 0.6, bx + lean, by - len);
-      ctx.quadraticCurveTo(bx + lean * 0.3 + wd * 0.2, by - len * 0.6, bx + wd / 2, by);
+      ctx.moveTo(px + nx * wid, py + ny * wid);
+      ctx.lineTo(px + dx * len * 0.85 + nx * wid * 0.8, py + dy * len * 0.85 + ny * wid * 0.8);
+      ctx.quadraticCurveTo(px + dx * len, py + dy * len, px + dx * len * 0.85 - nx * wid * 0.8, py + dy * len * 0.85 - ny * wid * 0.8);
+      ctx.lineTo(px - nx * wid, py - ny * wid);
+      ctx.closePath();
       ctx.fill();
-      if (tall && r() < 0.25) {
-        for (let k = 0; k < 9; k++) {
-          leafShape(ctx, bx + lean + (r() - 0.5) * 6, by - len + k * 5, 14, 5, (r() - 0.5) * 0.8,
-                    c('hsl(42, 40%, 66%)'), null);
-        }
+    };
+    const pinnae = (x0, y0, x1, y1, a, size) => {
+      const n = Math.max(6, Math.floor(Math.hypot(x1 - x0, y1 - y0) / 6.5));
+      for (let k = 1; k <= n; k++) {
+        const f = k / n, px = x0 + (x1 - x0) * f, py = y0 + (y1 - y0) * f, s = size * (1 - f * 0.45);
+        for (const side of [-1, 1]) pinnule(px, py, s, 2.6, a + side * 1.3, c(green(r, 100, 38, 25 + r() * 9)));
       }
+    };
+    const comb = (x0, y0, a, len, depth, next = len * 0.78) => {
+      const x1 = x0 + Math.sin(a) * len, y1 = y0 - Math.cos(a) * len;
+      ctx.strokeStyle = c('#4a5a2c');
+      ctx.lineWidth = Math.max(2, 6 - depth * 1.3);
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      // Leaflets down every branch but the bare stalk, long and close-set:
+      // the card must read as a mass of frond at a distance, not a twig.
+      if (depth >= 1) pinnae(x0, y0, x1, y1, a, 50 - depth * 6);
+      if (depth < 4) {
+        comb(x1, y1, a - 0.56 - r() * 0.18, next, depth + 1);
+        comb(x1, y1, a + 0.56 + r() * 0.18, next, depth + 1);
+      }
+    };
+    // Drawn round, the frond filled only the cell's lower half — the outer
+    // half of every leaf of the thicket empty, and the thicket thin — and the
+    // leaf, half as long as the cell is tall for its width, squashed it. So
+    // it is drawn stretched up the cell, to fill it and come out true.
+    ctx.save();
+    ctx.translate(0, y + h);
+    ctx.scale(1, 1.9);
+    ctx.translate(0, -(y + h));
+    // (A short bare stalk, the leaf's inner end: then the forks.)
+    comb(x + w / 2, y + h * 0.995, 0, h * 0.07, 0, h * 0.16 * 0.78);
+    ctx.restore();
+  },
+  // Spike-moss (Selaginella): flat, much-branched sprays of tiny scale
+  // leaves, lying over each other in a mat.
+  spikemoss(ctx, r, c, x, y, w, h) {
+    const spray = (x0, y0, a, len, depth) => {
+      const steps = 10;
+      let px = x0, py = y0;
+      for (let i = 0; i < steps; i++) {
+        px += Math.sin(a) * len / steps; py -= Math.cos(a) * len / steps;
+        const s = 7 * (1 - i / steps * 0.4) + (3 - depth);
+        for (const side of [-1, 1]) leafShape(ctx, px, py, s, s * 0.55, a + side * 0.9, c(green(r, 96, 40, 22 + r() * 14)), null);
+        if (depth < 2 && i % 4 === 2) spray(px, py, a + (r() < 0.5 ? -0.8 : 0.8), len * 0.55, depth + 1);
+      }
+    };
+    for (let k = 0; k < 22; k++) {
+      const a = r() * Math.PI * 2;
+      spray(x + w / 2 + (r() - 0.5) * w * 0.3, y + h / 2 + (r() - 0.5) * h * 0.3, a, w * (0.22 + r() * 0.18), 0);
     }
   },
-  tallgrass(ctx, r, c, x, y, w, h) { PAINTERS.grass(ctx, r, c, x, y, w, h, true); },
-  // Reeds and rushes, for the river banks.
+  // Cattails (Typha, known from the Maastrichtian): strap leaves, and stems
+  // topped with the brown velvet sausage of the female spike and a thin
+  // pale spike of the male above it.
   reeds(ctx, r, c, x, y, w, h) {
-    for (let i = 0; i < 40; i++) {
-      const bx = x + w * (0.08 + r() * 0.84), by = y + h, len = h * (0.6 + r() * 0.38);
-      const lean = (r() - 0.5) * 60, wd = 6 + r() * 5;
-      ctx.fillStyle = c(green(r, 80, 30, 34 + r() * 14));
+    for (let i = 0; i < 34; i++) {
+      const bx = x + w * (0.08 + r() * 0.84), by = y + h, len = h * (0.55 + r() * 0.4);
+      const lean = (r() - 0.5) * 70, wd = 7 + r() * 5;
+      const g = ctx.createLinearGradient(0, by, 0, by - len);
+      g.addColorStop(0, c(green(r, 78, 26, 26)));
+      g.addColorStop(1, c(green(r, 70, 30, 44)));
+      ctx.fillStyle = g;
       ctx.beginPath();
       ctx.moveTo(bx - wd / 2, by);
-      ctx.lineTo(bx + lean, by - len);
-      ctx.lineTo(bx + wd / 2, by);
+      ctx.quadraticCurveTo(bx + lean * 0.4, by - len * 0.6, bx + lean, by - len);
+      ctx.quadraticCurveTo(bx + lean * 0.4 + wd * 0.3, by - len * 0.6, bx + wd / 2, by);
       ctx.fill();
-      if (r() < 0.2) {
-        ctx.fillStyle = c('#5a4128');
-        ctx.fillRect(bx + lean * 0.8 - 4, by - len * 0.85, 8, 36);
-      }
+    }
+    for (let i = 0; i < 7; i++) {
+      const bx = x + w * (0.15 + r() * 0.7), by = y + h, top = y + h * (0.06 + r() * 0.14);
+      ctx.strokeStyle = c('#6b7442');
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx, top); ctx.stroke();
+      const sy = top + 26, sl = 60;
+      const g = ctx.createLinearGradient(bx - 8, 0, bx + 8, 0);
+      g.addColorStop(0, c('#3e2a18')); g.addColorStop(0.45, c('#7a5634')); g.addColorStop(1, c('#40291a'));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.ellipse(bx, sy + sl / 2, 8, sl / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = c('#b9a877');
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(bx, sy); ctx.lineTo(bx, top); ctx.stroke();
     }
   },
   // A hanging strand, leaves the whole way down (it tiles vertically).
@@ -361,36 +511,45 @@ const PAINTERS = {
   // A magnolia flower, seen into the cup: eight broad petals, flushed pink at
   // the base, and the cone of stamens in the middle. (Magnolias are among the
   // first flowering plants — here with the tyrannosaurs, in the late Cretaceous.)
+  // A magnolia flower, seen from above: a cup of broad, creamy tepals, the
+  // outer three spreading, the inner overlapping, and in the middle the cone
+  // of carpels ringed by the stamens (M. grandiflora / virginiana).
   flower(ctx, r, c, x, y, w, h) {
     const cx = x + w / 2, cy = y + h / 2, R = w * 0.44;
-    for (let ring = 0; ring < 2; ring++) {
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2 + ring * 0.39 + (r() - 0.5) * 0.1;
-        const len = R * (ring ? 0.72 : 1);
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(a);
-        const grad = ctx.createLinearGradient(0, 0, 0, -len);
-        grad.addColorStop(0, c('#c46a8c'));
-        grad.addColorStop(0.45, c('#efc6d2'));
-        grad.addColorStop(1, c('#fbf4f0'));
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.bezierCurveTo(len * 0.45, -len * 0.3, len * 0.35, -len * 1.0, 0, -len);
-        ctx.bezierCurveTo(-len * 0.35, -len * 1.0, -len * 0.45, -len * 0.3, 0, 0);
-        ctx.fill();
-        ctx.restore();
-      }
+    const tepal = (a, len, wd, shade) => {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(a);
+      const g = ctx.createLinearGradient(0, 0, 0, -len);
+      g.addColorStop(0, c(`hsl(44, 42%, ${72 - shade}%)`));       // shadow deep in the cup
+      g.addColorStop(0.55, c(`hsl(46, 50%, ${88 - shade}%)`));
+      g.addColorStop(1, c(`hsl(48, 60%, ${95 - shade}%)`));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.bezierCurveTo(wd, -len * 0.2, wd * 0.95, -len * 0.95, 0, -len);
+      ctx.bezierCurveTo(-wd * 0.95, -len * 0.95, -wd, -len * 0.2, 0, 0);
+      ctx.fill();
+      ctx.strokeStyle = c('rgba(150,125,80,0.35)');
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.restore();
+    };
+    for (let i = 0; i < 3; i++) tepal((i / 3) * Math.PI * 2 + 0.3, R, R * 0.55, 6);
+    for (let i = 0; i < 6; i++) tepal((i / 6) * Math.PI * 2 + (r() - 0.5) * 0.15, R * 0.78, R * 0.42, 0);
+    // Stamens, a ring of cream-and-rose at the base of the cone.
+    for (let i = 0; i < 70; i++) {
+      const a = r() * Math.PI * 2, d = R * (0.13 + r() * 0.08);
+      ctx.fillStyle = c(r() < 0.5 ? '#d8b37e' : '#b88562');
+      ctx.fillRect(cx + Math.cos(a) * d - 2, cy + Math.sin(a) * d - 2, 4, 4);
     }
-    ctx.fillStyle = c('#c9b24a');
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, R * 0.16, R * 0.16, 0, 0, Math.PI * 2);
-    ctx.fill();
-    for (let i = 0; i < 40; i++) {
-      const a = r() * Math.PI * 2, d = r() * R * 0.14;
-      ctx.fillStyle = c(r() < 0.5 ? '#8f8a3a' : '#e0cf6a');
-      ctx.fillRect(cx + Math.cos(a) * d - 1.5, cy + Math.sin(a) * d - 1.5, 3, 3);
+    // The cone of carpels, green-gold and knobbled.
+    ctx.fillStyle = c('#9aa24e');
+    ctx.beginPath(); ctx.ellipse(cx, cy, R * 0.12, R * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 26; i++) {
+      const a = r() * Math.PI * 2, d = r() * R * 0.1;
+      ctx.fillStyle = c(r() < 0.5 ? '#7d8a3c' : '#c3b95c');
+      ctx.fillRect(cx + Math.cos(a) * d - 2, cy + Math.sin(a) * d - 2, 4, 4);
     }
   },
   // A horsetail whorl: fine needle-like leaves radiating from a node.
@@ -491,40 +650,124 @@ function coverageMips(top, size) {
 // and turned into a normal map from its own slope. Grey-brown: each species
 // tints it through its vertex colour.
 let bark = null;
-export function barkTextures() {
-  if (bark) return bark;
+/**
+ * Bark, one texture per kind — each a height field (relief for the normal
+ * map, and its light and shade), neutral in colour so the species' vertex
+ * colour tints it:
+ *
+ *   furrowed  coast redwood: thick, fibrous, in long broad ridges and deep
+ *             furrows (conifers.org, Sequoia) — also the logs and stumps
+ *   scaly     araucaria: grey, resinous, smooth-ish, flaking in small plates,
+ *             ringed with the scars of branches shed (A. araucana, A. bidwillii)
+ *   rings     palm: a ring of leaf scar every hand's breadth, fibre between
+ *   fibre     tree fern: a matted mantle of roots and hairs round the stem
+ *   armour    cycad: diamond-set leaf bases, row over row
+ *   smooth    magnolia, shrubs, horsetail cane: smooth, lightly mottled,
+ *             with the odd lenticel
+ */
+const barkCache = {};
+export function barkTextures(kind = 'furrowed') {
+  if (barkCache[kind]) return barkCache[kind];
   const W = 512, H = 1024;
   const height = new Float32Array(W * H);
-  const r = rng(5);
-  // Ridges: long wavering strips of different widths.
-  for (let k = 0; k < 90; k++) {
-    let x = r() * W;
-    const w = 3 + r() * 14, depth = 0.4 + r() * 0.6;
-    const y0 = r() * H, len = H * (0.3 + r() * 0.9);
-    for (let yy = 0; yy < len; yy++) {
-      const y = Math.floor(y0 + yy) % H;
-      x += (r() - 0.5) * 0.9;
-      for (let dx = -w; dx <= w; dx++) {
-        const px = ((Math.floor(x + dx) % W) + W) % W;
-        const f = 1 - (dx / w) ** 2;
-        height[y * W + px] = Math.max(height[y * W + px], f * depth);
+  const r = rng({ furrowed: 5, scaly: 17, rings: 23, fibre: 31, armour: 41, smooth: 53 }[kind] || 5);
+  const at = (x, y) => (((Math.floor(y) % H) + H) % H) * W + (((Math.floor(x) % W) + W) % W);
+  const raise = (x, y, v) => { const i = at(x, y); height[i] = Math.max(height[i], v); };
+  let relief = 3.2, lo = 0.32, span = 0.5, grain = 0.08;
+  if (kind === 'furrowed') {
+    // Ridges: long wavering strips of different widths.
+    for (let k = 0; k < 90; k++) {
+      let x = r() * W;
+      const w = 3 + r() * 14, depth = 0.4 + r() * 0.6;
+      const y0 = r() * H, len = H * (0.3 + r() * 0.9);
+      for (let yy = 0; yy < len; yy++) {
+        x += (r() - 0.5) * 0.9;
+        for (let dx = -w; dx <= w; dx++) raise(x + dx, y0 + yy, (1 - (dx / w) ** 2) * depth);
       }
     }
+  } else if (kind === 'scaly') {
+    // Small flaking plates, wider than tall, over a smooth grey skin…
+    for (let i = 0; i < height.length; i++) height[i] = 0.45;
+    for (let k = 0; k < 1400; k++) {
+      const cx = r() * W, cy = r() * H, pw = 8 + r() * 22, ph = 4 + r() * 9, d = 0.5 + r() * 0.35;
+      for (let dy = -ph; dy <= ph; dy++) for (let dx = -pw; dx <= pw; dx++) {
+        const f = 1 - Math.max(Math.abs(dx / pw), Math.abs(dy / ph)) ** 4;
+        if (f > 0) raise(cx + dx, cy + dy, 0.45 + f * (d - 0.45));
+      }
+    }
+    // …and every so often the ring of a branch whorl shed long ago.
+    for (let y = 0; y < H; y += H / 4) {
+      for (let x = 0; x < W; x++) for (let dy = -6; dy <= 6; dy++) {
+        const i = at(x, y + dy + Math.sin(x * 0.03) * 3);
+        height[i] = Math.min(height[i], 0.2 + Math.abs(dy) / 6 * 0.3);
+      }
+    }
+    relief = 2.4; grain = 0.05;
+  } else if (kind === 'rings') {
+    // Fibre up the trunk, crossed by a raised leaf-scar ring every eighth.
+    for (let x = 0; x < W; x++) {
+      const f = 0.4 + 0.15 * Math.sin(x * 0.9 + r()) + 0.1 * r();
+      for (let y = 0; y < H; y++) height[y * W + x] = f;
+    }
+    for (let k = 0; k < 8; k++) {
+      const y0 = (k + 0.5) * H / 8 + (r() - 0.5) * 20;
+      for (let x = 0; x < W; x++) {
+        const yy = y0 + Math.sin(x * 0.012 + k) * 10;
+        for (let dy = -22; dy <= 22; dy++) {
+          const v = dy < 0 ? 1 - (-dy / 22) ** 1.5 : 1 - (dy / 10);          // a lip, steep below
+          if (v > 0) raise(x, yy + dy, 0.45 + v * 0.5);
+        }
+        for (let dy = 10; dy <= 16; dy++) { const i = at(x, yy + dy); height[i] = Math.min(height[i], 0.15); }
+      }
+    }
+  } else if (kind === 'fibre') {
+    // Roots and hairs, matted every which way, mostly down the trunk.
+    for (let i = 0; i < height.length; i++) height[i] = 0.2;
+    for (let k = 0; k < 2600; k++) {
+      let x = r() * W, y = r() * H;
+      const a = Math.PI / 2 + (r() - 0.5) * 1.8, len = 20 + r() * 70, d = 0.5 + r() * 0.5, th = 1 + r() * 2.2;
+      for (let s = 0; s < len; s++) {
+        x += Math.cos(a) + (r() - 0.5) * 0.6; y += Math.sin(a) + (r() - 0.5) * 0.6;
+        for (let t = -th; t <= th; t++) raise(x + t, y, d * (1 - Math.abs(t) / (th + 1)));
+      }
+    }
+    relief = 2.6; lo = 0.22; span = 0.5; grain = 0.1;
+  } else if (kind === 'armour') {
+    // Diamond-set leaf bases: a lattice of rhombs, each domed, a scar at its heart.
+    const N = 6, M = 6;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const u = (x / W) * N, v = (y / H) * M * 2;
+      const du = Math.abs(((u + v * 0.5) % 1 + 1) % 1 - 0.5), dv = Math.abs(((u - v * 0.5) % 1 + 1) % 1 - 0.5);
+      const dome = 1 - Math.max(du, dv) * 2;                               // 1 in the middle, 0 at the seams
+      const scar = Math.hypot(du, dv) < 0.09 ? -0.25 : 0;
+      height[y * W + x] = Math.max(0, dome) ** 0.6 * 0.8 + 0.1 + scar;
+    }
+    relief = 3.6; grain = 0.06;
+  } else {
+    // Smooth: a gentle mottle, and lenticels — short raised dashes across the grain.
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      height[y * W + x] = 0.5 + 0.06 * Math.sin(x * 0.05 + Math.sin(y * 0.013) * 3) + 0.05 * Math.sin(y * 0.021 + x * 0.01);
+    }
+    for (let k = 0; k < 500; k++) {
+      const cx = r() * W, cy = r() * H, len = 4 + r() * 9;
+      for (let dx = -len; dx <= len; dx++) for (let dy = -1; dy <= 1; dy++) raise(cx + dx, cy + dy, 0.7);
+    }
+    relief = 1.6; lo = 0.42; span = 0.35; grain = 0.03;
   }
   // Fibre grain and pits.
-  for (let i = 0; i < height.length; i++) height[i] += (r() - 0.5) * 0.08;
+  for (let i = 0; i < height.length; i++) height[i] += (r() - 0.5) * grain;
   const rgba = new Uint8Array(W * H * 4), nrm = new Uint8Array(W * H * 4);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x, hgt = height[i];
-      const l = 0.32 + hgt * 0.5;
+      const l = lo + hgt * span;
       rgba[i * 4] = Math.min(255, 255 * l * 1.02);
       rgba[i * 4 + 1] = Math.min(255, 255 * l * 0.9);
       rgba[i * 4 + 2] = Math.min(255, 255 * l * 0.78);
       rgba[i * 4 + 3] = 255;
       const hx = height[y * W + (x + 1) % W] - height[y * W + (x + W - 1) % W];
       const hy = height[((y + 1) % H) * W + x] - height[((y + H - 1) % H) * W + x];
-      const nx = -hx * 3.2, ny = -hy * 3.2, nz = 1;
+      const nx = -hx * relief, ny = -hy * relief, nz = 1;
       const len = Math.hypot(nx, ny, nz);
       nrm[i * 4] = (nx / len * 0.5 + 0.5) * 255;
       nrm[i * 4 + 1] = (ny / len * 0.5 + 0.5) * 255;
@@ -543,45 +786,80 @@ export function barkTextures() {
     t.needsUpdate = true;
     return t;
   };
-  bark = { map: tex(rgba, true), normalMap: tex(nrm, false) };
-  return bark;
+  barkCache[kind] = { map: tex(rgba, true), normalMap: tex(nrm, false) };
+  return barkCache[kind];
 }
 
 // ── wind ─────────────────────────────────────────────────────────────────────
-export const WIND = { uTime: { value: 0 }, uGust: { value: 1 } };
+export const WIND = { uTime: { value: 0 }, uGust: { value: 1 }, uDir: { value: new THREE.Vector2(0.8, 0.6) } };
 export function setFloraTime(t) { WIND.uTime.value = t; }
+
+/**
+ * The wind the plants bend to: which way it blows (world x, z — the one the
+ * sail takes, raft.js windAt()) and how hard (0..1).
+ */
+export function setFloraWind(x, z, strength) {
+  const l = Math.hypot(x, z) || 1;
+  WIND.uDir.value.set(x / l, z / l);
+  WIND.uGust.value = 0.55 + 0.6 * strength;
+}
 
 /**
  * Sway: the higher up a plant and the further out along a frond, the more it
  * moves (`aSway`). Two slow waves and a quick flutter, phased by where the
- * plant stands so a forest does not wave in unison.
+ * plant stands so a forest does not wave in unison. `aWind` is the species'
+ * own: how quick its sway (×) — a tree's natural frequency falls with its
+ * height, ~0.1–0.3 Hz for a big one (Moore & Maguire 2004; Jackson et al.
+ * 2021), a shrub or a fern much quicker — and how much its leaves flutter:
+ * broad leaves and fern pinnae a lot, a cycad's rigid leaflets, an
+ * araucaria's scales and a horsetail's silica-stiff stems hardly at all.
+ *
+ * It is the world's wind (setFloraWind): every plant leans away from it and
+ * swings about that lean — further with it than across it — whichever way
+ * the plant happens to be turned, and gusts run through a stand downwind.
+ * The bend (`amount`) is the same for bark and foliage, so a frond stays on
+ * its stalk and a crown on its branches; only the leaves' flutter is their own.
  */
-function addWind(material, { amount = 1, flutter = 1, fade = 0 } = {}) {
+function addWind(material, { amount = 0.5, flutter = 1, fade = 0 } = {}) {
   const prev = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
     if (prev) prev(shader, renderer);
     shader.uniforms.uWindTime = WIND.uTime;
     shader.uniforms.uGust = WIND.uGust;
+    shader.uniforms.uWindDir = WIND.uDir;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         attribute float aSway;
+        attribute vec2 aWind;
         uniform float uWindTime;
-        uniform float uGust;`)
+        uniform float uGust;
+        uniform vec2 uWindDir;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         {
           vec4 root = vec4(0.0, 0.0, 0.0, 1.0);
+          mat3 toWorld = mat3(modelMatrix);
           #ifdef USE_INSTANCING
             root = instanceMatrix * root;
+            toWorld = toWorld * mat3(instanceMatrix);
           #endif
           root = modelMatrix * root;
+          // The wind's way in the plant's own frame (it is turned, and may lean).
+          vec3 down = normalize(transpose(toWorld) * vec3(uWindDir.x, 0.0, uWindDir.y));
+          vec3 side = normalize(vec3(-down.z, 0.0, down.x));
           float ph = root.x * 0.043 + root.z * 0.037;
           float t = uWindTime;
-          float w = aSway * ${amount.toFixed(3)} * uGust;
-          float slow = sin(t * 0.9 + ph) * 0.6 + sin(t * 1.7 + ph * 1.9) * 0.3;
-          float quick = sin(t * 5.3 + ph * 4.0 + position.y * 1.7 + position.x) * ${(0.12 * flutter).toFixed(3)};
-          transformed.x += w * (slow + quick);
-          transformed.z += w * (slow * 0.6 + quick * 0.8) * 0.7;
-          transformed.y -= w * abs(slow) * 0.12;
+          // A gust, passing through the stand the way the wind blows.
+          float front = sin(dot(root.xz, uWindDir) * 0.021 - t * 0.55);
+          float gust = uGust * (1.0 + 0.45 * smoothstep(0.2, 1.0, front));
+          // A geometry built without the attribute reads (0, 0): as it always was.
+          float fq = aWind.x > 0.0 ? aWind.x : 1.0, fl = aWind.x > 0.0 ? aWind.y : 1.0;
+          float slow = sin(t * 0.9 * fq + ph) * 0.6 + sin(t * 1.7 * fq + ph * 1.9) * 0.3;
+          float across = sin(t * 1.25 * fq + ph * 1.3) * 0.3;
+          float quick = sin(t * 5.3 * max(1.0, fq * 0.6) + ph * 4.0 + position.y * 1.7 + position.x) * ${(0.12 * flutter).toFixed(3)} * fl;
+          float bend = aSway * ${amount.toFixed(3)} * gust;
+          float lean = 0.45 * gust + slow * 0.6;
+          transformed += down * bend * lean + side * bend * across + (down * 0.8 + side * 0.6) * aSway * quick * gust;
+          transformed.y -= bend * abs(lean) * 0.12;
           ${fade ? `
           // Grass fades into the ground with distance rather than stopping
           // at a line: shrink each clump to nothing over the last stretch.
@@ -606,21 +884,26 @@ let mats = null;
 /** [bark, foliage] for trees and plants; grass has its own (it fades out). */
 export function floraMaterials() {
   if (mats) return mats;
-  const b = barkTextures();
-  const barkMat = addWind(new THREE.MeshStandardMaterial({
-    map: b.map, normalMap: b.normalMap, normalScale: new THREE.Vector2(1.4, 1.4),
-    vertexColors: true, roughness: 0.93, metalness: 0,
-  }), { amount: 0.35, flutter: 0 });
+  const barkOf = kind => {
+    const b = barkTextures(kind);
+    return addWind(new THREE.MeshStandardMaterial({
+      map: b.map, normalMap: b.normalMap, normalScale: new THREE.Vector2(1.4, 1.4),
+      vertexColors: true, roughness: kind === 'smooth' ? 0.8 : 0.93, metalness: 0,
+    }), { flutter: 0 });
+  };
+  const bark = {};
+  for (const kind of ['furrowed', 'scaly', 'rings', 'fibre', 'armour', 'smooth']) bark[kind] = barkOf(kind);
+  const barkMat = bark.furrowed;
   const leafMat = addWind(new THREE.MeshStandardMaterial({
     map: leafAtlas(), vertexColors: true, roughness: 0.92, metalness: 0,
     side: THREE.DoubleSide, alphaTest: 0.5, alphaToCoverage: true,
-  }), { amount: 1, flutter: 1 });
+  }), { flutter: 1 });
   const grassMat = addWind(new THREE.MeshStandardMaterial({
     map: leafAtlas(), vertexColors: true, roughness: 0.9, metalness: 0,
     side: THREE.DoubleSide, alphaTest: 0.5, alphaToCoverage: true,
-  }), { amount: 1, flutter: 1.6, fade: 95 });
+  }), { flutter: 1.6, fade: 95 });
   const rockMat = applyGroundDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94, metalness: 0 }), { rock: 0.6, bump: 1.4 });
-  mats = { tree: [barkMat, leafMat], grass: [barkMat, grassMat], rock: rockMat };
+  mats = { tree: [barkMat, leafMat], grass: [barkMat, grassMat], rock: rockMat, bark, leaf: leafMat, grassLeaf: grassMat };
   return mats;
 }
 
@@ -631,8 +914,12 @@ const V3 = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const UP = V3(0, 1, 0);
 
 class Builder {
-  constructor() { this.parts = [this.part(), this.part()]; }
-  part() { return { pos: [], nrm: [], uv: [], col: [], sway: [], idx: [] }; }
+  constructor() {
+    this.parts = [this.part(), this.part()];
+    // The species' sway: [how quick (×), how much its leaves flutter] — see addWind().
+    this.wind = [1, 1];
+  }
+  part() { return { pos: [], nrm: [], uv: [], col: [], sway: [], wind: [], idx: [] }; }
   vert(k, p, n, u, v, c, s) {
     const P = this.parts[k];
     P.pos.push(p.x, p.y, p.z);
@@ -640,6 +927,7 @@ class Builder {
     P.uv.push(u, v);
     P.col.push(c.r, c.g, c.b);
     P.sway.push(s);
+    P.wind.push(this.wind[0], this.wind[1]);
     return P.pos.length / 3 - 1;
   }
   tri(k, a, b, c) { this.parts[k].idx.push(a, b, c); }
@@ -681,18 +969,21 @@ class Builder {
       }
       rings.push(ring);
     }
+    // Wound to face out (the bark is one-sided): round the ring the way it
+    // was built, then up the path. The other way the near side of every trunk
+    // is culled, and you look through it into the hollow of the far side.
     for (let i = 0; i < n - 1; i++) {
       for (let s = 0; s < sides; s++) {
         const a = rings[i][s], b = rings[i][s + 1], c = rings[i + 1][s], d = rings[i + 1][s + 1];
-        this.tri(k, a, c, b);
-        this.tri(k, b, c, d);
+        this.tri(k, a, b, c);
+        this.tri(k, b, d, c);
       }
     }
     if (cap) {
       const end = path[n - 1], tn = tangents[n - 1];
       const ci = this.vert(k, end.clone().addScaledVector(tn, radius(1, 0) * 0.3), tn, 0.5, along / vMetres, cap, sway(1));
       const last = rings[n - 1];
-      for (let s = 0; s < sides; s++) this.tri(k, last[s], ci, last[s + 1]);
+      for (let s = 0; s < sides; s++) this.tri(k, last[s], last[s + 1], ci);
     }
   }
 
@@ -759,7 +1050,7 @@ class Builder {
 
   geometry() {
     const g = new THREE.BufferGeometry();
-    const all = { pos: [], nrm: [], uv: [], col: [], sway: [] };
+    const all = { pos: [], nrm: [], uv: [], col: [], sway: [], wind: [] };
     const index = [];
     let base = 0;
     this.parts.forEach((P, k) => {
@@ -774,6 +1065,7 @@ class Builder {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(all.uv, 2));
     g.setAttribute('color', new THREE.Float32BufferAttribute(all.col, 3));
     g.setAttribute('aSway', new THREE.Float32BufferAttribute(all.sway, 1));
+    g.setAttribute('aWind', new THREE.Float32BufferAttribute(all.wind, 2));
     g.setIndex(index.length > 65535 ? new THREE.Uint32BufferAttribute(index, 1) : new THREE.Uint16BufferAttribute(index, 1));
     g.computeBoundingSphere();
     g.computeBoundingBox();
@@ -792,13 +1084,13 @@ function crownNormal(p, centre, upBias = 0.8) {
   return p.clone().sub(centre).normalize().multiplyScalar(0.8).addScaledVector(UP, upBias).normalize();
 }
 
-/** Cards round a point: a tuft of foliage. */
-function tuft(b, r, at, centre, size, count, cell, tint, sway, { flat = 0.45 } = {}) {
+/** Cards round a point: a tuft of foliage. `flat`..`steep`: how far from lying flat the cards tilt. */
+function tuft(b, r, at, centre, size, count, cell, tint, sway, { flat = 0.45, steep = 1.25 } = {}) {
   for (let i = 0; i < count; i++) {
     const yaw = r() * Math.PI * 2;
     const right = V3(Math.cos(yaw), 0, Math.sin(yaw));
     // Somewhere between lying flat and standing up.
-    const tilt = lerp(flat, 1.25, r());
+    const tilt = lerp(flat, steep, r());
     const up = V3(-Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(Math.cos(tilt)).addScaledVector(UP, Math.sin(tilt));
     const c = at.clone().add(V3((r() - 0.5) * size * 0.5, (r() - 0.3) * size * 0.35, (r() - 0.5) * size * 0.5));
     b.card(c, right, up.normalize(), size * (0.85 + r() * 0.3), size * (0.85 + r() * 0.3), cell,
@@ -828,13 +1120,24 @@ function hangVine(b, r, top, len, tint) {
 
 /** Giant redwood: 55 m, a buttressed trunk three metres across, the crown
  *  only in the top half, sometimes hung with vines. */
-function redwood(lod, seed) {
+/**
+ * Giant redwood, by age (variant): 0 and 1 old growth, 2 and 3 young. The old
+ * tree (Sequoia; General Sherman's proportions, conifers.org, USDA silvics):
+ * a flared, buttressed base narrowing fast and then an almost untapered
+ * column, clear of limbs for the lower half; a few massive limbs, sweeping
+ * down and turning up at their ends, the foliage in clumps out there, not
+ * spread along them; a trunk or two re-grown from a limb up through the
+ * crown (reiteration); and a rounded top, or a dead, broken one. The young
+ * tree is a narrow, perfect cone, branched nearly to the ground.
+ */
+function redwood(lod, seed, v = 0) {
+  if (v >= 2) return youngRedwood(lod, seed);
   const r = rng(seed), b = new Builder();
-  const H = 55, R0 = 1.55;
+  b.wind = [0.8, 0.6];            // the slowest sway of all: 55 m of trunk
+  const H = 55, R0 = 1.4;         // dbh ~3 m, an old coast redwood's (2–4 m on the flats)
   const lean = V3((r() - 0.5) * 0.02, 1, (r() - 0.5) * 0.02).normalize();
   const trunkAt = t => lean.clone().multiplyScalar(H * t).add(V3(Math.sin(t * 5 + seed) * 0.3, 0, Math.cos(t * 4) * 0.3));
   const path = [];
-  // Rings packed toward the ground, where the buttresses change fastest.
   const rings = lod ? 6 : 18;
   for (let i = 0; i <= rings; i++) path.push(trunkAt(-0.02 + Math.pow(i / rings, 1.7) * 0.99));
   const lobes = 4 + Math.floor(r() * 3), phase = r() * 6;
@@ -842,57 +1145,122 @@ function redwood(lod, seed) {
   b.tube(path, {
     sides: lod ? 7 : 14, uTiles: lod ? 2 : 4, vMetres: 3.2, k: 0,
     radius: (t, a) => {
-      const taper = R0 * Math.pow(1 - t * 0.8, 1.15) + 0.12;
-      const flare = 1 + 1.1 * Math.exp(-t * 26);
+      const column = R0 * (1 - 0.62 * t) + 0.1;              // hardly tapering, after the butt
+      const flare = 1 + 1.3 * Math.exp(-t * 18);
       const buttress = 1 + 0.35 * Math.exp(-t * 16) * Math.pow(Math.abs(Math.sin(a * lobes * 0.5 + phase)), 3);
-      return taper * flare * buttress;
+      return column * flare * buttress;
     },
     color: (t) => barkTint.clone().multiplyScalar(0.8 + t * 0.25),
     sway: t => t * t * 0.5,
   });
-  // Branches, from half way up, shorter toward the top.
-  const nb = lod ? 0 : 30;
   const foliage = new THREE.Color(0x5d8343);
-  const crownTop = trunkAt(0.97);
+  const deadTop = seed % 3 === 0;
+  const crownTop = trunkAt(deadTop ? 0.9 : 0.96);
+  // A few great limbs from half way up — shorter toward the top — each out
+  // and down, then up at the end: the J of an old redwood's limb.
+  const nb = lod ? 0 : 15, limbs = [];
   for (let i = 0; i < nb; i++) {
-    const t = lerp(0.45, 0.95, i / nb) + (r() - 0.5) * 0.02;
+    const t = lerp(0.48, 0.92, i / nb) + (r() - 0.5) * 0.03;
     const base = trunkAt(t);
-    const yaw = i * 2.399 + r() * 0.4;
+    const yaw = i * 2.399 + r() * 0.5;
     const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
-    const len = lerp(9.5, 2.6, (t - 0.45) / 0.5) * (0.8 + r() * 0.4);
+    const len = lerp(10, 3.2, (t - 0.48) / 0.44) * (0.8 + r() * 0.4);
     const pts = [];
-    for (let k = 0; k <= 3; k++) {
-      const f = k / 3;
-      pts.push(base.clone().addScaledVector(dir, len * f).add(V3(0, len * (0.25 * f - 0.3 * f * f), 0)));
+    for (let k = 0; k <= 4; k++) {
+      const f = k / 4;
+      pts.push(base.clone().addScaledVector(dir, len * f).add(V3(0, len * (-0.26 * f + 0.46 * Math.pow(f, 2.6)), 0)));
     }
-    b.tube(pts, { sides: 5, k: 0, uTiles: 1, vMetres: 2, radius: f => lerp(0.32, 0.06, f), color: () => barkTint,
-                  sway: f => 0.15 + f * 0.25 + t * 0.2 });
+    b.tube(pts, { sides: 6, k: 0, uTiles: 1, vMetres: 2, radius: f => lerp(0.48, 0.1, f) * lerp(1, 0.55, (t - 0.48) / 0.44),
+                  color: () => barkTint, sway: f => 0.12 + f * 0.25 + t * 0.2 });
+    limbs.push({ t, base, dir, len, pts });
     const centre = trunkAt(t).add(V3(0, 1.5, 0));
-    for (let k = 0; k < 7; k++) {
-      const f = 0.25 + (k / 7) * 0.9;
-      const at = base.clone().addScaledVector(dir, len * f).add(V3(0, len * (0.25 * f - 0.3 * f * f) + 0.4, 0));
-      tuft(b, r, at, centre, lerp(5.4, 3.2, (t - 0.45) / 0.5), 3, CELL.needles, foliage, 0.35 + t * 0.35);
-    }
-    // Vines off the lower limbs of the vine-hung variant.
+    // The foliage: a clump on the upturned end, and one on a side spray.
+    const tip = pts[4];
+    tuft(b, r, tip.clone().add(V3(0, 0.6, 0)), centre, lerp(5.6, 3.6, (t - 0.48) / 0.44), 5, CELL.needles, foliage, 0.35 + t * 0.35);
+    tuft(b, r, pts[3].clone().add(V3(0, 0.4, 0)), centre, lerp(4.4, 3, (t - 0.48) / 0.44), 3, CELL.needles, foliage, 0.35 + t * 0.35);
+    const side = V3(-dir.z, 0, dir.x).multiplyScalar(r() < 0.5 ? -1 : 1);
+    const spray = pts[2].clone().addScaledVector(side, len * 0.3).add(V3(0, len * 0.08, 0));
+    b.tube([pts[2], spray], { sides: 4, k: 0, vMetres: 2, radius: f => lerp(0.14, 0.05, f), color: () => barkTint, sway: () => 0.3 + t * 0.2 });
+    tuft(b, r, spray.clone().add(V3(0, 0.5, 0)), centre, lerp(4.2, 2.8, (t - 0.48) / 0.44), 3, CELL.needles, foliage, 0.4 + t * 0.35);
     if (seed % 2 === 1 && t < 0.62 && r() < 0.55) {
       hangVine(b, r, base.clone().addScaledVector(dir, len * (0.4 + r() * 0.4)), 7 + r() * 16, 0x49683a);
     }
   }
+  // Re-grown trunks: two of the big limbs send up a leader of their own.
+  for (const L of limbs.filter(L => L.t < 0.7).slice(0, 2)) {
+    const from = L.pts[2], topAt = from.clone().add(V3(0, 7 + r() * 5, 0));
+    const mid = from.clone().lerp(topAt, 0.5).add(V3((r() - 0.5) * 0.6, 0, (r() - 0.5) * 0.6));
+    b.tube([from, mid, topAt], { sides: 6, k: 0, vMetres: 2, radius: f => lerp(0.34, 0.08, f), color: () => barkTint, sway: f => 0.3 + f * 0.3 });
+    for (const f of [0.45, 0.75]) tuft(b, r, from.clone().lerp(topAt, f), topAt, 3.4, 3, CELL.needles, foliage, 0.6);
+    tuft(b, r, topAt, from, 3.2, 3, CELL.needles, foliage, 0.7, { flat: 0.3 });
+  }
   if (lod) {
-    // The far tree: its crown as a few big cards in tiers.
+    // The far tree: clumps of crown in tiers — broad, not a cone.
     for (let tier = 0; tier < 5; tier++) {
-      const t = lerp(0.5, 0.93, tier / 4);
+      const t = lerp(0.52, 0.92, tier / 4);
       const centre = trunkAt(t);
-      tuft(b, r, centre, trunkAt(t - 0.05), lerp(17, 8, tier / 4), 6, CELL.needles, foliage, 0.3, { flat: 0.2 });
+      tuft(b, r, centre, trunkAt(t - 0.05), lerp(16, 10, tier / 4), 6, CELL.needles, foliage, 0.3, { flat: 0.2 });
     }
   }
-  tuft(b, r, crownTop, trunkAt(0.9), 4, lod ? 2 : 4, CELL.needles, foliage, 0.8);
+  if (deadTop) {
+    // A dead, broken spike above the living crown (fire, lightning).
+    b.tube([trunkAt(0.88), trunkAt(0.95), trunkAt(1.0).add(V3(0.4, 0, 0.2))], { sides: 5, k: 0, vMetres: 2,
+      radius: f => lerp(0.42, 0.06, f), color: () => new THREE.Color(0x8d8174), sway: f => 0.4 + f * 0.1 });
+  }
+  // A rounded top: a low dome of clumps, not a spire.
+  for (let k = 0; k < (lod ? 2 : 3); k++) {
+    const yaw = k * 2.1 + r();
+    tuft(b, r, crownTop.clone().add(V3(Math.cos(yaw) * 2.2, -1 - r(), Math.sin(yaw) * 2.2)), trunkAt(0.85), 4.6, lod ? 2 : 3, CELL.needles, foliage, 0.8, { flat: 0.25 });
+  }
   return b.geometry();
 }
 
-/** Araucaria, the monkey puzzle: a tall straight grey trunk and a flat-topped
- *  umbrella of upcurved branches, roped with scale-leaves. */
-function araucaria(lod, seed) {
+/** A young redwood (under a century): a narrow cone, the leader pointed. Grown in the forest's
+ *  shade, which it cannot bear, it has lost its lowest branches: the crown starts well up the trunk. */
+function youngRedwood(lod, seed) {
+  const r = rng(seed), b = new Builder();
+  b.wind = [1.0, 0.7];
+  const H = 30, R0 = 0.45;
+  const trunkAt = t => V3(Math.sin(t * 5 + seed) * 0.12, H * t, Math.cos(t * 4) * 0.12);
+  const path = [];
+  for (let i = 0; i <= (lod ? 5 : 10); i++) path.push(trunkAt(-0.02 + (i / (lod ? 5 : 10)) * 1.02));
+  const barkTint = new THREE.Color(0x9a5a3c), foliage = new THREE.Color(0x5f8746);
+  // Young and open-grown, it tapers markedly (silvics).
+  b.tube(path, { sides: lod ? 6 : 10, uTiles: 2, vMetres: 2.4, k: 0, radius: t => R0 * (1 - 0.9 * t) * (1 + 0.5 * Math.exp(-t * 25)) + 0.04,
+                 color: t => barkTint.clone().multiplyScalar(0.85 + t * 0.2), sway: t => t * t * 0.6 });
+  const nb = lod ? 0 : 22;
+  for (let i = 0; i < nb; i++) {
+    const t = lerp(0.3, 0.96, i / nb);
+    const base = trunkAt(t), yaw = i * 2.399 + r() * 0.3;
+    const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
+    const len = lerp(5.5, 0.9, (t - 0.3) / 0.66) * (0.85 + r() * 0.3);
+    // Down-swept low, level mid, a little up near the top; the tips turned up.
+    const drop = lerp(-0.35, 0.1, (t - 0.3) / 0.66);
+    const pts = [0, 0.5, 1].map(f => base.clone().addScaledVector(dir, len * f).add(V3(0, len * (drop * f + 0.12 * f * f), 0)));
+    b.tube(pts, { sides: 4, k: 0, vMetres: 2, radius: f => lerp(0.1, 0.03, f), color: () => barkTint, sway: f => 0.2 + f * 0.3 + t * 0.2 });
+    for (const f of [0.45, 0.85]) tuft(b, r, base.clone().lerp(pts[2], f).add(V3(0, 0.3, 0)), trunkAt(t), lerp(3.2, 1.6, (t - 0.3) / 0.66), 2, CELL.needles, foliage, 0.35 + t * 0.4);
+  }
+  if (lod) {
+    for (let tier = 0; tier < 4; tier++) {
+      const t = lerp(0.38, 0.88, tier / 3);
+      tuft(b, r, trunkAt(t), trunkAt(t - 0.1), lerp(9, 4, tier / 3), 5, CELL.needles, foliage, 0.3, { flat: 0.15 });
+    }
+  }
+  tuft(b, r, trunkAt(0.99), trunkAt(0.9), 2, 2, CELL.needles, foliage, 0.8, { flat: 0.9, steep: 1.4 });
+  return b.geometry();
+}
+
+/**
+ * Araucaria, by age (variant): 0 and 1 old, 2 young. Its branches come in
+ * whorls, level ones, tier over tier (Massart's model: HT 1978; A.
+ * heterophylla, A. araucana). The young tree is a tiered cone to the ground,
+ * the branches dead flat. Old, it has shed its lower tiers whole
+ * (cladoptosis), and the crown is an umbrella of long arms on a tall bare
+ * trunk, their tips turned up like a candelabra (A. angustifolia) and the
+ * foliage in dark tufts at their ends (A. bidwillii, A. cunninghamii).
+ */
+function araucaria(lod, seed, v = 0) {
+  if (v === 2) return youngAraucaria(lod, seed);
   const r = rng(seed), b = new Builder();
   const H = 36, R0 = 0.85;
   const path = [];
@@ -907,15 +1275,14 @@ function araucaria(lod, seed) {
     radius: t => (R0 * (1 - t * 0.82) + 0.08) * (1 + 0.6 * Math.exp(-t * 30)),
     color: t => barkTint.clone().multiplyScalar(0.85 + t * 0.2), sway: t => t * t * 0.45,
   });
-  const foliage = new THREE.Color(0x547a3c);
-  const whorls = lod ? 0 : 7;
-  const crown = V3(0, H * 0.9, 0);
+  const foliage = new THREE.Color(0x4e7338);
+  b.wind = [1.2, 0.2];            // stiff: the tiers move as wholes, the scale leaves do not flutter
+  const whorls = lod ? 0 : 6;
+  const crown = V3(0, H * 0.92, 0);
   for (let w = 0; w < whorls; w++) {
-    const t = lerp(0.74, 0.98, w / (whorls - 1));
+    const t = lerp(0.7, 0.98, w / (whorls - 1));
     const y = H * t;
-    const spokes = 6 + (w % 2);
-    // The umbrella: the lowest whorls reach furthest, so the crown is a
-    // broad flat-topped dome and not a ball.
+    const spokes = 5 + (w % 3 === 0 ? 1 : 0);
     const len = lerp(11, 3.5, Math.pow(w / (whorls - 1), 0.8)) * (0.9 + r() * 0.2);
     for (let s = 0; s < spokes; s++) {
       const yaw = (s / spokes) * Math.PI * 2 + w * 0.6 + r() * 0.3;
@@ -923,23 +1290,57 @@ function araucaria(lod, seed) {
       const pts = [];
       for (let k = 0; k <= 4; k++) {
         const f = k / 4;
-        // Out level, then up at the end: the umbrella's rim.
-        pts.push(V3(0, y, 0).addScaledVector(dir, len * f).add(V3(0, -0.4 * f + 1.8 * f ** 3, 0)));
+        // Out level, then up at the end: the candelabra's arms.
+        pts.push(V3(0, y, 0).addScaledVector(dir, len * f).add(V3(0, -0.4 * f + 2.2 * f ** 3, 0)));
       }
       b.tube(pts, { sides: 5, k: 0, vMetres: 2, radius: f => lerp(0.22, 0.05, f), color: () => barkTint,
                     sway: f => 0.2 + f * 0.3 });
-      for (let k = 2; k <= 4; k++) {
-        const at = pts[k].clone().add(V3(0, 0.8, 0));
-        tuft(b, r, at, crown, lerp(3.8, 5.4, k / 4), k === 4 ? 6 : 3, CELL.scales, foliage, 0.45, { flat: 0.35 });
-      }
+      // The foliage: a dense tuft at the upturned end, a thinner one before it.
+      tuft(b, r, pts[4].clone().add(V3(0, 0.5, 0)), crown, 4.2, 4, CELL.scales, foliage, 0.25, { flat: 0.1, steep: 0.7 });
+      tuft(b, r, pts[3].clone().add(V3(0, 0.3, 0)), crown, 3, 2, CELL.scales, foliage, 0.25, { flat: 0.05, steep: 0.45 });
     }
+  }
+  // Stubs where whole lower branches have fallen away, the trunk ringed by their scars.
+  for (let k = 0; k < (lod ? 0 : 4); k++) {
+    const y = H * lerp(0.42, 0.66, r()), yaw = r() * 6.28, dir = V3(Math.cos(yaw), -0.05, Math.sin(yaw));
+    b.tube([V3(0, y, 0), V3(0, y, 0).addScaledVector(dir, 0.9 + r() * 0.8)], { sides: 4, k: 0, vMetres: 1, radius: f => lerp(0.14, 0.08, f),
+      color: () => barkTint.clone().multiplyScalar(0.8), sway: () => 0.1 });
   }
   if (lod) {
     for (let tier = 0; tier < 3; tier++) {
-      const y = H * lerp(0.72, 0.95, tier / 2);
+      const y = H * lerp(0.76, 0.96, tier / 2);
       tuft(b, r, V3(0, y, 0), V3(0, y - 3, 0), lerp(19, 10, tier / 2), 6, CELL.scales, foliage, 0.3, { flat: 0.05 });
     }
   }
+  return b.geometry();
+}
+
+/** A young araucaria: a strict tiered cone, its lowest tiers shed in the shade, branches dead level in whorls of five or six, the foliage in flat plates along them. */
+function youngAraucaria(lod, seed) {
+  const r = rng(seed), b = new Builder();
+  b.wind = [1.4, 0.2];
+  const H = 20, R0 = 0.38;
+  const path = [];
+  for (let i = 0; i <= (lod ? 4 : 8); i++) { const t = -0.02 + i / (lod ? 4 : 8); path.push(V3(0, H * t, 0)); }
+  const barkTint = new THREE.Color(0x857a6e), foliage = new THREE.Color(0x537a3b);
+  b.tube(path, { sides: lod ? 5 : 8, uTiles: 2, vMetres: 2.4, k: 0, radius: t => R0 * (1 - t * 0.9) * (1 + 0.4 * Math.exp(-t * 30)) + 0.03,
+                 color: t => barkTint.clone().multiplyScalar(0.85 + t * 0.2), sway: t => t * t * 0.5 });
+  const whorls = lod ? 0 : 11;
+  for (let w = 0; w < whorls; w++) {
+    const t = lerp(0.25, 0.94, w / (whorls - 1));
+    const y = H * t, spokes = 5 + (w % 2);
+    const len = lerp(5.5, 0.9, (t - 0.25) / 0.69) * (0.9 + r() * 0.2);
+    for (let s = 0; s < spokes; s++) {
+      const yaw = (s / spokes) * Math.PI * 2 + w * 0.7 + r() * 0.2;
+      const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
+      // Level — the branch of a Massart tree never turns up to lead.
+      const pts = [0, 0.5, 1].map(f => V3(0, y, 0).addScaledVector(dir, len * f).add(V3(0, -0.08 * len * f * f, 0)));
+      b.tube(pts, { sides: 4, k: 0, vMetres: 2, radius: f => lerp(0.08, 0.03, f), color: () => barkTint, sway: f => 0.15 + f * 0.3 });
+      for (const f of [0.4, 0.8]) tuft(b, r, V3(0, y + 0.15, 0).addScaledVector(dir, len * f), V3(0, y + 2, 0), lerp(2.2, 1.1, (t - 0.25) / 0.69), 2, CELL.scales, foliage, 0.25, { flat: 0.0, steep: 0.25 });
+    }
+  }
+  if (lod) for (let tier = 0; tier < 4; tier++) { const y = H * lerp(0.32, 0.88, tier / 3); tuft(b, r, V3(0, y, 0), V3(0, y - 2, 0), lerp(9, 3, tier / 3), 5, CELL.scales, foliage, 0.3, { flat: 0.0, steep: 0.2 }); }
+  tuft(b, r, V3(0, H * 0.99, 0), V3(0, H * 0.9, 0), 1.2, 2, CELL.scales, foliage, 0.6, { flat: 1.0, steep: 1.4 });
   return b.geometry();
 }
 
@@ -951,17 +1352,30 @@ function treefern(lod, seed) {
   const at = t => V3(0, H * t, 0).addScaledVector(bend, t * t);
   const path = [];
   for (let i = 0; i <= 6; i++) path.push(at(-0.03 + i / 6 * 1.03));
+  // The trunk is a stem inside a mantle of roots, thickest at the base, so it
+  // flares where it meets the ground (Cyatheaceae; Dicksonia antarctica).
   b.tube(path, { sides: lod ? 5 : 8, k: 0, vMetres: 1.4, uTiles: 1,
-                 radius: t => 0.2 + 0.1 * (1 - t) + (t > 0.9 ? 0.12 : 0),
-                 color: () => new THREE.Color(0x6a5440), sway: t => t * 0.3 });
+                 radius: t => 0.18 + 0.08 * (1 - t) + 0.24 * Math.exp(-t * 9) + (t > 0.9 ? 0.12 : 0),
+                 color: t => new THREE.Color(0x6a5440).multiplyScalar(0.8 + t * 0.25), sway: t => t * 0.3 });
   const top = at(1);
-  const fronds = lod ? 8 : 15;
+  b.wind = [1.8, 1.2];
+  // A skirt of old fronds hanging dead against the trunk (as Dicksonia keeps them).
+  for (let i = 0; i < (lod ? 0 : 5); i++) {
+    const yaw = i * 1.3 + r();
+    const dir = V3(Math.cos(yaw), 0, Math.sin(yaw)), side = V3(-Math.sin(yaw), 0, Math.cos(yaw));
+    const pts = [0, 0.5, 1].map(f => top.clone().addScaledVector(dir, 0.25 + f * 0.5).add(V3(0, -f * 2.2, 0)));
+    b.strip(pts, side, 0.9, CELL.treefern, { color: () => col(0x7a5a38, r, 0.12), normals: () => dir, sway: t => 0.1 + t * 0.2 });
+  }
+  // Oldest first: the old fronds low and spread, the new ones nearly upright
+  // and shorter, still unrolling (Cyathea medullaris, Dicksonia antarctica).
+  const fronds = lod ? 8 : 16;
   for (let i = 0; i < fronds; i++) {
     const yaw = i * 2.399 + r() * 0.3;
     const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
     const side = V3(-Math.sin(yaw), 0, Math.cos(yaw));
-    const rise = lerp(0.5, 1.2, r());
-    const L = 3.2 + r() * 0.8;
+    const age = 1 - i / (fronds - 1);
+    const rise = lerp(1.35, 0.3, age) + (r() - 0.5) * 0.2;
+    const L = lerp(2.6, 3.9, age) + r() * 0.4;
     const pts = [], sides = [];
     for (let k = 0; k <= (lod ? 3 : 6); k++) {
       const f = k / (lod ? 3 : 6);
@@ -977,34 +1391,66 @@ function treefern(lod, seed) {
       sway: t => 0.3 + t * 0.7,
     });
   }
+  // Fiddleheads in the middle: the newest fronds, still coiled.
+  for (let k = 0; k < (lod ? 0 : 3); k++) {
+    const yaw = k * 2.1 + r(), dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
+    const coil = [];
+    for (let q = 0; q <= 8; q++) {
+      const a = q / 8 * Math.PI * 1.6, rad = lerp(0.28, 0.07, q / 8);
+      coil.push(top.clone().add(V3(0, 0.1 + q * 0.06, 0)).addScaledVector(dir, 0.1 + Math.sin(a) * rad).add(V3(0, (1 - Math.cos(a)) * rad * 0.8, 0)));
+    }
+    b.tube(coil, { sides: 4, k: 0, vMetres: 0.4, radius: f => lerp(0.045, 0.03, f), color: () => new THREE.Color(0x7c8a4a), sway: f => 0.2 + f * 0.2 });
+  }
   return b.geometry();
 }
 
-/** Cycad: a stout scaly trunk and a crown of stiff, glossy fronds. */
-function cycad(lod, seed) {
+/**
+ * Cycad: a stout trunk armoured in the bases of old leaves, a crown of stiff,
+ * glossy, upturned leaves 1–1.8 m long — the old ones lower and flatter — and
+ * a cone in the middle (Cycas revoluta, Flora of China; Encephalartos). Rigid:
+ * the leaves bob a little as wholes; nothing flutters.
+ */
+function cycad(lod, seed, v = 1) {
   const r = rng(seed), b = new Builder();
-  const H = 0.8 + r() * 1.2;
+  b.wind = [3, 0.12];
+  // Variant 0 has no trunk to speak of — the stem underground, the leaves
+  // straight from the ground (Macrozamia communis; the Late Cretaceous Ctenis
+  // of Big Cedar Ridge, a small plant with a subterranean stem).
+  const ground = v === 0;
+  const H = ground ? 0.06 + r() * 0.12 : 0.8 + r() * 1.2;
   const path = [];
-  for (let i = 0; i <= 4; i++) path.push(V3(0, -0.1 + (H + 0.1) * i / 4, 0));
-  b.tube(path, { sides: lod ? 5 : 9, k: 0, uTiles: 2, vMetres: 0.6,
-                 radius: (t, a) => (0.42 - t * 0.1) * (1 + 0.06 * Math.sin(a * 6 + t * 30)),
-                 color: () => new THREE.Color(0x6e5c3e), sway: () => 0 });
+  const rows = lod ? 4 : 10;
+  for (let i = 0; i <= rows; i++) path.push(V3(0, -0.1 + (H + 0.1) * i / rows, 0));
+  const armour = new THREE.Color(0x6e5c3e);
+  b.tube(path, { sides: lod ? 5 : 10, k: 0, uTiles: 2, vMetres: 0.6,
+                 // Diamond-set leaf bases: a lobe at each, row on row, staggered.
+                 radius: (t, a) => (0.42 - t * 0.1) * (1 + 0.09 * Math.abs(Math.sin(a * 5 + (Math.floor(t * rows) % 2) * 0.63))),
+                 color: t => armour.clone().multiplyScalar(0.8 + 0.3 * (Math.floor(t * rows * 2) % 2)), sway: () => 0 });
   const top = V3(0, H, 0);
-  const n = lod ? 9 : 17;
+  const n = lod ? 10 : ground ? 28 : 22;
   for (let i = 0; i < n; i++) {
     const yaw = i * 2.399;
+    const old = i < n * (ground ? 0.5 : 0.35);       // the outer, older ring: lower and flatter
     const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
     const side = V3(-Math.sin(yaw), 0, Math.cos(yaw));
-    const rise = lerp(0.35, 1.1, r()), L = 1.7 + r() * 0.5;
+    const rise = old ? lerp(0.15, 0.45, r()) : lerp(0.65, 1.15, r());
+    const L = (old ? 1.5 : 1.2) * (ground ? 1.25 : 1) + r() * 0.5;
     const pts = [];
     for (let k = 0; k <= 3; k++) {
-      const f = k / 3, a = rise - f * 0.6;
+      const f = k / 3, a = rise - f * 0.3;           // stiff: hardly any droop
       pts.push(top.clone().addScaledVector(dir, L * f * Math.cos(a)).add(V3(0, L * f * Math.sin(a), 0)));
     }
-    b.strip(pts, side, 1.05, CELL.cycad, {
-      color: () => col(0x5d7d3e, r, 0.1), normals: () => UP.clone().addScaledVector(dir, 0.5).normalize(),
-      sway: t => t * 0.35,
+    b.strip(pts, side, 0.8, CELL.cycad, {
+      color: () => col(old ? 0x55733a : 0x5d7d3e, r, 0.1), normals: () => UP.clone().addScaledVector(dir, 0.5).normalize(),
+      sway: t => t * 0.14,
     });
+  }
+  // The cone, golden brown, sitting in the crown.
+  if (!lod) {
+    const cone = [];
+    for (let k = 0; k <= 5; k++) cone.push(V3(0, H - 0.05 + 0.5 * k / 5, 0));
+    b.tube(cone, { sides: 8, k: 0, vMetres: 0.2, uTiles: 1, radius: f => 0.17 * Math.sin(Math.PI * (0.12 + f * 0.86)),
+                   color: () => new THREE.Color(0xb08a45), sway: () => 0, cap: new THREE.Color(0x9a7438) });
   }
   return b.geometry();
 }
@@ -1012,6 +1458,7 @@ function cycad(lod, seed) {
 /** Ground fern: a rosette of arching fronds. */
 function fern(lod, seed) {
   const r = rng(seed), b = new Builder();
+  b.wind = [3, 1.1];
   const n = 8 + Math.floor(r() * 4);
   for (let i = 0; i < n; i++) {
     const yaw = i * 2.399 + r() * 0.5;
@@ -1031,16 +1478,17 @@ function fern(lod, seed) {
   return b.geometry();
 }
 
-/** Giant horsetail: a clump of jointed green stems with whorls of needles. */
+/** Horsetail: a clump of jointed green stems 2–5 cm thick, 1.5–4 m, whorls of branchlets at the nodes. */
 function horsetail(lod, seed) {
   const r = rng(seed), b = new Builder();
+  b.wind = [3.5, 0.2];
   for (let s = 0; s < 9; s++) {
     const a = r() * Math.PI * 2, d = r() * 0.5;
     const base = V3(Math.cos(a) * d, -0.1, Math.sin(a) * d);
     const H = 1.6 + r() * 2.2, lean = V3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(0.1 + r() * 0.25);
     const pts = [];
     for (let k = 0; k <= 5; k++) pts.push(base.clone().add(V3(0, H * k / 5, 0)).addScaledVector(lean, (k / 5) ** 2 * H));
-    b.tube(pts, { sides: 4, k: 0, vMetres: 0.5, radius: t => 0.05 * (1 - t * 0.5),
+    b.tube(pts, { sides: 4, k: 0, vMetres: 0.5, radius: t => 0.024 * (1 - t * 0.4),
                   color: (t) => new THREE.Color(0x5f7a3a).multiplyScalar(0.9 + (Math.floor(t * 10) % 2) * 0.2),
                   sway: t => t * 0.6 });
     for (let k = 1; k <= 5; k++) {
@@ -1053,30 +1501,44 @@ function horsetail(lod, seed) {
 }
 
 /**
- * A bamboo clump: a dozen tall canes, jointed every third of a metre, arching
- * out from the middle, with sprays of narrow leaves up their upper half.
- * Cut, it gives the poles a bamboo raft is lashed from.
+ * Giant horsetail, as the Cretaceous had it (Equisetites; living E.
+ * giganteum, E. myriochaetum): a stand of hollow, jointed green canes 3–5 cm
+ * thick and up to ~6 m, leaning on one another, a dark sheath at every node
+ * and a whorl of fine branchlets there, the odd one tipped with a cone. Not the
+ * 20 m tree-horsetails of the Carboniferous. Silica-stiff: they sway as
+ * wholes. Where later ages would have bamboo; cut, the canes are what a cane
+ * raft is lashed from.
  */
-function bamboo(lod, seed) {
+function horsetailGrove(lod, seed) {
   const r = rng(seed), b = new Builder();
-  const canes = lod ? 7 : 13;
+  b.wind = [2.4, 0.25];
+  const canes = lod ? 7 : 14;
   for (let s = 0; s < canes; s++) {
-    const a = r() * Math.PI * 2, d = r() * 0.45;
+    const a = r() * Math.PI * 2, d = r() * 0.5;
     const base = V3(Math.cos(a) * d, -0.1, Math.sin(a) * d);
-    const H = 5 + r() * 4, out = V3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(0.3 + r() * 0.9);
+    const H = 3.2 + r() * 2.6, out = V3(Math.cos(a), 0, Math.sin(a)).multiplyScalar(0.15 + r() * 0.35);
     const pts = [];
     const n = lod ? 4 : 8;
-    for (let k = 0; k <= n; k++) pts.push(base.clone().add(V3(0, H * k / n, 0)).addScaledVector(out, (k / n) ** 2 * H * 0.35));
-    const green = new THREE.Color([0xb4cf5e, 0xc6d86a, 0xd2cf72][s % 3]);   // bright: the bark shading darkens it
-    b.tube(pts, { sides: lod ? 4 : 6, k: 0, vMetres: 0.5, radius: t => 0.055 * (1 - t * 0.45),
-                  // Its joints: a darker ring every third of a metre or so.
-                  color: t => green.clone().multiplyScalar(Math.abs(Math.sin(t * H * 9.5)) > 0.94 ? 0.62 : 1),
-                  sway: t => t * t * 0.9 });
+    for (let k = 0; k <= n; k++) pts.push(base.clone().add(V3(0, H * k / n, 0)).addScaledVector(out, (k / n) ** 2 * H * 0.3));
+    const green = new THREE.Color([0x8fae52, 0x9bb85c, 0x86a24c][s % 3]);
+    b.tube(pts, { sides: lod ? 4 : 6, k: 0, vMetres: 0.5, radius: t => 0.022 * (1 - t * 0.35),
+                  // The node sheaths: a dark ring every 30–40 cm.
+                  color: t => green.clone().multiplyScalar(Math.abs(Math.sin(t * H * 8.5)) > 0.93 ? 0.45 : 1),
+                  sway: t => t * t * 0.55 });
     if (lod) continue;
-    for (let k = Math.ceil(n * 0.45); k <= n; k++) {
-      const at = pts[k], side = V3(-Math.sin(a), 0, Math.cos(a));
-      b.card(at, side, V3(0, 1, 0).addScaledVector(out, 0.6).normalize(), 1.1 + r() * 0.5, 0.9 + r() * 0.4, CELL.leaves,
-             { color: col(0x6f8f3c, r, 0.12), normal: UP, sway: 0.3 + (k / n) * 0.6 });
+    const nodes = Math.floor(H / 0.36);
+    for (let k = Math.ceil(nodes * 0.3); k < nodes; k++) {
+      const f = k / nodes, at = pts[0].clone().lerp(pts[n], f).addScaledVector(out, (f * f - f) * H * 0.3);
+      b.card(at, V3(1, 0, 0), V3(0, 0, 1), 1.2 * (1 - f * 0.55), 1.2 * (1 - f * 0.55), CELL.horsetail,
+             { color: col(0x6a8a45, r), normal: UP, sway: 0.15 + f * 0.4 });
+    }
+    // A cone (strobilus) on some of the tips.
+    if (r() < 0.4) {
+      const tip = pts[n];
+      b.tube([tip, tip.clone().add(V3(0, 0.07, 0)), tip.clone().add(V3(0, 0.14, 0))], {
+        sides: 5, k: 0, vMetres: 0.1, radius: f => 0.03 * Math.sin(Math.PI * (0.2 + f * 0.75)),
+        color: () => new THREE.Color(0x5d4a2e), sway: () => 0.55,
+      });
     }
   }
   return b.geometry();
@@ -1085,6 +1547,7 @@ function bamboo(lod, seed) {
 /** A shrub: a few woody stems in a mound of leaf clusters. */
 function bush(lod, seed) {
   const r = rng(seed), b = new Builder();
+  b.wind = [2.6, 1.2];
   const R = 1.1 + r() * 0.6, Hb = 1.3 + r() * 0.8;
   const centre = V3(0, Hb * 0.5, 0);
   for (let s = 0; s < 4; s++) {
@@ -1107,9 +1570,81 @@ function bush(lod, seed) {
   return b.geometry();
 }
 
-/** A clump of grass: crossed cards of blades. `tall` for the plains. */
+/**
+ * Open ground as it was before grass: a low mat of small ferns and spike-moss.
+ * Late Cretaceous ground was about half ferns and their allies by cover, with
+ * grass rare or absent (Wing et al. 1993, Nature 363:342; Strömberg 2011).
+ */
+function lowcover(lod, seed) {
+  const r = rng(seed), b = new Builder();
+  b.wind = [3.5, 1.2];
+  const n = 5 + Math.floor(r() * 3);
+  for (let i = 0; i < n; i++) {
+    const yaw = i * 2.399 + r() * 0.5;
+    const dir = V3(Math.cos(yaw), 0, Math.sin(yaw)), side = V3(-Math.sin(yaw), 0, Math.cos(yaw));
+    const at = V3((r() - 0.5) * 0.7, 0, (r() - 0.5) * 0.7);
+    const rise = lerp(0.8, 1.25, r()), L = 0.35 + r() * 0.3;
+    const pts = [at.clone().add(V3(0, 0.01, 0))];
+    for (let k = 1; k <= 3; k++) {
+      const a = rise - (k / 3) * 1.4, seg = L / 3;
+      pts.push(pts[k - 1].clone().addScaledVector(dir, seg * Math.cos(a)).add(V3(0, seg * Math.sin(a), 0)));
+    }
+    b.strip(pts, side, 0.26, CELL.fern, {
+      color: t => col(0x5d7f3e, r, 0.14).multiplyScalar(0.85 + t * 0.25), normals: () => UP, sway: t => t * 0.4,
+    });
+  }
+  // Spike-moss: flat, scaly mats on the ground between them.
+  for (let i = 0; i < (lod ? 1 : 3); i++) {
+    const c = V3((r() - 0.5) * 0.9, 0.03, (r() - 0.5) * 0.9), yaw = r() * Math.PI * 2;
+    b.card(c, V3(Math.cos(yaw), 0, Math.sin(yaw)), V3(-Math.sin(yaw), 0, Math.cos(yaw)), 0.5 + r() * 0.3, 0.5 + r() * 0.3,
+           CELL.spikemoss, { color: col(0xffffff, r, 0.12), normal: UP, sway: 0.03 });
+  }
+  return b.geometry();
+}
+
+/**
+ * A fern thicket: Gleichenia-type ferns, their fronds forking again and again
+ * into a scrambling waist-high tangle — in places 75% of the ground, and a
+ * near-pure stand of Gleichenites is known from the Late Cretaceous of
+ * Wyoming. What stood waist-deep on open ground where later ages have tall grass.
+ */
+function fernthicket(lod, seed) {
+  const r = rng(seed), b = new Builder();
+  b.wind = [2.8, 1];
+  const stems = lod ? 6 : 12;
+  const leaf = (from, dir, len) => {
+    const side = V3(-dir.z, 0, dir.x).normalize();
+    const pts = [0, 0.5, 1].map(f => from.clone().addScaledVector(dir, len * f).add(V3(0, -0.12 * f * f, 0)));
+    b.strip(pts, side, 0.6, CELL.gleichenia, { color: t => col(0xffffff, r, 0.12).multiplyScalar(0.8 + t * 0.2),
+                                          normals: () => UP, sway: t => 0.35 + t * 0.4 });
+  };
+  for (let s = 0; s < stems; s++) {
+    const a = r() * Math.PI * 2, d = r() * 0.6;
+    const base = V3(Math.cos(a) * d, -0.05, Math.sin(a) * d);
+    const h = 0.55 + r() * 0.45;
+    const fork = base.clone().add(V3(Math.cos(a) * 0.15, h, Math.sin(a) * 0.15));
+    // (The wiry stalks are there but not drawn: at a centimetre thick they
+    // only ever showed as black scratches across the fronds.)
+    // Two branches at the fork, each carrying a pair of spreading pinnae, and forking again.
+    for (const turn of [-0.7, 0.7]) {
+      const yaw = a + turn + (r() - 0.5) * 0.4;
+      const dir = V3(Math.cos(yaw), 0.18, Math.sin(yaw)).normalize();
+      const L = 0.45 + r() * 0.3, end = fork.clone().addScaledVector(dir, L);
+      leaf(fork.clone().addScaledVector(dir, L * 0.4), V3(Math.cos(yaw + 1.3), 0, Math.sin(yaw + 1.3)), 0.4 + r() * 0.2);
+      leaf(fork.clone().addScaledVector(dir, L * 0.4), V3(Math.cos(yaw - 1.3), 0, Math.sin(yaw - 1.3)), 0.4 + r() * 0.2);
+      if (!lod) for (const t2 of [-0.6, 0.6]) {
+        const y2 = yaw + t2;
+        leaf(end, V3(Math.cos(y2), -0.05, Math.sin(y2)).normalize(), 0.5 + r() * 0.3);
+      }
+    }
+  }
+  return b.geometry();
+}
+
+/** A clump of grass: crossed cards of blades — the cattails of the shallows, now. */
 function grass(lod, seed, kind = 'grass') {
   const r = rng(seed), b = new Builder();
+  b.wind = [3, 0.6];
   const tall = kind === 'tallgrass', reeds = kind === 'reeds';
   const n = reeds ? 4 : tall ? 6 : 6;
   const H = reeds ? 1.9 : tall ? 1.3 : 0.85;
@@ -1221,72 +1756,129 @@ function branches(lod, seed) {
  */
 function palm(lod, seed) {
   const r = rng(seed), b = new Builder();
-  const H = 6 + r() * 4;
-  const lean = V3((r() - 0.5) * 1.6, 0, (r() - 0.5) * 1.6);
+  b.wind = [1.6, 1.5];            // one pole, one smooth sway, the fan segments fluttering
+  // Sabalites (Maastrichtian; Marmi et al.): a slender straight trunk to ~14 m,
+  // a few decimetres thick and tapering up, smooth; a globe of fans much
+  // smaller than a modern palmetto's, and the dead ones hanging on below.
+  const H = 5 + r() * 4;
+  const lean = V3((r() - 0.5) * 0.7, 0, (r() - 0.5) * 0.7);
   const at = t => V3(0, H * t, 0).addScaledVector(lean, t * t);
   const path = [];
   for (let i = 0; i <= (lod ? 4 : 9); i++) path.push(at(-0.02 + (i / (lod ? 4 : 9)) * 1.02));
   // Leaf scars ring the trunk: banded in the vertex colour.
   b.tube(path, { sides: lod ? 5 : 8, k: 0, uTiles: 2, vMetres: 1.2,
-                 radius: t => 0.24 - t * 0.07 + (t < 0.05 ? 0.1 * (1 - t / 0.05) : 0),
+                 radius: t => 0.2 - t * 0.07 + (t < 0.05 ? 0.12 * (1 - t / 0.05) : 0),
                  color: t => new THREE.Color(0x8c775c).multiplyScalar(0.85 + 0.2 * Math.abs(Math.sin(t * 40))),
                  sway: t => t * t * 0.4 });
   const top = at(1);
-  const leaves = lod ? 9 : 16;
+  const leaves = lod ? 10 : 22;
   const frond = (yaw, rise, tint, dead) => {
     const dir = V3(Math.cos(yaw) * Math.cos(rise), Math.sin(rise), Math.sin(yaw) * Math.cos(rise));
-    const stalkLen = 1.3 + r() * 0.5;
+    const stalkLen = 0.6 + r() * 0.35;
     const end = top.clone().addScaledVector(dir, stalkLen);
     b.tube([top, top.clone().addScaledVector(dir, stalkLen * 0.5), end], {
       sides: 3, k: 0, radius: f => lerp(0.05, 0.025, f), color: () => new THREE.Color(dead ? 0x7d6a4a : 0x7a7a42),
-      sway: f => 0.3 + f * 0.4,
+      // (On from the trunk's top, as the fan goes on from the stalk: they move as one.)
+      sway: f => 0.4 + f * 0.3,
     });
     // The fan: its base at the stalk's end, spreading on along it and across.
     const side = V3(-Math.sin(yaw), 0, Math.cos(yaw));
     const on = dir.clone().setY(dir.y * 0.4 - 0.25).normalize();
-    b.strip([end, end.clone().addScaledVector(on, 1.4), end.clone().addScaledVector(on, 2.6).add(V3(0, -0.3, 0))], side, 2.8,
+    // (The costa arches the blade down along its length.)
+    b.strip([end, end.clone().addScaledVector(on, 0.6), end.clone().addScaledVector(on, 1.15).add(V3(0, -0.28, 0))], side, 1.4,
       CELL.palmfan, { color: () => col(tint, r, 0.1), normals: () => UP.clone().addScaledVector(dir, 0.4).normalize(),
-                      sway: t => 0.5 + t * 0.5 });
+                      sway: t => 0.7 + t * 0.3 });
   };
   for (let i = 0; i < leaves; i++) frond(i * 2.399 + r() * 0.3, lerp(-0.1, 0.9, r()), 0x6f9048, false);
   // The dead skirt.
-  for (let i = 0; i < (lod ? 0 : 4); i++) frond(i * 1.57 + r(), -0.9 - r() * 0.4, 0x8a6f45, true);
+  for (let i = 0; i < (lod ? 0 : 8); i++) frond(i * 0.785 + r() * 0.4, -1.0 - r() * 0.4, 0x8a6f45, true);
   return b.geometry();
 }
 
 /**
- * Magnolia: a small, open, grey-barked tree of the forest edge, its leathery
- * leaves in clusters at the branch ends and big pale cup flowers among them.
+ * Magnolia: a small tree of the forest edge — two or three grey stems from
+ * the ground, forking as they climb into a rounded crown (M. virginiana, 3–10
+ * m) — with leathery leaves at the branch ends and creamy cup flowers 15–25 cm
+ * across among them. Big magnolia-like flowers are there from ~100 Ma
+ * (Archaeanthus, Dilcher & Crane 1984).
  */
 function magnolia(lod, seed) {
   const r = rng(seed), b = new Builder();
+  b.wind = [2, 1.3];
   const barkC = new THREE.Color(0x938a7d), leafC = new THREE.Color(0x587d3c);
-  const trunkTop = V3((r() - 0.5) * 0.4, 2 + r() * 0.8, (r() - 0.5) * 0.4);
-  b.tube([V3(0, -0.1, 0), trunkTop.clone().multiplyScalar(0.5), trunkTop], {
-    sides: lod ? 5 : 8, k: 0, vMetres: 1.5, radius: t => 0.2 - t * 0.06, color: () => barkC, sway: t => t * 0.15,
-  });
-  const centre = trunkTop.clone().add(V3(0, 2.2, 0));
-  const branches = lod ? 3 : 6;
-  for (let i = 0; i < branches; i++) {
-    const yaw = (i / branches) * Math.PI * 2 + r() * 0.5;
-    const out = V3(Math.cos(yaw), 0.9 + r() * 0.6, Math.sin(yaw)).normalize();
-    const len = 2.4 + r() * 1.6;
-    const mid = trunkTop.clone().addScaledVector(out, len * 0.5).add(V3(0, 0.3, 0));
-    const tip = trunkTop.clone().addScaledVector(out, len);
-    b.tube([trunkTop, mid, tip], { sides: 4, k: 0, vMetres: 1.5, radius: f => lerp(0.1, 0.03, f), color: () => barkC,
-                                   sway: f => 0.15 + f * 0.3 });
-    tuft(b, r, tip, centre, 1.8, lod ? 2 : 4, CELL.leaves, leafC, 0.45);
-    tuft(b, r, mid.clone().lerp(tip, 0.5), centre, 1.5, lod ? 1 : 2, CELL.leaves, leafC, 0.35);
-    // Flowers at the tips, facing up and out.
-    for (let k = 0; k < (lod ? 2 : 5); k++) {
-      const p = tip.clone().add(V3((r() - 0.5) * 1.6, 0.2 + r() * 0.8, (r() - 0.5) * 1.6));
+  const centre = V3(0, 4.2, 0);
+  const tips = [];
+  const grow = (from, dir, len, rad, depth) => {
+    const end = from.clone().addScaledVector(dir, len);
+    const mid = from.clone().lerp(end, 0.5).add(V3((r() - 0.5) * 0.3, 0.1, (r() - 0.5) * 0.3));
+    b.tube([from, mid, end], { sides: lod ? 4 : 6, k: 0, vMetres: 1.5, radius: f => lerp(rad, rad * 0.62, f),
+                               color: () => barkC, sway: f => 0.08 + depth * 0.12 + f * 0.1 });
+    if (depth >= (lod ? 1 : 2)) { tips.push(end); return; }
+    for (let i = 0; i < 2; i++) {
+      const yaw = r() * Math.PI * 2;
+      const next = dir.clone().multiplyScalar(0.75).add(V3(Math.cos(yaw) * 0.55, 0.2, Math.sin(yaw) * 0.55)).normalize();
+      grow(end, next, len * 0.72, rad * 0.62, depth + 1);
+    }
+  };
+  const stems = 2 + Math.floor(r() * 2);
+  for (let s = 0; s < stems; s++) {
+    const yaw = (s / stems) * Math.PI * 2 + r();
+    const dir = V3(Math.cos(yaw) * 0.28, 1, Math.sin(yaw) * 0.28).normalize();
+    grow(V3(Math.cos(yaw) * 0.15, -0.1, Math.sin(yaw) * 0.15), dir, 1.8 + r() * 0.6, 0.13, 0);
+  }
+  for (const tip of tips) {
+    tuft(b, r, tip, centre, 1.6, lod ? 2 : 4, CELL.leaves, leafC, 0.45);
+    for (let k = 0; k < (lod ? 0 : 2); k++) {
+      if (r() < 0.35) continue;
+      const p = tip.clone().add(V3((r() - 0.5) * 1.1, 0.15 + r() * 0.5, (r() - 0.5) * 1.1));
       const face = p.clone().sub(centre).normalize().add(V3(0, 0.8, 0)).normalize();
       const right = face.clone().cross(UP).normalize();
       if (right.lengthSq() < 0.1) right.set(1, 0, 0);
       const up = right.clone().cross(face).normalize();
-      b.card(p, right, up, 0.58, 0.58, CELL.flower, { color: new THREE.Color(0xffffff), normal: face, sway: 0.5 });
+      const size = 0.16 + r() * 0.1;
+      b.card(p, right, up, size, size, CELL.flower, { color: new THREE.Color(0xfff7ea), normal: face, sway: 0.5 });
     }
   }
+  return b.geometry();
+}
+
+/**
+ * Dawn redwood (Metasequoia; known from the Cenomanian on, the living tree
+ * "identical to its Late Cretaceous ancestors" — conifers.org): a narrow
+ * cone of long ascending branches over a broad, fluted, buttressed base, the
+ * foliage soft and feathery — opposite, comb-like needles on side shoots
+ * that hang — and lighter green than a redwood's. A tree of stream banks and
+ * levees, in stands.
+ */
+function metasequoia(lod, seed) {
+  const r = rng(seed), b = new Builder();
+  b.wind = [1.1, 0.9];
+  const H = 32, R0 = 0.62;
+  const trunkAt = t => V3(Math.sin(t * 4 + seed) * 0.15, H * t, Math.cos(t * 3 + seed) * 0.15);
+  const path = [];
+  const rings = lod ? 6 : 14;
+  for (let i = 0; i <= rings; i++) path.push(trunkAt(-0.02 + Math.pow(i / rings, 1.5) * 1.0));
+  const barkTint = new THREE.Color(0x8e5a3e), foliage = new THREE.Color(0x76a04d);
+  const flutes = 7 + Math.floor(r() * 3), phase = r() * 6;
+  b.tube(path, { sides: lod ? 7 : 14, uTiles: lod ? 2 : 3, vMetres: 2.6, k: 0,
+    radius: (t, a) => (R0 * (1 - 0.85 * t) + 0.05) * (1 + 0.9 * Math.exp(-t * 14)) *
+                      (1 + 0.28 * Math.exp(-t * 9) * Math.pow(Math.abs(Math.sin(a * flutes * 0.5 + phase)), 2)),
+    color: t => barkTint.clone().multiplyScalar(0.82 + t * 0.22), sway: t => t * t * 0.55 });
+  const nb = lod ? 0 : 24;
+  for (let i = 0; i < nb; i++) {
+    const t = lerp(0.24, 0.95, i / nb);
+    const base = trunkAt(t), yaw = i * 2.399 + r() * 0.3;
+    const dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
+    const len = lerp(6.5, 1.2, (t - 0.24) / 0.71) * (0.85 + r() * 0.3);
+    // Ascending: 20–35° above level, more so near the top.
+    const up = lerp(0.35, 0.7, (t - 0.24) / 0.71);
+    const pts = [0, 0.5, 1].map(f => base.clone().addScaledVector(dir, len * f).add(V3(0, len * f * up - len * 0.12 * f * f, 0)));
+    b.tube(pts, { sides: 4, k: 0, vMetres: 2, radius: f => lerp(0.11, 0.03, f), color: () => barkTint, sway: f => 0.2 + f * 0.3 + t * 0.2 });
+    // The side shoots hang from it: foliage cards tipped down, feathery.
+    for (const f of [0.35, 0.65, 0.95]) tuft(b, r, base.clone().lerp(pts[2], f).add(V3(0, -0.2, 0)), trunkAt(t), lerp(2.8, 1.5, (t - 0.24) / 0.71), 2, CELL.needles, foliage, 0.45 + t * 0.4, { flat: 0.9, steep: 1.35 });
+  }
+  if (lod) for (let tier = 0; tier < 4; tier++) { const t = lerp(0.32, 0.88, tier / 3); tuft(b, r, trunkAt(t), trunkAt(t - 0.1), lerp(11, 4, tier / 3), 5, CELL.needles, foliage, 0.3, { flat: 0.5 }); }
+  tuft(b, r, trunkAt(0.99), trunkAt(0.9), 1.8, 2, CELL.needles, foliage, 0.8, { flat: 1.0, steep: 1.4 });
   return b.geometry();
 }
 
@@ -1391,7 +1983,10 @@ function outcrop(lod, seed) {
 /** A spire: a tall stacked pillar of rock — a sea stack, or a landmark. */
 function spire(lod, seed) {
   const g = rockGeometry(seed, { detail: lod ? 2 : 3, stretch: [1, 4.5, 1.1], strata: 1.3 });
-  g.translate(0, 3, 0);
+  // Its foot a little below its origin, as the other rocks' are: at +0.6 it
+  // stood a metre or two clear of the ground, a sea stack floating over the
+  // bed and a butte over the plain.
+  g.translate(0, 2, 0);
   g.computeVertexNormals();
   return g;
 }
@@ -1460,52 +2055,91 @@ export const LAYERS = {
   landmark: { cell: 64 },
 };
 
+const smooth01 = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const band = (x, a, b, c, d) => (x <= a || x >= d) ? 0 : x < b ? (x - a) / (b - a) : x > c ? (d - x) / (d - c) : 1;
 
 export const SPECIES = [
-  { name: 'redwood', group: 'Canopy trees', habitat: 'moist forest from 6 m up to the treeline; not on steep ground, and set back from the rivers', label: 'Giant redwood', layer: 'canopy', make: redwood, variants: 3, material: 'tree',
+  { name: 'redwood', group: 'Canopy trees', habitat: 'moist forest, tallest and thickest on the raised flats along the rivers that the floods have built; thinning up the mountains, never on steep ground or in the water; old giants and young cones among them, about half and half', label: 'Giant redwood', layer: 'canopy', make: redwood, variants: 4, material: 'tree',
+    // (Variants 0–1 old growth, 2–3 young: a stand is old and young together.)
+    farVariant: v => v >= 2 ? 2 : 0, trunkOf: v => v >= 2 ? 0.8 : 2.6,
+    chopOf: v => v >= 2 ? 3 : 6, yieldOf: v => v >= 2 ? { wood: 4 } : { wood: 8 },
     rings: 3, farFrom: 2, scale: [0.72, 1.25], trunk: 2.6, reach: 5.5, regrow: 300, yield: { wood: 8 }, chop: 6, falls: true,
-    where: s => s.forest * s.wet * 1.3 * band(s.h, 6, 16, 150, TREE_H) * (s.slope < 0.42 ? 1 : 0) * (s.edge > 18 ? 1 : 0.25) },
-  { name: 'araucaria', group: 'Canopy trees', habitat: 'drier forest and its edges, the foothills, and alone out on the plains', label: 'Araucaria', layer: 'canopy', make: araucaria, variants: 2, material: 'tree',
+    // Cut, a stump stays: the heartwood cherry to red-brown, the sapwood
+    // nearly white, inside a thick fibrous bark.
+    cut: 'solid', heartwood: [0x9a4a30, 0xe2cfa6, 0x5a3322],
+    // Deep, moist, well-drained alluvium: the river flats, a bank's height
+    // above the water (the modern coast redwood's best ground is just that).
+    where: s => (s.forest * s.wet * 1.1 + band(s.edge, 10, 25, 220, 380) * s.wet * smooth01(0.22, 0.06, s.slope) * 0.6) *
+                band(s.h, 5, 12, 110, TREE_H) * (s.slope < 0.42 ? 1 : 0) * (s.edge > 10 ? 1 : 0.15) },
+  { name: 'araucaria', group: 'Canopy trees', habitat: 'well-drained ground: the drier forest, rocky slopes and ridges, the rims of the escarpments and the cliff-top headlands; open woodland on the dry hills; stunted and close-set in the cloud forest of the tops; not by the water', label: 'Araucaria', layer: 'canopy', make: araucaria, variants: 3, material: 'tree', bark: 'scaly',
+    // (Variants 0–1 old, the umbrella; 2 young, the tiered cone.)
+    farVariant: v => v === 2 ? 2 : 0, trunkOf: v => v === 2 ? 0.5 : 1.4,
+    chopOf: v => v === 2 ? 2 : 4, yieldOf: v => v === 2 ? { wood: 3 } : { wood: 5 },
+    // Cloud forest is short: its trees a fraction of the height below (Luquillo: 20–30 m, then 3–5 m on the tops).
+    size: s => 1 - 0.68 * smooth01(175, 270, s.h),
     rings: 3, farFrom: 2, scale: [0.75, 1.3], trunk: 1.4, reach: 3.6, regrow: 220, yield: { wood: 5 }, chop: 4, falls: true,
-    // Drier ground than the redwoods, the forest edge, and alone on the plains.
-    where: s => (s.forest * (1.05 - s.wet) * 0.9 + s.plain * 0.05 + s.mountain * s.forest * 0.3) *
-                band(s.h, 4, 12, TREE_H - 10, TREE_H + 15) * (s.slope < 0.5 ? 1 : 0) },
-  { name: 'treefern', group: 'Understorey', habitat: 'under the canopy where it is wet, and along the river banks', label: 'Tree fern', layer: 'under', make: treefern, variants: 3, material: 'tree',
+    cut: 'solid', heartwood: [0xc9a36e, 0xeadcb4, 0x4d3a2c],      // pale, yellowish-brown heart, cream sapwood
+    // Drier ground than the redwoods; rocky slopes, ridges and escarpment
+    // rims; the headlands over the sea, as the Norfolk and Cook pines; open
+    // araucarian woodland where it is too dry for closed forest (50–150
+    // trees/ha); and many more, small, up in the cloud forest.
+    where: s => (s.forest * (1.05 - s.wet) * 0.8 + band(s.slope, 0.12, 0.25, 0.48, 0.58) * (1.1 - s.wet) * 0.35 +
+                 s.mountain * 0.3 + s.mesa * 0.25 + s.cliff * band(s.shore, 8, 18, 90, 160) * 0.45 + s.plain * 0.03 +
+                 (1 - s.forest) * (1 - s.plain * 0.8) * smooth01(0.5, 0.3, s.wet) * smooth01(30, 60, s.shore) * 0.28 +
+                 smooth01(180, 230, s.h) * 0.85) *
+                band(s.h, 4, 12, 400, 450) * (s.slope < 0.58 ? 1 : 0) * (s.edge > 30 ? 1 : 0.3) },
+  { name: 'treefern', group: 'Understorey', habitat: 'under the canopy where it is wet, the creeks and shaded gullies, and up into the mist of the high slopes', label: 'Tree fern', layer: 'under', make: treefern, variants: 3, material: 'tree', bark: 'fibre',
     rings: 2, farFrom: 2, scale: [0.7, 1.4], trunk: 0.35, reach: 2.8, regrow: 120, yield: { leaf: 4 },
-    where: s => (s.forest * s.wet * 0.55 + band(s.edge, 1.5, 4, 25, 55) * 0.3) * band(s.h, 3, 8, 140, 170) * (s.slope < 0.55 ? 1 : 0) },
-  { name: 'cycad', group: 'Understorey', habitat: 'dry forest, the back of the beach, and scattered across the plains', label: 'Cycad', layer: 'under', make: cycad, variants: 3, material: 'tree',
+    // (Up into the cloud forest of the tops, where the mist keeps them wet.
+    // Thick in wet forest: a whole mid-layer, ~900/ha in Hawaii and Luquillo.)
+    where: s => (s.forest * s.wet * 1.1 + band(s.edge, 1.5, 4, 25, 55) * s.forest * 0.45 + smooth01(150, 200, s.h) * s.forest * 0.6) *
+                band(s.h, 3, 8, 380, 440) * (s.slope < 0.55 ? 1 : 0) },
+  { name: 'cycad', group: 'Understorey', habitat: 'dry, open, rocky or sandy ground: the dunes at the back of the beach, stony slopes and the escarpments, open plains; many with no trunk at all, a rosette on the ground', label: 'Cycad', layer: 'under', make: cycad, variants: 3, material: 'tree', bark: 'armour',
+    farVariant: v => v, trunkOf: v => v === 0 ? 0 : 0.45,
     rings: 2, farFrom: 2, scale: [0.8, 1.6], trunk: 0.45, reach: 2.6, regrow: 90, yield: { leaf: 3 },
-    where: s => (s.forest * (1 - s.wet) * 0.3 + s.plain * 0.05 + band(s.shore, 12, 30, 90, 160) * 0.18) *
-                band(s.h, 2.5, 5, 120, 150) * (s.slope < 0.5 ? 1 : 0) },
-  { name: 'bush', group: 'Understorey', habitat: 'everywhere below the treeline: thickest at the forest edge and behind the beach', label: 'Shrub', layer: 'under', make: bush, variants: 3, material: 'tree',
+    where: s => (s.forest * (1 - s.wet) * 0.25 + s.plain * (1 - s.wet) * 0.07 + (1 - s.forest) * smooth01(0.5, 0.3, s.wet) * 0.12 + band(s.shore, 12, 30, 90, 160) * 0.2 +
+                 band(s.slope, 0.15, 0.28, 0.45, 0.55) * (1 - s.wet) * 0.15 + s.mesa * 0.1) *
+                band(s.h, 2.5, 5, 120, 150) * (s.slope < 0.55 ? 1 : 0) * (s.edge > 12 ? 1 : 0.2) },
+  { name: 'bush', group: 'Understorey', habitat: 'everywhere below the treeline: thickest at the forest edge and behind the beach', label: 'Shrub', layer: 'under', make: bush, variants: 3, material: 'tree', bark: 'smooth',
     rings: 2, farFrom: 2, scale: [0.7, 1.5], reach: 2.2, regrow: 80, yield: { leaf: 2 },
     where: s => (s.forest * 0.22 + s.plain * 0.06 + (1 - s.forest) * 0.08 + band(s.shore, 5, 14, 40, 80) * 0.2) *
-                band(s.h, 2.5, 5, TREE_H, TREE_H + 30) * (s.slope < 0.6 ? 1 : 0) },
-  { name: 'palm', group: 'Understorey', habitat: 'the back of the beaches, the river banks and the warm lowlands', label: 'Fan palm', layer: 'under', make: palm, variants: 3, material: 'tree',
+                band(s.h, 2.5, 5, 400, 450) * (s.slope < 0.6 ? 1 : 0) },
+  { name: 'palm', group: 'Understorey', habitat: 'the coastal lowlands: behind the beaches, the lake shores and the wet flats back from the rivers — settled, moist ground, not the fresh sand of the banks', label: 'Fan palm', layer: 'under', make: palm, variants: 3, material: 'tree', bark: 'rings',
     rings: 2, farFrom: 2, scale: [0.75, 1.3], trunk: 0.3, reach: 2.8, regrow: 150, yield: { leaf: 4 },
-    where: s => (band(s.shore, 5, 12, 60, 130) * 0.4 + band(s.edge, 2, 5, 22, 45) * 0.3 + s.plain * 0.02) *
-                band(s.h, 2, 4, 55, 80) * (s.slope < 0.45 ? 1 : 0) },
-  { name: 'magnolia', group: 'Understorey', habitat: 'the forest edge and clearings, where it is moist and there is light', label: 'Magnolia', layer: 'under', make: magnolia, variants: 3, material: 'tree',
+    where: s => (band(s.shore, 5, 12, 60, 130) * 0.4 + band(s.edge, 6, 14, 90, 200) * s.wet * 0.3 + s.plain * s.wet * 0.03) *
+                band(s.h, 2, 4, 45, 70) * (s.slope < 0.3 ? 1 : 0) },
+  { name: 'magnolia', group: 'Understorey', habitat: 'fresh, wet ground with light: the river banks and bars, and the forest edges and clearings — the first flowering plants were weeds of disturbed ground', label: 'Magnolia', layer: 'under', make: magnolia, variants: 3, material: 'tree', bark: 'smooth',
     rings: 2, farFrom: 2, scale: [0.8, 1.3], trunk: 0.25, reach: 2.6, regrow: 120, yield: { leaf: 2 },
-    where: s => band(s.forest, 0.08, 0.25, 0.55, 0.8) * s.wet * 0.4 * band(s.h, 4, 8, 120, 150) * (s.slope < 0.5 ? 1 : 0) },
-  { name: 'horsetail', group: 'Understorey', habitat: 'in stands along the river banks', label: 'Giant horsetail', layer: 'under', make: horsetail, variants: 2, material: 'tree',
+    where: s => (band(s.forest, 0.08, 0.25, 0.55, 0.8) * s.wet * 0.35 + band(s.edge, 1, 3, 30, 60) * (1 - s.forest * 0.6) * 0.3) *
+                band(s.h, 2.5, 6, 110, 140) * (s.slope < 0.4 ? 1 : 0) },
+  { name: 'horsetail', group: 'Understorey', habitat: 'in stands on the wet sand of the river banks and the lake shores, in the sun', label: 'Horsetail', layer: 'under', make: horsetail, variants: 2, material: 'tree', bark: 'smooth',
     rings: 1, scale: [0.8, 1.4],
-    where: s => band(s.edge, 0.5, 2, 12, 26) * 0.7 * band(s.h, 2, 4, 150, 170) },
-  { name: 'fern', group: 'Ground cover', habitat: 'the forest floor, thickest where it is wettest, and the river banks', label: 'Fern', layer: 'ground', make: fern, variants: 3, material: 'tree',
-    rings: 1, scale: [0.7, 1.5],
-    where: s => (s.forest * (0.55 + s.wet * 0.6) + band(s.edge, 1, 3, 20, 40) * 0.4) * band(s.h, 3, 6, 160, 190) * (s.slope < 0.65 ? 1 : 0) },
-  { name: 'grass', group: 'Ground cover', habitat: 'open ground: clearings, the coastal plain, the hills above the treeline', label: 'Grass', layer: 'grass', make: (l, sd) => grass(l, sd, 'grass'), variants: 2, material: 'grass',
+    where: s => band(s.edge, 0.5, 2, 12, 24) * 0.7 * (1 - s.forest * 0.5) * band(s.h, 2, 4, 120, 150) * (s.slope < 0.3 ? 1 : 0.3) },
+  { name: 'fern', group: 'Ground cover', habitat: 'the forest floor, thickest where it is wettest, and the river banks', label: 'Fern', layer: 'ground', make: fern, variants: 3, material: 'tree', bark: 'smooth',
+    // (Big enough to cover a third to a half of the floor under the canopy, as
+    // sword fern and the like do: 30–80%.)
+    rings: 1, scale: [0.9, 1.8],
+    where: s => (s.forest * (0.55 + s.wet * 0.6) + band(s.edge, 1, 3, 20, 40) * 0.4) * band(s.h, 3, 6, 400, 450) * (s.slope < 0.65 ? 1 : 0) },
+  // Four that were grass, tall grass, reeds and bamboo, and are now what grew
+  // in their places before any of those had evolved — grasslands are ~26 Ma,
+  // reeds Eocene, bamboo Oligocene (Strömberg 2011; Prasad et al. 2005). The
+  // `name`s stay as they were: the scatter, the saves and the felled trees
+  // key on them, and the world keeps its shape.
+  { name: 'grass', group: 'Ground cover', habitat: 'open ground: clearings, the coastal plain, the misty tops of the range — low ferns and spike-moss, where later ages have grass', label: 'Low ferns', layer: 'grass', make: lowcover, variants: 2, material: 'grass', bark: 'smooth',
     rings: 1, scale: [0.7, 1.4],
-    where: s => (1 - s.forest * 0.75) * (1 - s.plain * 0.6) * band(s.h, 1.8, 4, 200, 240) * (s.slope < 0.55 ? 1 : 0.2) *
+    where: s => (1 - s.forest * 0.75) * (1 - s.plain * 0.6) * band(s.h, 1.8, 4, 400, 450) * (s.slope < 0.55 ? 1 : 0.2) *
                 (s.edge > 0.8 ? 1 : 0) * 0.85 },
-  { name: 'tallgrass', group: 'Ground cover', habitat: 'the open plains, waist high and seeding', label: 'Tall grass', layer: 'grass', make: (l, sd) => grass(l, sd, 'tallgrass'), variants: 2, material: 'grass',
+  { name: 'tallgrass', group: 'Ground cover', habitat: 'open, poor or disturbed ground: patches of the plains, the wet peaty flats, and the scars of slips on the steep slopes — a waist-high tangle of forked ferns (Gleichenia-type thickets)', label: 'Fern thicket', layer: 'grass', make: fernthicket, variants: 2, material: 'grass', bark: 'smooth',
     rings: 1, scale: [0.8, 1.35],
-    where: s => s.plain * 0.95 * band(s.h, 4, 8, 180, 210) * (s.slope < 0.35 ? 1 : 0) },
-  { name: 'reeds', group: 'Ground cover', habitat: 'the river’s shallows and the foot of its banks', label: 'Reeds', layer: 'grass', make: (l, sd) => grass(l, sd, 'reeds'), variants: 1, material: 'grass',
+    // Thicker in patches than tall grass was everywhere: open country between.
+    where: s => (s.plain * 0.6 * (s.slope < 0.35 ? 1 : 0) + band(s.slope, 0.4, 0.48, 0.6, 0.68) * s.wet * (1 - s.forest) * 0.5) *
+                band(s.h, 4, 8, 180, 210) },
+  { name: 'reeds', group: 'Ground cover', habitat: 'the river’s shallows and the foot of its banks — cattails, whose seeds are known from the last age of the dinosaurs (Maastrichtian)', label: 'Cattails', layer: 'grass', make: (l, sd) => grass(l, sd, 'reeds'), variants: 1, material: 'grass', bark: 'smooth',
     rings: 1, scale: [0.8, 1.3], aquatic: true,
-    // In the shallows at the edge and up the bank, not out in the stream.
-    where: s => band(s.edge, -1.2, -0.2, 2.5, 6) * 0.9 },
+    // In still, shallow water — under ~0.6 m, which drowns them — and at the
+    // foot of the bank: the lake margins and the slow lowland reaches, not the
+    // mountain streams.
+    where: s => band(s.edge, -1.0, -0.2, 2, 5) * 0.9 * band(s.h, -2, 0.5, 22, 34) * (s.slope < 0.3 ? 1 : 0.2) },
   { name: 'log', group: 'Deadfall', habitat: 'the forest floor, and washed up on the beaches', label: 'Fallen log', layer: 'debris', make: log, variants: 3, material: 'tree',
     rings: 2, farFrom: 2, scale: [0.7, 1.4], reach: 3.2, regrow: 400, yield: { wood: 4 }, lying: true, chop: 3,
     where: s => (s.forest * 0.5 + s.beach * 0.25) * (s.slope < 0.3 ? 1 : 0) * (s.h > 0.8 ? 1 : 0) },
@@ -1515,24 +2149,39 @@ export const SPECIES = [
   { name: 'deadfall', group: 'Deadfall', habitat: 'the forest floor', label: 'Fallen branches', layer: 'ground', make: branches, variants: 2, material: 'tree',
     rings: 1, scale: [0.8, 1.3], reach: 2, regrow: 150, yield: { wood: 1 },
     where: s => s.forest * 0.06 * (s.h > 3 ? 1 : 0) },
-  { name: 'boulder', group: 'Rocks', habitat: 'steep ground, the mountains and the river banks; a few on the plains and beaches', label: 'Boulder', layer: 'rock', make: boulder, variants: 4, material: 'rock',
+  { name: 'boulder', group: 'Rocks', habitat: 'steep ground and the foot of it, the mountains and the mountain streams, the beaches under the cliffs; next to none on the wet, flat lowlands, whose rivers carry sand', label: 'Boulder', layer: 'rock', make: boulder, variants: 4, material: 'rock',
     rings: 3, farFrom: 2, scale: [0.6, 3.2], solid: true,
-    where: s => (s.slope * 0.45 + s.mountain * 0.18 + s.plain * 0.03 + s.beach * 0.04 + band(s.edge, 0.5, 1.5, 8, 18) * 0.15 + 0.01) *
-                (s.h > 0.5 ? 1 : 0) },
-  { name: 'outcrop', group: 'Rocks', habitat: 'crags on the slopes, the escarpments and the mountains; tors on the plains', label: 'Rock outcrop', layer: 'landmark', make: outcrop, variants: 3, material: 'rock',
+    // Bedrock hides under soil below ~30°, and shows fast above it; river
+    // stones only where the stream is steep enough to move them (the bed
+    // goes from gravel to sand abruptly, on the way down to the plain); no
+    // loose boulders out on the lowlands, with no ice to have carried them.
+    where: s => (smooth01(0.18, 0.5, s.slope) * 0.55 + s.mountain * 0.18 + s.mesa * s.slope * 0.3 +
+                 s.beach * s.cliff * 0.25 + band(s.edge, 0.5, 1.5, 8, 18) * smooth01(30, 70, s.h) * 0.25 +
+                 s.plain * (1 - s.wet) * 0.01 + 0.004) * (s.h > 0.5 ? 1 : 0) },
+  { name: 'outcrop', group: 'Rocks', habitat: 'crags on the steep slopes, the escarpment rims and the mountains; tors on the high, drier crests', label: 'Rock outcrop', layer: 'landmark', make: outcrop, variants: 3, material: 'rock',
     rings: 6, farFrom: 2, scale: [1.2, 2.8], solid: true,
-    where: s => (s.mountain * 0.6 + s.slope * 0.8 + s.plain * 0.35 + s.mesa * 0.5) * (s.h > 6 ? 1 : 0) * (s.edge > 15 ? 1 : 0) },
-  { name: 'spire', group: 'Rocks', habitat: 'sea stacks off the cliff coasts, and lone pillars on the plains — landmarks you can see from afar', label: 'Rock spire', layer: 'landmark', make: spire, variants: 3, material: 'rock',
+    where: s => (s.mountain * 0.6 + smooth01(0.2, 0.5, s.slope) * 0.9 + s.mesa * 0.5 + s.plain * (1 - s.wet) * smooth01(20, 60, s.h) * 0.25) *
+                (s.h > 6 ? 1 : 0) * (s.edge > 15 ? 1 : 0) },
+  { name: 'spire', group: 'Rocks', habitat: 'sea stacks off the cliff coasts, and buttes standing out from the escarpments — landmarks you can see from afar', label: 'Rock spire', layer: 'landmark', make: spire, variants: 3, material: 'rock',
     rings: 7, farFrom: 2, scale: [3.2, 6.5], solid: true,
-    // Sea stacks off the cliff coasts, and pillars standing out of the plains.
-    where: s => s.cliff * band(-s.shore, 8, 20, 70, 110) * 0.9 + s.plain * s.rare * 0.8 },
+    // Sea stacks off the cliff coasts — the headlands' leftovers, near in,
+    // never off a sandy shore; and buttes, what is left of an escarpment as
+    // it wears back, out in front of it. (Lone pillars on a wet, wooded
+    // plain are not a thing: hoodoos need a dry, frosty badland.)
+    where: s => s.cliff * band(-s.shore, 8, 20, 90, 180) * 0.9 + s.mesa * s.rare * smooth01(0.3, 0.1, s.slope) * 0.8 },
   // Last in the list, so adding it moved nothing else that grows.
-  { name: 'bamboo', group: 'Understorey', habitat: 'groves along the river banks, and in the wet lowlands behind the beaches', label: 'Bamboo', layer: 'under', make: bamboo, variants: 3, material: 'tree',
+  { name: 'bamboo', group: 'Understorey', habitat: 'stands along the river banks, and in the wet lowlands behind the beaches — giant horsetail, up to ~6 m, where later ages have bamboo', label: 'Giant horsetail', layer: 'under', make: horsetailGrove, variants: 3, material: 'tree', bark: 'smooth',
     rings: 2, farFrom: 2, scale: [0.8, 1.25], trunk: 0.45, reach: 3.2, regrow: 180, yield: { bamboo: 4 }, chop: 2, falls: true,
+    cut: 'hollow',                          // a horsetail's stems are hollow: cut, a stubble of open culms
     where: s => (band(s.edge, 1.5, 4, 16, 34) * 0.4 + band(s.shore, 8, 16, 50, 90) * s.wet * 0.12) *
                 band(s.h, 1.5, 3, 45, 70) * (s.slope < 0.4 ? 1 : 0) },
+  // After the bamboo, so adding it moved nothing else that grows.
+  { name: 'metasequoia', group: 'Canopy trees', habitat: 'the river banks, levees and lake shores, in stands: wet, fresh-built ground, open to the light — the dawn redwood, a Late Cretaceous tree unchanged today', label: 'Dawn redwood', layer: 'canopy', make: metasequoia, variants: 3, material: 'tree',
+    rings: 3, farFrom: 2, scale: [0.7, 1.25], trunk: 1.1, reach: 4, regrow: 260, yield: { wood: 6 }, chop: 5, falls: true,
+    cut: 'solid', heartwood: [0xa35a3c, 0xe0c9a0, 0x6a3f2b],      // red-brown heart, pale sapwood
+    where: s => band(s.edge, 1.5, 4, 60, 110) * s.wet * 0.8 * band(s.h, 2, 5, 120, 160) * (s.slope < 0.25 ? 1 : 0) },
 ];
-const TREE_H = 190;   // the treeline, for the rules above (src/terrain.js has the same)
+const TREE_H = 190;   // where the cloud forest of the tops begins (TREELINE in src/terrain.js)
 
 const cache = new Map();
 /** A species' geometry: variant `v`, `lod` 0 near or 1 far. Built once. */
@@ -1540,16 +2189,21 @@ export function speciesGeometry(sp, v = 0, lod = 0) {
   const key = `${sp.name}:${v}:${lod}`;
   let g = cache.get(key);
   if (!g) {
-    g = sp.make(lod, 1 + v * 7 + SPECIES.indexOf(sp) * 101);
+    g = sp.make(lod, 1 + v * 7 + SPECIES.indexOf(sp) * 101, v);
     cache.set(key, g);
   }
   return g;
 }
 
 /** The material (or [bark, foliage] pair) a species is drawn with. */
+/** A species' pair of materials: its own kind of bark (`bark`), and the foliage. */
+const pairs = new Map();
 export function speciesMaterial(sp) {
   const m = floraMaterials();
-  return sp.material === 'rock' ? m.rock : sp.material === 'grass' ? m.grass : m.tree;
+  if (sp.material === 'rock') return m.rock;
+  const key = `${sp.material}:${sp.bark || 'furrowed'}`;
+  if (!pairs.has(key)) pairs.set(key, [m.bark[sp.bark || 'furrowed'], sp.material === 'grass' ? m.grassLeaf : m.leaf]);
+  return pairs.get(key);
 }
 
 /** One of a species, as a mesh, for looking at on its own (the gallery). */

@@ -254,16 +254,37 @@ function measureGaits(entry, rig) {
       const floor = Math.min(...lows), tall = rig.size.y || 1;
       let sum = 0, n = 0, sweep = 0;
       const planted = [];
+      // Weight-bearing: a foot that comes down within a little of the lowest.
+      // (A four-legged body's hind feet may ride a little higher than its
+      // front ones in a shared clip; a biped's hands are nowhere near.) The
+      // pace is read off the hind feet where they bear weight: on a
+      // four-legged body a front foot may hardly sweep at all.
+      // (If the front feet bear weight, so do the hind ones, whatever the clip.)
+      const fore = feet.some((f, i) => /hand/i.test(f.name) && lows[i] <= floor + tall * 0.11);
+      const bears = i => lows[i] <= floor + tall * 0.11 || (fore && /foot/i.test(feet[i].name));
+      const hind = feet.some((f, i) => bears(i) && /foot/i.test(f.name));
       feet.forEach((f, i) => {
-        if (lows[i] > floor + tall * 0.08) return;
+        if (!bears(i)) return;
         planted.push(f.name);
+        if (hind && !/foot/i.test(f.name)) return;
         const zs = P.map(p => p[i].z);
         sweep = Math.max(sweep, Math.max(...zs) - Math.min(...zs));
+        // (Mid-stance only — the lowest few per cent: nearer the lift and the
+        // touch-down a foot is already slowing or quickening.)
         for (let k = 0; k < N; k++) {
-          if (P[k][i].y > lows[i] + (highs[i] - lows[i]) * 0.12) continue;
+          if (P[k][i].y > lows[i] + (highs[i] - lows[i]) * 0.06) continue;
           sum += -(P[k + 1][i].z - P[k][i].z) / (T / N);
           n++;
         }
+      });
+      // Each limb that bears weight, for plantFeet(): how low its foot goes
+      // (and how high), and how long the leg is — per unit of scale.
+      const limbs = feet.map((f, i) => {
+        const knee = f.parent, hip = knee?.parent;
+        const len = hip ? hip.getWorldPosition(new THREE.Vector3()).distanceTo(knee.getWorldPosition(new THREE.Vector3())) +
+                          knee.getWorldPosition(new THREE.Vector3()).distanceTo(f.getWorldPosition(new THREE.Vector3())) : 0;
+        return { name: f.name, lo: lows[i] / rig.scale, hi: highs[i] / rig.scale, len: len / rig.scale,
+                 planted: bears(i) && len > 0 };
       });
       // Some clips barely sweep a planted foot back at all — they lift and
       // set it down, stepping nearly in place. Then the foot's whole swing,
@@ -280,7 +301,7 @@ function measureGaits(entry, rig) {
         return { name: b.name, q: m.normalize() };
       });
       // Per unit of scale, so an animal a little bigger or smaller reads it right.
-      entry.gaits[kind] = { perScale: Math.max(0.05, natural) / rig.scale, means, planted };
+      entry.gaits[kind] = { perScale: Math.max(0.05, natural) / rig.scale, means, planted, limbs };
     }
     rig.mixer.stopAllAction();
   }
@@ -290,6 +311,8 @@ function measureGaits(entry, rig) {
     if (!g) continue;
     gait[kind] = g.perScale * rig.scale;
     gait[`${kind}Means`] = g.means.map(m => ({ bone: bones[m.name], q: m.q }));
+    gait[`${kind}Limbs`] = g.limbs.filter(l => l.planted && bones[l.name])
+      .map(l => ({ foot: bones[l.name], lo: l.lo * rig.scale, hi: l.hi * rig.scale, len: l.len * rig.scale }));
     // Four-legged if the front feet were planted in the walk.
     if (kind === 'walk') gait.quadruped = g.planted.some(n => /hand/i.test(n));
   }
@@ -326,8 +349,12 @@ const _dq = new THREE.Quaternion(), _axis = new THREE.Vector3();
  *
  * @param speed  ground speed, m/s
  * @param alert  1 when it is hunting or fleeing: it runs sooner
+ * @param run    false for an animal that could only walk (an adult T. rex, a
+ *               stegosaur, a sauropod): the walk is quickened instead
+ * @param maxRate, maxStride  how far the walk may be quickened and lengthened
  */
-export function driveGait(rig, speed, dt, { alert = 0, attack = false, idle = 'idle' } = {}) {
+export function driveGait(rig, speed, dt, { alert = 0, attack = false, idle = 'idle',
+                                          run = true, maxRate = 2.3, maxStride = null } = {}) {
   const g = rig.gait;
   if (!g || !g.walk) {
     playState(rig, attack ? 'attack' : speed > 0.15 ? 'walk' : idle);
@@ -338,7 +365,7 @@ export function driveGait(rig, speed, dt, { alert = 0, attack = false, idle = 'i
   // Hysteresis, so an animal at the boundary does not flicker between gaits.
   const toRun = g.walk * (alert ? 1.5 : 2.1), toWalk = toRun * 0.8;
   let kind = attack ? 'attack' : s < 0.12 ? idle : rig.gaitKind === 'run' ? (s > toWalk ? 'run' : 'walk') : (s > toRun ? 'run' : 'walk');
-  if (kind === 'run' && !rig.actions.run) kind = 'walk';
+  if (kind === 'run' && (!rig.actions.run || !run)) kind = 'walk';
   rig.gaitKind = kind;
   playState(rig, kind, kind === 'attack' ? 0.15 : 0.35);
 
@@ -347,9 +374,9 @@ export function driveGait(rig, speed, dt, { alert = 0, attack = false, idle = 'i
     const natural = g[kind];
     const ratio = s / natural;
     // Split the difference between cadence and stride length.
-    const maxStride = kind === 'run' ? 1.3 : 1.12;
-    stride = THREE.MathUtils.clamp(Math.sqrt(ratio), 1, maxStride);
-    const rate = THREE.MathUtils.clamp(ratio / stride, 0.45, 2.3);
+    const longest = maxStride ?? (kind === 'run' ? 1.3 : 1.12);
+    stride = THREE.MathUtils.clamp(Math.sqrt(ratio), 1, longest);
+    const rate = THREE.MathUtils.clamp(ratio / stride, 0.45, maxRate);
     rig.actions[kind].setEffectiveTimeScale(rate);
   }
   rig.mixer.update(dt);
@@ -369,5 +396,114 @@ export function driveGait(rig, speed, dt, { alert = 0, attack = false, idle = 'i
       _dq.setFromAxisAngle(_axis, angle * rig.stride);
       bone.quaternion.copy(q).multiply(_dq);
     }
+  }
+}
+
+// ── feet on the ground ───────────────────────────────────────────────────────
+// Even played at the right speed a shared clip cannot keep every foot still
+// on every body: the same walk is stretched over a biped and a sauropod, and
+// on a four-legged one the legs no longer sweep back at one speed. So a foot
+// coming down in its stride is held where it came down — on the ground as it
+// lies there — and the leg bent to reach it, the knee kept in the plane the
+// clip bends it in and the foot turned as the clip turns it; and let go as the
+// clip lifts it, or sooner if the leg would have to stretch too far.
+
+const _A = new THREE.Vector3(), _B = new THREE.Vector3(), _C = new THREE.Vector3(), _T = new THREE.Vector3();
+const _d = new THREE.Vector3(), _n = new THREE.Vector3(), _B2 = new THREE.Vector3(), _u = new THREE.Vector3(), _w = new THREE.Vector3();
+const _q = new THREE.Quaternion(), _qp = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qf = new THREE.Quaternion();
+
+/** Turn `bone` by `delta`, a rotation in the world's frame. */
+function turnInWorld(bone, delta) {
+  bone.getWorldQuaternion(_qb);
+  bone.parent.getWorldQuaternion(_qp);
+  bone.quaternion.copy(_qp.invert().multiply(delta.multiply(_qb)));
+  bone.updateMatrixWorld(true);
+}
+
+/** Bend hip → knee → foot so the foot is at `target` (world), the knee on the side it was. */
+function reach(hip, knee, foot, target) {
+  hip.getWorldPosition(_A); knee.getWorldPosition(_B); foot.getWorldPosition(_C);
+  foot.getWorldQuaternion(_qf);
+  const l1 = _A.distanceTo(_B), l2 = _B.distanceTo(_C);
+  _d.subVectors(target, _A);
+  const dist = THREE.MathUtils.clamp(_d.length(), Math.abs(l1 - l2) * 1.02 + 1e-4, (l1 + l2) * 0.999);
+  _d.normalize();
+  // The knee's way out from the hip-to-foot line, as the clip had it.
+  _n.subVectors(_B, _A);
+  _n.addScaledVector(_d, -_n.dot(_d));
+  if (_n.lengthSq() < 1e-10) return;
+  _n.normalize();
+  const a = (l1 * l1 - l2 * l2 + dist * dist) / (2 * dist), h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  _B2.copy(_A).addScaledVector(_d, a).addScaledVector(_n, h);
+  _u.subVectors(_B, _A).normalize(); _w.subVectors(_B2, _A).normalize();
+  turnInWorld(hip, _q.setFromUnitVectors(_u, _w));
+  knee.getWorldPosition(_B); foot.getWorldPosition(_C);
+  _T.copy(_A).addScaledVector(_d, dist);
+  _u.subVectors(_C, _B).normalize(); _w.subVectors(_T, _B).normalize();
+  turnInWorld(knee, _q.setFromUnitVectors(_u, _w));
+  // The foot as the clip turned it.
+  foot.parent.getWorldQuaternion(_qp);
+  foot.quaternion.copy(_qp.invert().multiply(_qf));
+  foot.updateMatrixWorld(true);
+}
+
+/**
+ * After the clip (driveGait) and any posing on top of it: the feet that are
+ * down held where they came down. `groundAt(x, z)` is the ground's height.
+ */
+export function plantFeet(rig, dt, groundAt) {
+  if (dt <= 0) return;
+  const g = rig.gait;
+  if (!g) return;
+  const kind = rig.gaitKind;
+  const moving = kind === 'walk' || kind === 'run';
+  if (moving) rig.plantLimbs = g[`${kind}Limbs`];
+  const limbs = rig.plantLimbs;
+  const locks = rig.locks ||= new Map();
+  if (!limbs || (!moving && !locks.size)) return;
+  rig.group.updateMatrixWorld(true);
+  const gp = rig.group.position, gy = gp.y, M = rig.group.matrixWorld.elements;
+  const fl = Math.hypot(M[8], M[10]) || 1, fx = M[8] / fl, fz = M[10] / fl;      // the body's forward, flat
+  const seen = rig.footSeen ||= new Map();
+  for (const L of limbs) {
+    const foot = L.foot, knee = foot.parent, hip = knee?.parent;
+    if (!hip?.parent) continue;
+    foot.getWorldPosition(_C);
+    const h = _C.y - gy;
+    // How low and how high this foot has been lately — as posed here, on this
+    // ground, at this pace — so "down" is the bottom of its own stride.
+    // And which way it is going along the body, as the clip moves it: back
+    // while it bears the weight, forward as it swings through.
+    const along = (_C.x - gp.x) * fx + (_C.z - gp.z) * fz;
+    let r = seen.get(foot);
+    if (!r) seen.set(foot, r = { buf: new Float32Array(48).fill(h), i: 0, along });
+    r.buf[r.i = (r.i + 1) % r.buf.length] = h;
+    const back = (r.along - along) / dt;
+    r.along = along;
+    let lo = Infinity, hi = -Infinity;
+    for (const v of r.buf) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const span = hi - lo, u = span > 1e-4 ? (h - lo) / span : 0;
+    let lock = locks.get(foot);
+    // Down: at the bottom of its stride, or low and going back; held, while it
+    // is going back (or hardly moving) and not yet lifted high.
+    const down = moving && span > L.len * 0.02 &&
+      (lock && lock.w > 0 && !lock.lifting ? u < 0.7 && back > -0.25 * L.len : u < 0.3 || (u < 0.6 && back > 0));
+    if (down) {
+      // (Coming down again as the last step is let go: a new step, where it lands now.)
+      if (!lock || lock.lifting) {
+        lock = { x: _C.x, z: _C.z, dy: _C.y - groundAt(_C.x, _C.z), w: 0 };
+        locks.set(foot, lock);
+      }
+      lock.w = Math.min(1, lock.w + dt / 0.06);
+    } else if (lock) {
+      lock.lifting = true;
+      lock.w -= dt / 0.12;                                   // eased back onto the clip as it lifts
+      if (lock.w <= 0) { locks.delete(foot); continue; }
+    } else continue;
+    _T.set(lock.x, groundAt(lock.x, lock.z) + lock.dy, lock.z);
+    // Held too far behind (a turn, a burst of speed): let it go.
+    if (_T.distanceTo(_C) > L.len * 0.35) { locks.delete(foot); continue; }
+    _T.lerp(_C, 1 - lock.w * lock.w * (3 - 2 * lock.w));
+    reach(hip, knee, foot, _T);
   }
 }
