@@ -882,6 +882,28 @@ function addWind(material, { amount = 0.5, flutter = 1, fade = 0 } = {}) {
 // ── materials ────────────────────────────────────────────────────────────────
 let mats = null;
 /** [bark, foliage] for trees and plants; grass has its own (it fades out). */
+/** Wood's grain, lengthwise (along v): fine fibres, near white, for vertex colour to tint. */
+function woodGrain() {
+  const W = 64, H = 256, cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const g = cv.getContext('2d'), r = rng(97);
+  g.fillStyle = '#f2ece2';
+  g.fillRect(0, 0, W, H);
+  for (let k = 0; k < 120; k++) {
+    const x = r() * W, w = 0.5 + r() * 1.6, a = 0.06 + r() * 0.2;
+    g.fillStyle = `rgba(90, 60, 30, ${a.toFixed(2)})`;
+    g.fillRect(x, 0, w, H);
+  }
+  for (let k = 0; k < 40; k++) {
+    g.fillStyle = `rgba(60, 38, 18, ${(0.15 + r() * 0.25).toFixed(2)})`;
+    g.fillRect(r() * W, r() * H, 0.8 + r(), 6 + r() * 40);     // the torn ends of fibres
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 export function floraMaterials() {
   if (mats) return mats;
   const barkOf = kind => {
@@ -902,8 +924,14 @@ export function floraMaterials() {
     map: leafAtlas(), vertexColors: true, roughness: 0.9, metalness: 0,
     side: THREE.DoubleSide, alphaTest: 0.5, alphaToCoverage: true,
   }), { flutter: 1.6, fade: 95 });
+  // Bare wood — a break, a splinter — pale, with a fine grain along it
+  // (drawn with the bark, it came out dark and furrowed).
+  const woodMat = addWind(new THREE.MeshStandardMaterial({
+    map: woodGrain(), vertexColors: true, roughness: 0.86, metalness: 0,
+    flatShading: true,                                           // a break is facets, not a curve
+  }), { flutter: 0 });
   const rockMat = applyGroundDetail(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94, metalness: 0 }), { rock: 0.6, bump: 1.4 });
-  mats = { tree: [barkMat, leafMat], grass: [barkMat, grassMat], rock: rockMat, bark, leaf: leafMat, grassLeaf: grassMat };
+  mats = { tree: [barkMat, leafMat], grass: [barkMat, grassMat], rock: rockMat, bark, leaf: leafMat, grassLeaf: grassMat, wood: woodMat };
   return mats;
 }
 
@@ -915,7 +943,7 @@ const UP = V3(0, 1, 0);
 
 class Builder {
   constructor() {
-    this.parts = [this.part(), this.part()];
+    this.parts = [this.part(), this.part(), this.part()];      // bark, foliage, bare wood
     // The species' sway: [how quick (×), how much its leaves flutter] — see addWind().
     this.wind = [1, 1];
   }
@@ -937,7 +965,7 @@ class Builder {
    * parallel transport so it never twists. `radius(t, angle)` may add lobes
    * (a buttressed base); `color(t, n)` and `sway(t)` per ring.
    */
-  tube(path, { sides = 8, radius, color, sway = () => 0, uTiles = 1, vMetres = 3, cap = false, k = 0 }) {
+  tube(path, { sides = 8, radius, color, sway = () => 0, uTiles = 1, vMetres = 3, cap = false, startJag = null, k = 0 }) {
     const n = path.length;
     const tangents = path.map((p, i) => {
       const a = path[Math.max(0, i - 1)], b = path[Math.min(n - 1, i + 1)];
@@ -965,6 +993,9 @@ class Builder {
         const dir = normal.clone().multiplyScalar(Math.cos(a)).addScaledVector(binormal, Math.sin(a));
         const r = radius(t, a);
         const p = path[i].clone().addScaledVector(dir, r);
+        // A ragged start: each point of the first ring pulled back along the
+        // trunk by its own amount — a break, not a saw cut.
+        if (i === 0 && startJag) p.addScaledVector(tangents[0], -startJag(s % sides));
         ring.push(this.vert(k, p, dir, (s / sides) * uTiles, along / vMetres, color(t, dir), sway(t)));
       }
       rings.push(ring);
@@ -1673,29 +1704,82 @@ function log(lod, seed) {
     path.push(V3(-L / 2 + L * t, R * 0.55 + Math.sin(t * 3 + seed) * 0.15, Math.sin(t * 2.2) * 0.4));
   }
   const barkC = new THREE.Color(0x76624c), moss = new THREE.Color(0x4f6a2c), heart = new THREE.Color(0xb49468);
+  const sides = lod ? 6 : 16;
+  // The snapped end is torn, as a trunk breaks: the bark ragged round it,
+  // a line of red-brown inner bark just inside, and the wood a splintered
+  // mass standing out of it — every point of it at its own height, faceted,
+  // pale; short and crushed on one side, pulled out long on the other
+  // (toward `tear`), where a few slivers tore free along the grain.
+  // (Closed: left open, as a standing trunk's foot is, you saw straight
+  // through the hollow log from that end.)
+  const tear = r() * Math.PI * 2;
+  const reach = a => { const side = 0.5 + 0.5 * Math.cos(a - tear); return side * side; };
+  const jag = Array.from({ length: sides }, (_, s) => R * (0.02 + 0.14 * reach((s / sides) * Math.PI * 2) + 0.07 * r()));
   b.tube(path, {
-    sides: lod ? 6 : 11, k: 0, uTiles: 3, vMetres: 2.8,
+    sides, k: 0, uTiles: 3, vMetres: 2.8,
     radius: (t, a) => R * (1 - t * 0.3) * (1 + 0.05 * Math.sin(a * 7 + t * 20)),
     // Moss where rain lands and light is poor: on top.
     color: (t, n) => barkC.clone().lerp(moss, clamp01((n.y - 0.2) * 1.4) * (0.5 + 0.4 * Math.sin(t * 9 + seed))),
-    cap: heart, sway: () => 0,
+    cap: heart, startJag: s => jag[s], sway: () => 0,
   });
-  // The snapped end: splinters.
-  const end = path[0];
-  for (let i = 0; i < (lod ? 0 : 7); i++) {
-    const a = (i / 7) * Math.PI * 2;
-    const p0 = end.clone().add(V3(0, Math.cos(a) * R * 0.7, Math.sin(a) * R * 0.7));
-    b.tube([p0, p0.clone().add(V3(-0.5 - r() * 0.9, (r() - 0.5) * 0.3, (r() - 0.5) * 0.3))], {
-      sides: 3, k: 0, radius: f => 0.16 * (1 - f), color: () => heart, sway: () => 0,
+  const sap = new THREE.Color(0xe8d6ac), sapB = new THREE.Color(0xc9ab7c), cambium = new THREE.Color(0x9a4a2a);
+  // The tube's own frame at its start (as tube() builds it), to meet its rim.
+  const tn = path[1].clone().sub(path[0]).normalize(), back = tn.clone().negate();
+  const nm = V3(0, 1, 0).cross(tn).normalize(), bn = tn.clone().cross(nm).normalize();
+  const at = (a, rad, h) => path[0].clone().addScaledVector(nm, Math.cos(a) * rad).addScaledVector(bn, Math.sin(a) * rad).addScaledVector(back, h);
+  const stand = (a, f) => R * (0.12 + 0.75 * reach(a)) * (1 - 0.35 * f);       // how far the wood stands out, here
+  // (Rings close together, each point well up or well down from its
+  // neighbours: the steep walls between are the splinters' sides, running
+  // along the grain. The last ring in hugs the bark, so the inner bark is a
+  // line, not a band.)
+  const J = lod ? 2 : 8, rows = [];
+  for (let j = 1; j <= J; j++) {
+    const f = j === J ? 1 : j === J - 1 ? 0.94 : (j / (J - 1)) * 0.9, row = [];
+    const spin = Array.from({ length: sides }, () => (r() - 0.5) * 0.3);
+    const lift = Array.from({ length: sides }, () => (r() < 0.45 ? R * 0.04 * r() : R * (0.15 + 0.55 * Math.pow(r(), 1.5))));
+    const tint = Array.from({ length: sides }, () => (r() < 0.7 ? sap : sapB).clone().multiplyScalar(0.86 + r() * 0.2));
+    for (let q = 0; q <= sides; q++) {
+      const s = q % sides, rim = j === J;
+      const a = (s / sides) * Math.PI * 2 + (rim ? 0 : spin[s]);
+      const rad = R * (1 + 0.05 * Math.sin(a * 7)) * f;
+      const h = rim ? jag[s] : stand(a, f) + lift[s] * (j === J - 1 ? 0.4 : 1);
+      row.push(b.vert(2, at(a, rad, h), back, s / sides, f * 2, rim ? cambium : j === J - 1 ? sapB : tint[s], 0));
+    }
+    rows.push(row);
+  }
+  const mid = b.vert(2, at(0, 0, stand(tear, 0) * 0.8 + R * 0.15 * r()), back, 0.5, 0, sap, 0);
+  for (let q = 0; q < sides; q++) b.tri(2, rows[0][q + 1], rows[0][q], mid);
+  for (let j = 0; j < rows.length - 1; j++) {
+    const I = rows[j], O = rows[j + 1];
+    for (let q = 0; q < sides; q++) { b.tri(2, O[q + 1], O[q], I[q]); b.tri(2, O[q + 1], I[q], I[q + 1]); }
+  }
+  // Slivers torn out along the grain on the long side: flat, uneven, long.
+  for (let i = 0; i < (lod ? 0 : 16); i++) {
+    const a = tear + (r() - 0.5) * 1.8, f = 0.35 + r() * 0.6;
+    const len = R * (0.25 + 1.0 * reach(a) * (0.3 + r())), w = R * (0.04 + r() * 0.07), th = w * (0.25 + r() * 0.2);
+    const p0 = at(a, R * f, stand(a, f) * 0.7);
+    const dir = back.clone().addScaledVector(nm, Math.cos(a) * 0.1 * f + (r() - 0.5) * 0.1)
+      .addScaledVector(bn, Math.sin(a) * 0.1 * f + (r() - 0.5) * 0.1).normalize();
+    const roll = a + Math.PI / 2 + (r() - 0.5) * 0.6;          // flat across the radius, as it splits
+    b.tube([p0, p0.clone().addScaledVector(dir, len * 0.55), p0.clone().addScaledVector(dir, len)], {
+      sides: 4, k: 2, uTiles: 0.3, vMetres: R * 1.5,
+      radius: (t, q) => (Math.abs(Math.cos(q + roll)) * w + Math.abs(Math.sin(q + roll)) * th) * (1 - t * 0.6),
+      color: () => sap.clone().multiplyScalar(0.9 + r() * 0.15), sway: () => 0,
     });
   }
-  // Branch stubs.
-  for (let i = 0; i < (lod ? 0 : 4); i++) {
-    const t = 0.2 + r() * 0.7;
-    const p0 = V3(-L / 2 + L * t, R * 0.55, 0);
-    const d = V3((r() - 0.5) * 0.4, 0.8 + r(), (r() - 0.5) * 1.2).normalize();
-    b.tube([p0, p0.clone().addScaledVector(d, R + 0.3 + r() * 0.7)], {
-      sides: 4, k: 0, radius: f => 0.16 * (1 - f * 0.7), color: () => barkC, sway: () => 0,
+  // Branch stubs: where branches broke off as it fell and rolled — short,
+  // blunt, broken across, mostly out to the sides.
+  const along = t => {
+    const x = t * (path.length - 1), i = Math.min(path.length - 2, Math.floor(x));
+    return path[i].clone().lerp(path[i + 1], x - i);
+  };
+  for (let i = 0; i < (lod ? 0 : 3); i++) {
+    const t = 0.25 + r() * 0.6, up = 0.2 + r() * 0.9, side = r() < 0.5 ? -1 : 1;
+    const d = V3((r() - 0.5) * 0.5, up, side * (1 - up * 0.4)).normalize();
+    const rad = (0.09 + r() * 0.07) * (1 - t * 0.3);
+    const p0 = along(t).addScaledVector(d, R * (1 - t * 0.3) * 0.85);
+    b.tube([p0, p0.clone().addScaledVector(d, 0.2 + r() * 0.35)], {
+      sides: 6, k: 0, radius: q => rad * (1 - q * 0.2), color: () => barkC, cap: heart, sway: () => 0,
     });
   }
   // Ferns rooted in the rot.
@@ -1710,7 +1794,11 @@ function log(lod, seed) {
       }
     }
   }
-  return b.geometry();
+  const g = b.geometry();
+  // Its body, for what it blocks (terrain.js): the line down its middle and
+  // how thick it is along it.
+  g.userData.body = path.map((p, i) => ({ x: p.x, y: p.y, z: p.z, r: R * (1 - (i / (path.length - 1)) * 0.3) }));
+  return g;
 }
 
 /** A stump with its roots gripping the ground. */
@@ -2202,7 +2290,8 @@ export function speciesMaterial(sp) {
   const m = floraMaterials();
   if (sp.material === 'rock') return m.rock;
   const key = `${sp.material}:${sp.bark || 'furrowed'}`;
-  if (!pairs.has(key)) pairs.set(key, [m.bark[sp.bark || 'furrowed'], sp.material === 'grass' ? m.grassLeaf : m.leaf]);
+  // (Every one gets bare wood too, third: only what has some draws it.)
+  if (!pairs.has(key)) pairs.set(key, [m.bark[sp.bark || 'furrowed'], sp.material === 'grass' ? m.grassLeaf : m.leaf, m.wood]);
   return pairs.get(key);
 }
 

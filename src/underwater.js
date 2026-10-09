@@ -54,6 +54,15 @@ export function applyCaustics(material) {
         varying vec3 vCausPos;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         {
+          // The light that reaches the bed has come down through the water,
+          // and the water takes the red out of it first, then the green:
+          // half the red is gone by 15 m, little of the blue. So the reef top
+          // at 8 m is warmer than the sand at 18 m beside it, as on a dive —
+          // the fog does the same for the light on its way back to the eye.
+          float under = max(0.0, -vCausPos.y);
+          diffuseColor.rgb *= exp(-vec3(0.036, 0.009, 0.006) * under);
+        }
+        {
           // Fades out with depth as the swell stops focusing anything, and
           // stops at the waterline so the beach never shimmers.
           float reach = smoothstep(-32.0, -1.0, vCausPos.y) * step(vCausPos.y, 0.0);
@@ -87,6 +96,100 @@ export function applyCaustics(material) {
   return material;
 }
 
+// ── sun shafts ───────────────────────────────────────────────────────────────
+// The swell focuses the sunlight into sheets that plunge down through the
+// water and show where there is anything in it to light — the "god rays" of
+// every reef photograph. Here, a few dozen long soft quads hung from the
+// surface along the sun's direction *after* it bends into the water (Snell:
+// steeper than in the air), each turned about its own axis to face you,
+// brightest just under the surface and dying away with depth, each swaying
+// and flickering on its own as the waves above refocus it. Like the motes,
+// they wrap round you, so a few dozen read as an endless sea of them.
+
+const SHAFTS = 40;
+const SHAFT_BOX = 46;             // metres; they wrap at half this
+const SHAFT_LEN = 34;             // from the surface down
+
+const shaftVert = `
+  uniform vec3 uCam;
+  uniform vec3 uDir;            // down along the refracted sun
+  uniform float uTime;
+  attribute vec4 aShaft;        // x, z (box offset), width, phase
+  attribute vec2 aCorner;       // across -1..1, along 0..1
+  varying vec2 vCorner;
+  varying float vPhase;
+  varying vec3 vWorld;
+  void main() {
+    float hb = ${(SHAFT_BOX / 2).toFixed(1)};
+    vec2 c = uCam.xz + mod(aShaft.xy - uCam.xz + hb, ${SHAFT_BOX.toFixed(1)}) - hb;
+    c += vec2(sin(uTime * 0.21 + aShaft.w * 6.0), cos(uTime * 0.17 + aShaft.w * 4.0)) * 0.8;
+    // Wrapped round you at your own depth, then traced back up to the
+    // surface it hangs from, so they stand round you wherever you are.
+    vec3 top = vec3(c.x, uCam.y, c.y) + uDir * (-uCam.y / uDir.y);
+    vec3 p = top + uDir * aCorner.y * ${SHAFT_LEN.toFixed(1)};
+    vec3 toCam = normalize(cameraPosition - p);
+    vec3 across = normalize(cross(uDir, toCam));
+    p += across * aCorner.x * aShaft.z * 0.5;
+    vCorner = aCorner;
+    vPhase = aShaft.w;
+    vWorld = p;
+    gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+  }`;
+
+const shaftFrag = `
+  uniform float uTime;
+  uniform float uStrength;
+  uniform float uDensity;       // the water's fog, so they go into the haze with everything else
+  uniform vec3 uColor;
+  varying vec2 vCorner;
+  varying float vPhase;
+  varying vec3 vWorld;
+  void main() {
+    float across = 1.0 - vCorner.x * vCorner.x;
+    across *= across;
+    // In from the surface, then dying away with depth.
+    float along = smoothstep(0.0, 0.06, vCorner.y) * exp(-vCorner.y * 3.2);
+    // Refocused as the swell passes over: each brightens and fades on its own.
+    float flicker = 0.45 + 0.55 * sin(uTime * (0.55 + vPhase * 0.6) + vPhase * 40.0);
+    flicker = max(0.0, flicker);
+    float d = distance(vWorld, cameraPosition);
+    float near = smoothstep(1.5, 6.0, d);               // not a sheet across your face
+    float fog = exp(-uDensity * uDensity * d * d * 0.55);
+    float a = across * along * flicker * near * fog * uStrength;
+    if (a < 0.002) discard;
+    gl_FragColor = vec4(uColor * a, 1.0);
+  }`;
+
+function makeShafts() {
+  const corner = [], shaft = [], index = [];
+  const r = () => Math.random();
+  for (let i = 0; i < SHAFTS; i++) {
+    const x = r() * SHAFT_BOX, z = r() * SHAFT_BOX, w = 0.5 + Math.pow(r(), 2) * 3.2, ph = r();
+    for (const [a, b] of [[-1, 0], [1, 0], [-1, 1], [1, 1]]) { corner.push(a, b); shaft.push(x, z, w, ph); }
+    const v = i * 4;
+    index.push(v, v + 2, v + 1, v + 1, v + 2, v + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  // (Positions are made in the shader; this only sizes the draw.)
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SHAFTS * 4 * 3), 3));
+  geo.setAttribute('aCorner', new THREE.BufferAttribute(new Float32Array(corner), 2));
+  geo.setAttribute('aShaft', new THREE.BufferAttribute(new Float32Array(shaft), 4));
+  geo.setIndex(index);
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uCam: { value: new THREE.Vector3() }, uDir: { value: new THREE.Vector3(0, -1, 0) },
+      uTime: CAUSTICS.uTime, uStrength: { value: 0 }, uDensity: { value: 0.03 },
+      uColor: { value: new THREE.Color(0.55, 0.78, 0.82) },
+    },
+    vertexShader: shaftVert, fragmentShader: shaftFrag,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 3;
+  return mesh;
+}
+
 export class Underwater {
   constructor(scene, ocean) {
     this.ocean = ocean;
@@ -108,6 +211,11 @@ export class Underwater {
     this.motes.visible = false;
     scene.add(this.motes);
 
+    this.shafts = makeShafts();
+    this.shafts.visible = false;
+    scene.add(this.shafts);
+    this._sun = new THREE.Vector3();
+
     this.caustics = CAUSTICS;      // the live uniforms, reachable for tuning
     this.fogColor = new THREE.Color();
     this.shallow = new THREE.Color(0x3aa6c4);
@@ -122,6 +230,7 @@ export class Underwater {
     CAUSTICS.uTime.value += dt;
     CAUSTICS.uCaustics.value = 0.85 * (1 - night);
     this.motes.visible = submerged;
+    this.shafts.visible = submerged;
     if (!submerged) {
       sky.uniforms.uUnderwater.value = 0;
       this.ocean.uniforms.uUnderwater.value = 0;
@@ -166,6 +275,19 @@ export class Underwater {
     // tints every surface down there the same grey as the distance.
     sky.hemi.color.copy(this.fogColor).lerp(WHITE, 0.30);
     this.motes.material.opacity = 0.2 + 0.4 * light;
+
+    // The shafts follow the sun as it comes through the surface, bent
+    // steeper by it (sin t = sin i / 1.33), and are only as bright as the
+    // sun is high, the sky clear and you near enough the top to see them.
+    const sd = sky.sunDir, horiz = Math.hypot(sd.x, sd.z);
+    const st = Math.min(0.98, horiz / Math.max(1e-3, Math.hypot(horiz, sd.y)) / 1.33);
+    const ct = Math.sqrt(1 - st * st);
+    this._sun.set(-sd.x / (horiz || 1) * st, -ct, -sd.z / (horiz || 1) * st);
+    const su = this.shafts.material.uniforms;
+    su.uDir.value.copy(this._sun);
+    su.uCam.value.copy(camPos);
+    su.uDensity.value = scene.fog.density;
+    su.uStrength.value = 0.16 * Math.max(0, Math.min(1, sd.y * 2.5)) * CAUSTICS.uCaustics.value;
 
     // The sky dome becomes the water column while we are under it, and the
     // ocean's underside fogs into the same water rather than into air.

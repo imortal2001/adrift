@@ -658,8 +658,9 @@ export async function loadRegistry() {
       kind: 'built in code', backdrop: 'world', source: 'src/terrain.js · addStump(), topple(), cutFaces()',
       variants: forms.length > 1 ? forms : null,
       facts: [['Cut', sp.cut === 'hollow' ? 'a stubble of open stems a hand high — a horsetail’s are hollow'
-                                           : 'at knee height or so, higher on a big trunk: the stump its own foot, clipped at the cut'],
-              ...(sp.heartwood ? [['The face', 'its own cross-section there, flutes and buttresses and all: the heartwood, a narrow band of sapwood, the bark; growth rings and a few checks']] : []),
+                                           : 'at waist height or so, higher on a big trunk: the stump its own foot, clipped at the cut'],
+              ...(sp.heartwood ? [['The face', 'its own cross-section there, flutes and buttresses and all: the heartwood, a narrow band of sapwood, the bark; growth rings and a few checks'],
+                                  ['As an axe leaves it', 'the notch on the side it fell to, sloping away down it; the flat back cut behind; between them the hinge that tore, its splinters standing']] : []),
               ['Falls', 'hinged on the stump’s far edge, away from the axe; lies a few seconds, and sinks from sight'],
               ['Stays', `the stump, until the tree grows back (${sp.regrow} s); you can stand on it`]],
       async build(variant) {
@@ -670,15 +671,16 @@ export async function loadRegistry() {
         const p = { sp, inst, index: 0, matrix: M, x: 0, y: 0, z: 0, key: `gallery-${sp.name}`, trunk: sp.trunkOf ? sp.trunkOf(v) : sp.trunk };
         const c = t.cutOf(p);
         const g = new THREE.Group();
-        // The stump, where it stood.
-        const below = new THREE.Plane(), above = new THREE.Plane();
+        // The stump, where it stood: notched on the side it went over to (-x).
+        const cut = t.stumpCut(p, c, Math.PI);
+        const below = cut.planes.map(() => new THREE.Plane()), above = new THREE.Plane();
         const stump = t.clippedCopy(p, below);
         // (Its bounds the stump's, not the whole tree's it is clipped from.)
         const gb = inst.geometry.boundingBox || (inst.geometry.computeBoundingBox(), inst.geometry.boundingBox);
         const rb = Math.max(c.rw, 0.3) * 1.6;
         stump.boundingBox = new THREE.Box3(V(Math.max(gb.min.x, -rb), gb.min.y, Math.max(gb.min.z, -rb)), V(Math.min(gb.max.x, rb), c.hl, Math.min(gb.max.z, rb)));
         g.add(stump);
-        if (c.top) g.add(t.cutFace(p, c.top));
+        if (cut.top) g.add(t.cutFace(p, cut.top));
         // The rest of it, over on its side from the hinge at the far edge of
         // the cut — away from where you look, so its cut end faces you.
         const down = new THREE.Group();
@@ -695,7 +697,7 @@ export async function loadRegistry() {
         // (Clipping is in the world's frame: kept with the pieces wherever the stage puts them.)
         const keep = () => {
           g.updateMatrixWorld(true);
-          below.set(new THREE.Vector3(0, -1, 0), c.hl).applyMatrix4(stump.matrixWorld);
+          below.forEach((b, i) => b.copy(cut.planes[i]).applyMatrix4(stump.matrixWorld));
           above.set(new THREE.Vector3(0, 1, 0), -c.hl).applyMatrix4(log.matrixWorld);
         };
         keep();
@@ -712,13 +714,16 @@ export async function loadRegistry() {
 
   // ── corals & rocks ──
   REEF.forEach((sp, i) => {
-    const rock = sp.name === 'rock';
+    const rock = REEF_ROCKS.has(sp.name);
     add({
       id: `reef-${sp.name}`, name: REEF_NAMES[sp.name] || cap(sp.name),
       category: rock ? 'terrain' : 'reef', group: rock ? 'Rocks' : REEF_GROUPS[sp.name] || 'Corals & sponges',
       kind: 'built in code', backdrop: 'underwater', source: `src/reef.js · REEF.${sp.name}`,
       facts: [['Grows', `sea bed ${sp.depth[1]} to ${sp.depth[0]} m`],
               ['Where', sp.reef[0] >= 0.3 ? 'on the coral colonies' : sp.reef[1] < 0.5 ? 'on open sand between colonies' : 'anywhere on the sea bed'],
+              ['Grows on', sp.hard[0] >= 0.25 ? 'rock — the reef\'s framework, bedrock ledges' : sp.hard[1] <= 0.6 ? 'sand' : 'rock or sand'],
+              ['In a colony', [sp.anchor && 'one of the big pieces it grows round', sp.weight && 'round the big pieces, and between',
+                               sp.perch && 'up on top of a rock', sp.carries && 'carries small things on top'].filter(Boolean).join('; ') || '—'],
               ['Size', `×${sp.scale[0]}–${sp.scale[1]} of this`],
               ['In the surge', sp.soft === 0 ? 'rigid' : sp.soft < 1 ? 'sways a little' : 'sways'],
               ['Blocks you', sp.soft < 0.5 ? 'yes' : 'no — bends round you']],
@@ -1160,11 +1165,17 @@ export async function loadRegistry() {
   return list;
 }
 
-const REEF_NAMES = { brain: 'Brain coral', staghorn: 'Staghorn coral', fan: 'Sea fan',
-                     barrel: 'Barrel sponge', anemone: 'Anemone', grass: 'Seagrass', rock: 'Boulder (sea bed)',
-                     kelp: 'Kelp', urchin: 'Sea urchin', starfish: 'Starfish', clam: 'Giant clam' };
-const REEF_GROUPS = { grass: 'Underwater plants', kelp: 'Underwater plants',
+const REEF_NAMES = { brain: 'Brain coral', porites: 'Massive coral (Porites)', table: 'Table coral',
+                     staghorn: 'Staghorn coral', plate: 'Plate coral', finger: 'Finger coral', fan: 'Sea fan',
+                     barrel: 'Barrel sponge', tube: 'Tube sponge — purple', tubeYellow: 'Tube sponge — yellow',
+                     leather: 'Leather coral', anemone: 'Anemone', grass: 'Seagrass', algae: 'Macroalgae',
+                     rock: 'Boulder (sea bed)', outcrop: 'Rock outcrop', slab: 'Limestone slabs', stones: 'Cobbles',
+                     rubble: 'Coral rubble', kelp: 'Kelp', urchin: 'Sea urchin', starfish: 'Starfish', clam: 'Giant clam' };
+const REEF_GROUPS = { grass: 'Underwater plants', kelp: 'Underwater plants', algae: 'Underwater plants',
+                      tube: 'Corals & sponges', tubeYellow: 'Corals & sponges',
                       urchin: 'Reef animals', starfish: 'Reef animals', clam: 'Reef animals' };
+// The sea bed's own stone, filed with the rocks rather than the corals.
+const REEF_ROCKS = new Set(['rock', 'outcrop', 'slab', 'stones', 'rubble']);
 
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
@@ -1232,11 +1243,11 @@ async function terrainSamples() {
     pick('ridge', 'Mountain ridge', 'terrain', 'Land', 'the high spine of the continent',
          'cloud forest to the tops — araucarias, tree ferns, moss; bare rock and scree only where it is steep (no snow: the Cretaceous greenhouse)', chunkOf(...peak)),
     pick('shelf', 'Sea bed — sand shelf', 'terrain', 'Sea bed', 'the open sand between reef colonies, near the raft',
-         'sand at ~18 m, seagrass, the odd boulder', sandIJ),
+         'sand at ~18 m in ripples, seagrass meadows, bedrock ledges cracked into slabs, cobbles and the odd boulder', sandIJ),
     pick('dropoff', 'The drop-off', 'terrain', 'Sea bed', 'where the shelf ends and the basin begins, past the raft',
          'the slope down to deep silt, deeper than one breath', at(-200)),
     pick('colony', 'Reef colony', 'reef', 'Formations', 'the densest coral near the raft',
-         'coral heads with brain coral, staghorn, sea fans, sponges and anemones', reefIJ),
+         'patch reefs of limestone framework, crevices and spur-and-groove; massive, brain and table corals with staghorn thickets, plate, finger and leather corals, sea fans, tube and barrel sponges round them; rubble and seagrass between', reefIJ),
     pick('shallows', 'Shallows', 'water', 'Coast', 'the beach, seen as water',
          'the ocean over sand, from a metre deep to dry land', at(-10)),
   ];
