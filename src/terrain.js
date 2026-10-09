@@ -1238,6 +1238,7 @@ export class Terrain {
       if (!wanted.has(key)) {
         if (c.reefProps || c.landProps) this.reefDirty = true;
         this.disposeChunk(c);
+        if (c.replaces) this.dropChunk(c.replaces);
         this.chunks.delete(key);
       }
     }
@@ -1254,22 +1255,23 @@ export class Terrain {
       if (!wanted.has(key)) continue;
       const old = this.chunks.get(key);
       if (old && old.band === job.band && !old.stale) continue;
-      // Rebuilt finer or coarser as you came nearer or went away: its old
-      // reef stays (and stays solid) until the new one has grown, or the
-      // coral round you blinked out each time you crossed into a chunk.
-      // (The old chunk goes first: it takes its plants and stumps with it,
-      // by key, and gone after the new one, it took the new one's too.)
-      const keep = old?.reefQuads, keepProps = old?.reefProps;
-      if (old) {
-        for (const q of keep || []) old.group.remove(q);
-        this.disposeChunk(old);
-      }
+      // Rebuilt finer or coarser as you came nearer or went away: with a
+      // reef to grow, the old chunk stays drawn, ground and reef together,
+      // and the new one hidden until its reef has grown — then the one
+      // swaps for the other. (The old reef kept on the new ground, a coarser
+      // or finer one, hung half a metre off it or sank into it for as long
+      // as the new reef took; dropped at once, the coral round you blinked
+      // out each time you crossed into a chunk.) The old one's plants and
+      // stumps let go first, by key: let go after, they took the new one's.
+      if (old) this.releaseChunk(old);
       const c = this.buildChunk(job, true);
-      if (keep && c.reefDue) {
-        c.oldReef = keep;
-        for (const q of keep) c.group.add(q);
-        c.reefProps = keepProps;
-      }
+      const shown = old && (old.replaces || old);
+      if (old?.replaces) this.dropChunk(old);         // rebuilt again before it was shown
+      if (shown && c.reefDue) {
+        c.group.visible = false;
+        c.replaces = shown;
+        c.reefProps = shown.reefProps;
+      } else if (shown) this.dropChunk(shown);
       this.chunks.set(key, c);
       built++;
     }
@@ -1298,11 +1300,20 @@ export class Terrain {
   }
 
   disposeChunk(c) {
+    this.releaseChunk(c);
+    this.dropChunk(c);
+  }
+  /** Let go of its plants and their stumps (they are known by key, not by chunk). */
+  releaseChunk(c) {
+    for (const p of c.plants || []) { this.removeStump(p.key); this.plantsByKey.delete(p.key); }
+    c.plants = null;
+  }
+  /** Take it out of the world. */
+  dropChunk(c) {
     this.scene.remove(c.group);
     // Flora geometry is shared between every chunk; only the ground and the
     // cliff drapes belong to this one.
     c.group.traverse(o => { if (o.isMesh && o.userData.own) o.geometry.dispose(); });
-    for (const p of c.plants || []) { this.removeStump(p.key); this.plantsByKey.delete(p.key); }
   }
 
   /**
@@ -1339,9 +1350,8 @@ export class Terrain {
     let r;
     do r = c.reefJob.next(); while (!r.done && performance.now() < until);
     if (!r.done) return false;
-    // The reef it had before it was rebuilt goes now, and not before.
-    for (const q of c.oldReef || []) c.group.remove(q);
-    c.oldReef = null;
+    // The chunk it replaces goes now, and not before.
+    if (c.replaces) { this.dropChunk(c.replaces); c.replaces = null; c.group.visible = true; }
     c.reefDue = false;
     c.reefJob = null;
     c.grid = null;
@@ -2426,6 +2436,36 @@ export class Terrain {
    * The height something swimming here has to clear: the sea bed, or the top
    * of whatever is standing on it. Over open sand this is just `heightAt`.
    */
+  /**
+   * The surface something crawling on the reef stands on at (x, z): the sea
+   * bed, or the top of a solid piece it is on — a mound, highest at its
+   * middle and down to the bed at its rim, as far out as it is solid (`hit`).
+   * Not clearanceAt(): that is the fish's field, the tallest thing over a
+   * metre and a half, padded out — a crab beside a coral head walked on it in
+   * mid-water, a metre over the sand.
+   */
+  walkHeight(x, z) {
+    let h = heightAt(x, z);
+    if (this.reefSolids.size === 0) return h;
+    const ci = Math.floor(x / SOLID_CELL), cj = Math.floor(z / SOLID_CELL);
+    for (let i = ci - 1; i <= ci + 1; i++) {
+      for (let j = cj - 1; j <= cj + 1; j++) {
+        const bucket = this.reefSolids.get(solidCell(i, j));
+        if (!bucket) continue;
+        for (const p of bucket) {
+          // Reef pieces only (land trunks stand sixty metres), and not up a
+          // sponge's column.
+          if (p.column !== false || p.off) continue;
+          const d2 = (x - p.x) ** 2 + (z - p.z) ** 2;
+          if (d2 >= p.hit * p.hit) continue;
+          const top = p.base + (p.top - p.base) * Math.sqrt(1 - d2 / (p.hit * p.hit));
+          if (top > h) h = top;
+        }
+      }
+    }
+    return h;
+  }
+
   clearanceAt(x, z) {
     const ground = heightAt(x, z);
     if (this.reefTops.size === 0) return ground;

@@ -853,8 +853,11 @@ and the ring round it reach out to 96; and the reef is grown a few
 milliseconds a frame (`growReef()` yields, `REEF_BUDGET`), nearest chunk
 first, after the ground — grown in one go it was 20–40 ms, and with the
 ground, a hitch every time you crossed into a new chunk. A chunk rebuilt finer
-as you swim into it keeps its old reef, solid, until the new one has grown, so
-the coral round you never blinks out. Swimming across the reef, no step of
+as you swim into it is built hidden, and the old one — ground and reef
+together — stays drawn until the new one's reef has grown; then the one swaps
+for the other. So the coral round you never blinks out, and never sits on the
+wrong ground: the old reef kept on the new, finer ground hung half a metre off
+it, or sank into it, for as long as the new reef took to grow. Swimming across the reef, no step of
 the terrain takes longer than about 6 ms.
 
 The props are geometry standing **on** the sea bed, not part of it, so nothing
@@ -874,6 +877,13 @@ field cost to build — rebuilt whole whenever the reef chunk set changes
 (props near a chunk edge stamp cells on both sides, and unpicking one chunk's
 contribution from a shared maximum costs more than the rebuild). One lookup per
 fish per frame, about 0.05ms for the lot.
+
+That field is for what swims over the reef, not what walks on it: padded out
+and as tall as the tallest thing in a metre and a half, it had a crab beside
+a coral head walking in mid-water, a metre over the sand, and an octopus
+hovering over a gap. The crabs, octopuses and rays walk on
+`Terrain.walkHeight(x, z)`: the sea bed, or the top of a solid piece they
+are actually on, a mound out to its solid rim.
 
 The swimmer gets the sharper version of the same problem. `heightAt` is the
 sea bed, so clamping to it stops you sinking through the sand — but the props

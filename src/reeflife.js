@@ -578,7 +578,7 @@ export class ReefLife {
   }
 
   /** The floor an animal lives on at (x, z): the coral's top on the reef, the sand elsewhere. */
-  floor(x, z) { return this.terrain ? this.terrain.clearanceAt(x, z) : heightAt(x, z); }
+  floor(x, z) { return this.terrain ? this.terrain.walkHeight(x, z) : heightAt(x, z); }
 
   /** How many of a land kind the country round you carries: by how much of it fits them (kept a while, as you go). */
   carrying(a) {
