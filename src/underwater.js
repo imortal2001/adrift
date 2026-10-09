@@ -202,8 +202,19 @@ export class Underwater {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
 
+    // Each mote a soft round fleck, not a point: drawn as plain points they
+    // were hard squares, and the ones that drifted close to your face were
+    // square tiles a finger's width across.
+    const dot = document.createElement('canvas');
+    dot.width = dot.height = 32;
+    const dg = dot.getContext('2d'), grad = dg.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    dg.fillStyle = grad;
+    dg.fillRect(0, 0, 32, 32);
     this.motes = new THREE.Points(geo, new THREE.PointsMaterial({
-      color: 0xcfeaf6, size: 0.038, sizeAttenuation: true,
+      color: 0xcfeaf6, size: 0.05, sizeAttenuation: true, map: new THREE.CanvasTexture(dot),
       transparent: true, opacity: 0.5, depthWrite: false,
       blending: THREE.AdditiveBlending,
     }));

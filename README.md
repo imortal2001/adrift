@@ -782,15 +782,17 @@ ground is tens of centimetres off the height function in places) and a dozen
 calls to the ground function per piece do not cost a long frame.
 
 The solid pieces are smooth-shaded and their surfaces worked (`worked()` in
-`reef.js`): a brain coral's dome carries the meandering ridges of the real
-thing, raised off it with the valleys between darker; a massive coral is a
+`reef.js`): a brain coral is one dome on the reef (three darker balls tucked
+under a bigger one read as a mushroom on stones), carrying the meandering
+ridges of the real thing, raised off it with the valleys between darker; a massive coral is a
 pile of fused hummocks, yellow-brown on top and grey with turf round its base;
 a table coral is a lobed plate on one stalk, its top a carpet of tiny upright
 branchlets and its growing edge pale blue; a plate coral is a rosette of thin
 leaves, each cupped up to a pale rim; a rock is weathered stone, lumped and
 pitted, with the reef's turf and coralline crust over whatever faces up; a
 barrel sponge is ribbed up its sides; staghorn is a thicket of forking stems,
-brown at the base and paling to the tips; a sea fan branches and branches
+brown with the algae in them and pale only at the growing tips (paler all
+over, it read as bleached bone); a sea fan branches and branches
 again in one bowed plane, a lace face on and almost nothing edge on. Every
 piece is darker toward where it meets the bed, as the light down there is
 shut out by everything round it — without that each looked set down on the
@@ -825,6 +827,22 @@ face you, brightest just under the surface and dying away with depth, each
 swaying and flickering on its own; they wrap round you like the marine snow,
 so a few dozen read as a sea of them, and they go with the sun, the cloud and
 the night.
+
+**Looking up** you see the surface as a diver does: Snell's window, the whole
+sky squeezed into a cone 97° across overhead, the horizon crowding in at its
+rim in a bright ring and the sun near its middle glittering in the ripples,
+the rim wobbled by them; outside it the surface is a mirror of the water
+below, the water's own colour a little lighter. (It was the sky's deep blue
+straight up and the deep sea's navy round it: from the reef, the surface was
+a dark lid.) The marine snow is soft round flecks, not points — drawn as
+points they were hard squares, a finger's width across close to your face.
+Flotsam casts a shadow only over the shallows: through fifteen metres of
+water a plank's shade is scattered to nothing, and drawn crisp the flotsam's
+shadows lay on the sea bed under you like black cut-outs. And the water
+column behind it all darkens only looking steeply down: darkened from just
+below the horizon, it was darker than the fogged sea bed in front of it (the
+fog's colour exactly), and out over the open basin, where no near ground is
+built, the far sea bed beyond stood out of it as a pale flat panel.
 
 **What it costs.** A reef chunk is now about 800 pieces where it was 250, and
 about 1.6–1.9 million triangles are in view on the reef against 1.4–1.5

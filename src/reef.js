@@ -35,7 +35,7 @@ const PALETTE = {
   shell:   col(0xcfc3a8), shellB:  col(0x9d9178), mantleA: col(0x2f9fb0), mantleB: col(0x5fd0a0),
   // Most living coral is brown, tan and olive — the algae in its tissue — with
   // the colour in its growing edges and tips: blue, violet, pink, pale.
-  stagBase: col(0xa8865e), stagTip: col(0xf0dcc4),
+  stagBase: col(0x8f6a44), stagTip: col(0xd8c0a0),
   tableA:  col(0xb79e72), tableTip: col(0x9cc2d4), tableUnder: col(0x5e4c38),
   plateA:  col(0x6c5838), plateRim: col(0xb49c68),
   poritesA: col(0xc0ab62), poritesB: col(0x8f8050), poritesDead: col(0x6c6a58),
@@ -129,11 +129,12 @@ const WHITE = new THREE.Color(1, 1, 1);
 /** A dome of fused lobes. The workhorse of the reef floor. */
 function brainCoral(lod = 0) {
   const parts = [];
+  // One dome, as a brain coral is — a hemisphere sitting on the reef — with
+  // a little swelling grown into its side. (Three darker balls tucked under
+  // a bigger one read as a mushroom on stones.)
   const lobes = [
-    { r: 1.00, x: 0, z: 0, y: 0.00, c: PALETTE.brainA },
-    { r: 0.62, x: 0.78, z: 0.22, y: -0.12, c: PALETTE.brainB },
-    { r: 0.54, x: -0.46, z: 0.68, y: -0.16, c: PALETTE.brainA },
-    { r: 0.40, x: 0.12, z: -0.78, y: -0.22, c: PALETTE.brainB },
+    { r: 1.00, x: 0, z: 0, y: -0.12, c: PALETTE.brainA },
+    { r: 0.62, x: 0.55, z: 0.25, y: -0.3, c: PALETTE.brainA },
   ];
   // The meandering ridges of a brain coral: bands along the contours of a
   // noise field, raised a little off the dome, the valleys between darker.
@@ -145,7 +146,7 @@ function brainCoral(lod = 0) {
     // (Fine enough to carry the ridges: 2000 triangles the main dome, 720 each lobe.)
     // (Out past the chunk you are in, a lighter one: there the ridges are a texture in the haze.)
     const g = new THREE.IcosahedronGeometry(l.r, lod ? (k === 0 ? 4 : 2) : (k === 0 ? 9 : 5));
-    g.scale(1, 0.66, 1);                 // domed, not spherical
+    g.scale(1, 0.62, 1);                 // domed, not spherical
     g.translate(l.x, l.r * 0.58 + l.y, l.z);
     const dark = l.c.clone().multiplyScalar(0.5);
     parts.push(worked(g,
@@ -165,7 +166,8 @@ function staghorn(lod = 0) {
   const dir = new THREE.Vector3();
   const q = new THREE.Quaternion();
   const r = rng(11);
-  const shade = depth => PALETTE.stagBase.clone().lerp(PALETTE.stagTip, (2 - depth) / 2 * 0.75);
+  // Brown with the algae in it, paling only toward the growing tips.
+  const shade = depth => PALETTE.stagBase.clone().lerp(PALETTE.stagTip, depth === 0 ? 0.35 : (2 - depth) * 0.08);
 
   // Lay one branch from `from` along `dir` and recurse off its tip.
   const branch = (from, pitch, yaw, len, rad, depth) => {
