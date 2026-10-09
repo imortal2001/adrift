@@ -869,13 +869,29 @@ function addWind(material, { amount = 0.5, flutter = 1, fade = 0 } = {}) {
     // Foliage is lit as a mass, not card by card: the normals are set to
     // point out of the crown, and a double-sided card must not flip them on
     // its back face or half the leaves go black.
+    // Cut-out foliage keeps its coverage with distance. A card's alpha is
+    // averaged down the mip chain, and a frond of fine pinnae averages to
+    // less than the cut-off: past twenty metres a tree fern's whole crown
+    // went, and it stood there a bare trunk. So the further down the chain,
+    // the more the alpha is scaled back up (Ben Golus's correction), and the
+    // edge stays where the leaves are.
+    if (material.alphaTest > 0 && material.map) {
+      shader.fragmentShader = shader.fragmentShader.replace('#include <alphatest_fragment>', `
+        {
+          vec2 texel = vMapUv * vec2(textureSize(map, 0));
+          vec2 ddx = dFdx(texel), ddy = dFdy(texel);
+          float mip = max(0.0, 0.5 * log2(max(dot(ddx, ddx), dot(ddy, ddy))));
+          diffuseColor.a *= 1.0 + mip * 0.3;
+        }
+        #include <alphatest_fragment>`);
+    }
     if (material.side === THREE.DoubleSide) {
       shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>',
         `#include <normal_fragment_begin>
         normal *= faceDirection;`);
     }
   };
-  material.customProgramCacheKey = () => `wind-${amount}-${flutter}-${fade}-${material.side}`;
+  material.customProgramCacheKey = () => `wind-${amount}-${flutter}-${fade}-${material.side}-${material.alphaTest > 0}`;
   return material;
 }
 
@@ -1422,15 +1438,20 @@ function treefern(lod, seed) {
       sway: t => 0.3 + t * 0.7,
     });
   }
-  // Fiddleheads in the middle: the newest fronds, still coiled.
-  for (let k = 0; k < (lod ? 0 : 3); k++) {
-    const yaw = k * 2.1 + r(), dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
+  // Fiddleheads in the middle: the newest fronds, still coiled — a stalk up
+  // out of the crown and a tight crozier on it a hand across, furred brown
+  // (Dicksonia's are). (A coil half a metre wide stood over every trunk like
+  // a ring on a post, and from twenty metres off it was all you saw.)
+  for (let k = 0; k < (lod ? 0 : 4); k++) {
+    const yaw = k * 1.7 + r(), dir = V3(Math.cos(yaw), 0, Math.sin(yaw));
     const coil = [];
-    for (let q = 0; q <= 8; q++) {
-      const a = q / 8 * Math.PI * 1.6, rad = lerp(0.28, 0.07, q / 8);
-      coil.push(top.clone().add(V3(0, 0.1 + q * 0.06, 0)).addScaledVector(dir, 0.1 + Math.sin(a) * rad).add(V3(0, (1 - Math.cos(a)) * rad * 0.8, 0)));
+    const stalk = 0.25 + r() * 0.25;
+    for (let q = 0; q <= 10; q++) {
+      const a = q / 10 * Math.PI * 1.8, rad = lerp(0.09, 0.025, q / 10);
+      coil.push(top.clone().add(V3(0, stalk, 0)).addScaledVector(dir, 0.06 + Math.sin(a) * rad).add(V3(0, (1 - Math.cos(a)) * rad * 0.9, 0)));
     }
-    b.tube(coil, { sides: 4, k: 0, vMetres: 0.4, radius: f => lerp(0.045, 0.03, f), color: () => new THREE.Color(0x7c8a4a), sway: f => 0.2 + f * 0.2 });
+    coil.unshift(top.clone().addScaledVector(dir, 0.04));
+    b.tube(coil, { sides: 4, k: 0, vMetres: 0.4, radius: f => lerp(0.028, 0.016, f), color: () => new THREE.Color(0x6e5534), sway: f => 0.2 + f * 0.2 });
   }
   return b.geometry();
 }
@@ -1649,10 +1670,32 @@ function fernthicket(lod, seed) {
     b.strip(pts, side, 0.6, CELL.gleichenia, { color: t => col(0xffffff, r, 0.12).multiplyScalar(0.8 + t * 0.2),
                                           normals: () => UP, sway: t => 0.35 + t * 0.4 });
   };
+  // The bottom of it: a thicket is fronds from the ground up, old ones
+  // under the new, and the dead of past years in a russet mat beneath — not a
+  // table of green on stalks half a metre high, daylight under it.
+  const dead = (from, dir, len, k) => {
+    const side = V3(-dir.z, 0, dir.x).normalize();
+    const pts = [0, 0.5, 1].map(f => from.clone().addScaledVector(dir, len * f).add(V3(0, -0.2 * f * f, 0)));
+    b.strip(pts, side, 0.55, CELL.gleichenia, { color: () => (k ? col(0x9a6a3a, r, 0.15) : col(0xc0d0a0, r, 0.12).multiplyScalar(0.75)),
+                                          normals: () => UP, sway: t => 0.1 + t * 0.2 });
+  };
+  for (let s = 0; s < (lod ? 4 : 9); s++) {
+    const a = r() * Math.PI * 2, d = r() * 0.7;
+    const at = V3(Math.cos(a) * d, 0.05 + r() * 0.25, Math.sin(a) * d);
+    dead(at, V3(Math.cos(a + r() - 0.5), -0.15, Math.sin(a + r() - 0.5)).normalize(), 0.5 + r() * 0.35, s % 3 !== 0);
+  }
   for (let s = 0; s < stems; s++) {
     const a = r() * Math.PI * 2, d = r() * 0.6;
     const base = V3(Math.cos(a) * d, -0.05, Math.sin(a) * d);
     const h = 0.55 + r() * 0.45;
+    // An older tier half way up, drooping toward the ground.
+    if (!lod || s % 2) {
+      const mid = base.clone().add(V3(Math.cos(a) * 0.1, h * 0.5, Math.sin(a) * 0.1));
+      for (const turn of [-1.1, 1.1]) {
+        const yaw = a + turn + (r() - 0.5) * 0.5;
+        leaf(mid, V3(Math.cos(yaw), -0.3, Math.sin(yaw)).normalize(), 0.45 + r() * 0.25);
+      }
+    }
     const fork = base.clone().add(V3(Math.cos(a) * 0.15, h, Math.sin(a) * 0.15));
     // (The wiry stalks are there but not drawn: at a centimetre thick they
     // only ever showed as black scratches across the fronds.)
@@ -2206,7 +2249,7 @@ export const SPECIES = [
   { name: 'fern', group: 'Ground cover', habitat: 'the forest floor, thickest where it is wettest, and the river banks', label: 'Fern', layer: 'ground', make: fern, variants: 3, material: 'tree', bark: 'smooth',
     // (Big enough to cover a third to a half of the floor under the canopy, as
     // sword fern and the like do: 30–80%.)
-    rings: 1, scale: [0.9, 1.8],
+    conform: 0.6, rings: 1, scale: [0.9, 1.8],
     where: s => (s.forest * (0.55 + s.wet * 0.6) + band(s.edge, 1, 3, 20, 40) * 0.4) * band(s.h, 3, 6, 400, 450) * (s.slope < 0.65 ? 1 : 0) },
   // Four that were grass, tall grass, reeds and bamboo, and are now what grew
   // in their places before any of those had evolved — grasslands are ~26 Ma,
@@ -2214,11 +2257,11 @@ export const SPECIES = [
   // `name`s stay as they were: the scatter, the saves and the felled trees
   // key on them, and the world keeps its shape.
   { name: 'grass', group: 'Ground cover', habitat: 'open ground: clearings, the coastal plain, the misty tops of the range — low ferns and spike-moss, where later ages have grass', label: 'Low ferns', layer: 'grass', make: lowcover, variants: 2, material: 'grass', bark: 'smooth',
-    rings: 1, scale: [0.7, 1.4],
+    rings: 1, scale: [0.7, 1.4], conform: 0.8,
     where: s => (1 - s.forest * 0.75) * (1 - s.plain * 0.6) * band(s.h, 1.8, 4, 400, 450) * (s.slope < 0.55 ? 1 : 0.2) *
                 (s.edge > 0.8 ? 1 : 0) * 0.85 },
   { name: 'tallgrass', group: 'Ground cover', habitat: 'open, poor or disturbed ground: patches of the plains, the wet peaty flats, and the scars of slips on the steep slopes — a waist-high tangle of forked ferns (Gleichenia-type thickets)', label: 'Fern thicket', layer: 'grass', make: fernthicket, variants: 2, material: 'grass', bark: 'smooth',
-    rings: 1, scale: [0.8, 1.35],
+    rings: 1, scale: [0.8, 1.35], conform: 0.7,
     // Thicker in patches than tall grass was everywhere: open country between.
     where: s => (s.plain * 0.6 * (s.slope < 0.35 ? 1 : 0) + band(s.slope, 0.4, 0.48, 0.6, 0.68) * s.wet * (1 - s.forest) * 0.5) *
                 band(s.h, 4, 8, 180, 210) },
@@ -2235,7 +2278,7 @@ export const SPECIES = [
     rings: 2, farFrom: 2, scale: [0.8, 1.3], trunk: 1.4, reach: 2.8, regrow: 400, yield: { wood: 2 }, chop: 3,
     where: s => s.forest * 0.1 * (s.slope < 0.4 ? 1 : 0) * (s.h > 4 ? 1 : 0) },
   { name: 'deadfall', group: 'Deadfall', habitat: 'the forest floor', label: 'Fallen branches', layer: 'ground', make: branches, variants: 2, material: 'tree',
-    rings: 1, scale: [0.8, 1.3], reach: 2, regrow: 150, yield: { wood: 1 },
+    rings: 1, scale: [0.8, 1.3], reach: 2, regrow: 150, yield: { wood: 1 }, conform: 1,
     where: s => s.forest * 0.06 * (s.h > 3 ? 1 : 0) },
   { name: 'boulder', group: 'Rocks', habitat: 'steep ground and the foot of it, the mountains and the mountain streams, the beaches under the cliffs; next to none on the wet, flat lowlands, whose rivers carry sand', label: 'Boulder', layer: 'rock', make: boulder, variants: 4, material: 'rock',
     rings: 3, farFrom: 2, scale: [0.6, 3.2], solid: true,

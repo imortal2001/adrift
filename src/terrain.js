@@ -73,7 +73,7 @@ const VIEW_CHUNKS = 7;                     // ~450m of terrain around the viewer
 const LOD_SEGMENTS = [64, 32, 16, 8, 8];   // by chunk-distance band
 const REEF_LOD = 1;                        // and beyond this, no reef — you cannot
                                            // see 60m through water anyway
-const _logAt = new THREE.Vector3();
+const _logAt = new THREE.Vector3(), _norm = new THREE.Vector3();
 const _fallLocal = new THREE.Vector3(), _fallInv = new THREE.Matrix4();
 /** The notch's slope and where the hinge stands, for a cut. */
 const notchOf = c => ({ k: 0.75, hd: c.outline ? c.r * 0.35 : 0 });
@@ -946,7 +946,7 @@ export function riverGeometry(rv, keep = null) {
   };
   const pts = riverCourse(rv, 2).map(p => ((keep && !keep(p.x, p.z)) || inLake(p) || midFall(p) ? null : toSea(p)));
   if (pts.filter(Boolean).length < 2) return null;
-  const pos = [], uv = [], idx = [];
+  const pos = [], uv = [], idx = [], depth = [];
   // Above a fall the water stops at the lip, square to the cliff: the
   // ribbon's end is square to the river, which crosses the cliff at a slant,
   // so one corner of it would stick out over the drop.
@@ -964,7 +964,14 @@ export function riverGeometry(rv, keep = null) {
       if (past > 0) { x -= f.dx * past; z -= f.dz * past; }
     }
     pos.push(x, y, z);
+    // How deep it is over the bed here: the shader fades the water out to
+    // nothing where this runs to zero, so its edge is drawn where it meets
+    // the bank and not wherever the bank's triangles poke through it.
+    depth.push(y - heightAt(x, z));
   };
+  // Across the river, so the depth is sampled across it: two vertices, one
+  // each side, knew nothing of the bed between.
+  const ACROSS = 9;
   let along = 0, n = 0, prev = null;
   pts.forEach((p, k) => {
     if (!p) { prev = null; return; }
@@ -982,10 +989,15 @@ export function riverGeometry(rv, keep = null) {
     }
     const w = p.width / 2 + tuck;
     const last = !pts[k + 1] ? { x: dx / len, z: dz / len } : null;
-    atLip(p.x - sx * w, p.level - 0.02, p.z - sz * w, last);
-    atLip(p.x + sx * w, p.level - 0.02, p.z + sz * w, last);
-    uv.push(0, along / 7, w * 2 / 7, along / 7);
-    if (prev && prev.level - p.level < 6) { const a = (n - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    for (let c = 0; c < ACROSS; c++) {
+      const t = c / (ACROSS - 1) * 2 - 1;
+      atLip(p.x + sx * w * t, p.level - 0.02, p.z + sz * w * t, last);
+      uv.push((t + 1) * w / 7, along / 7);
+    }
+    if (prev && prev.level - p.level < 6) {
+      const a = (n - 1) * ACROSS, b = n * ACROSS;
+      for (let c = 0; c < ACROSS - 1; c++) idx.push(a + c, a + c + 1, b + c, a + c + 1, b + c + 1, b + c);
+    }
     prev = p;
     n++;
   });
@@ -993,6 +1005,7 @@ export function riverGeometry(rv, keep = null) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('aDepth', new THREE.Float32BufferAttribute(depth, 1));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return geo;
@@ -1519,12 +1532,28 @@ export class Terrain {
           const fine = layer === 'grass' || layer === 'ground';
           let y = fine ? this.gridHeight(grid, x, z) : heightAt(x, z);
           let pitch = 0, roll = 0;
+          let lean = null;
           if (sp.lying) {
-            // Lie along the ground: tilt to the slope between its two ends.
+            // Lie along the ground: tilt to the slope between its two ends,
+            // and down onto the lowest of the ground along it — on a bumpy
+            // floor, set by its middle alone, a third of them hung half a
+            // metre over a dip at one end.
             const half = 7 * sc, dx = Math.cos(yaw) * half, dz = -Math.sin(yaw) * half;
+            const a = heightAt(x - dx, z - dz), b = heightAt(x + dx, z + dz), mid = (a + b) / 2;
             pitch = 0;
-            roll = Math.atan2(heightAt(x + dx, z + dz) - heightAt(x - dx, z - dz), half * 2);
-            y -= 0.25;
+            roll = Math.atan2(b - a, half * 2);
+            let low = 0;
+            for (const f of [-0.75, -0.4, 0, 0.4, 0.75]) low = Math.min(low, heightAt(x + dx * f, z + dz * f) - (mid + (b - a) / 2 * f));
+            y = mid + low - 0.2;
+          } else if (sp.conform) {
+            // Lying on, or spreading over, the ground: tilted with it, as
+            // far as `conform` says. (Set level on a slope, fallen branches
+            // hung a metre over it at their downhill ends, and the fronds of
+            // a fern on that side spread out over nothing.)
+            normalAt(x, z, _norm);
+            lean = { x: _norm.x * sp.conform, z: _norm.z * sp.conform };
+            pitch = (r1 - 0.5) * 0.06; roll = (r2 - 0.5) * 0.06;
+            y -= 0.04;
           } else if (sp.material === 'rock') {
             pitch = (r1 - 0.5) * 0.4; roll = (r2 - 0.5) * 0.4;
             y -= 0.3 * sc;
@@ -1536,7 +1565,7 @@ export class Terrain {
           let list = place.get(key);
           if (!list) place.set(key, list = { sp, v, lod, items: [] });
           const plantKey = `${i},${j},${li},${ci},${cj}`;
-          list.items.push({ x, y, z, sc, yaw, pitch, roll, plantKey, trunk, form: vAll, tint: hash(s + 29, i * 7 + j) });
+          list.items.push({ x, y, z, sc, yaw, pitch, roll, lean, plantKey, trunk, form: vAll, tint: hash(s + 29, i * 7 + j) });
 
           // What it blocks: a trunk, a rock, a stump — or a log lying, by a
           // row of short posts down its length, each as high as the log is
@@ -1578,6 +1607,10 @@ export class Terrain {
       items.forEach((t, k) => {
         d.position.set(t.x, t.y, t.z);
         d.rotation.set(t.pitch, t.yaw, t.roll, 'YXZ');
+        if (t.lean) {
+          _lean.set(t.lean.x, 1, t.lean.z).normalize();
+          d.quaternion.premultiply(_q.setFromUnitVectors(_up, _lean));
+        }
         d.scale.setScalar(t.sc);
         d.updateMatrix();
         const felled = this.felled.has(t.plantKey);
@@ -1807,7 +1840,7 @@ export class Terrain {
     flow.magFilter = THREE.LinearFilter;
     flow.needsUpdate = true;
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x2c4a44, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.86,
+      color: 0xffffff, roughness: 0.08, metalness: 0, transparent: true, opacity: 1,
       normalMap: flow, normalScale: new THREE.Vector2(0.55, 0.55), depthWrite: false,
     });
     // There is no environment map to reflect, so the sky is added by hand:
@@ -1817,16 +1850,33 @@ export class Terrain {
     mat.onBeforeCompile = shader => {
       shader.uniforms.uRiverSkyTop = sky.top;
       shader.uniforms.uRiverSkyHorizon = sky.horizon;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+          attribute float aDepth;
+          varying float vDepth;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vDepth = aDepth;`);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
           uniform vec3 uRiverSkyTop;
-          uniform vec3 uRiverSkyHorizon;`)
+          uniform vec3 uRiverSkyHorizon;
+          varying float vDepth;`)
+        // Clear in the shallows, the bed showing through it tinted, and
+        // darkening to green-brown as it deepens (fresh water carries tannin
+        // and silt); gone at the very edge, so it meets the bank in a soft
+        // line where the bank comes up through it — it was a slab of one
+        // colour cut off in a sawtooth by the bank's triangles.
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          if (vDepth < 0.0) discard;
+          float deepness = smoothstep(0.03, 1.3, vDepth);
+          diffuseColor.rgb = mix(vec3(0.17, 0.2, 0.14), vec3(0.05, 0.11, 0.10), deepness);
+          diffuseColor.a = mix(0.4, 0.93, deepness) * smoothstep(0.0, 0.12, vDepth);`)
         .replace('#include <opaque_fragment>', `
           {
             vec3 v = normalize(vViewPosition);
             float fres = pow(1.0 - clamp(dot(normal, v), 0.0, 1.0), 4.0);
             vec3 skyc = mix(uRiverSkyTop, uRiverSkyHorizon, 0.55);
-            outgoingLight = mix(outgoingLight, skyc, 0.18 + fres * 0.62);
+            outgoingLight = mix(outgoingLight, skyc, 0.08 + fres * 0.6);
             diffuseColor.a = mix(diffuseColor.a, 1.0, fres * 0.8);
           }
           #include <opaque_fragment>`);

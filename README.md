@@ -256,7 +256,7 @@ pause screen starts over.
 | `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers, and the falls and lakes on them), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
 | `src/sound.js` | Sound, made on the spot with the Web Audio API — no recordings: the axe (swish, bite, the last stroke), a tree creaking, falling and crashing down; each placed in the world, heard from the camera. |
 | `src/caves.js` | Caves, sea caves, sea arches and rock shelves: where they are (surveyed from the land), their meshes, the dark inside them, and the floors and walls you walk on and within there; flint to chip, and the springs. |
-| `src/waterfall.js` | The lakes' still water, cut to their shores, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
+| `src/waterfall.js` | The lakes' still water, cut to their shores and knowing its depth over the bed, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
 | `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks; the terrain says per vertex where its flat ground is rock. |
 | `src/dinopose.js` | How the dinosaurs move on top of their clips, put right from the palaeontology: gaits (no running T. rex or stegosaur), mouths shut, heads down to graze and feed, level tails, the sauropod's neck. |
@@ -335,6 +335,12 @@ nothing lines up in rows:
   banked into a flood plain across hollows. The first reaches the sea about
   200 m up the coast from the landing beach. The water is a ribbon at the
   surveyed level, flowing, reflecting the sky; you wade it, about a metre deep.
+  The ribbon is nine vertices across, and every vertex of it and of a lake's
+  surface knows how deep the water is over the bed there (`aDepth`): clear in
+  the shallows, the bed showing through tinted, darkening to green-brown as it
+  deepens, and gone at the very edge, so it meets the bank in a soft line.
+  (Two vertices across, one flat colour at 86%, it was a slab of grey-blue
+  cut off in a sawtooth wherever the bank's triangles came up through it.)
   At the mouth it slopes down over the last few metres of beach and slides
   under the sea, rather than ending in a square slab on top of the waves; and
   a lake's water stops at its shore where the river leaves it over a cascade,
@@ -478,7 +484,20 @@ scalloped and apart, a Gleichenia's a fine comb down every fork — for a floor
 carpeted in fronds painted as solid masses of overlapping leaves read as one
 sheet, banded in crescents. (The Gleichenia frond is painted stretched up its
 cell: drawn round, it filled only the lower half, and every leaf of a
-thicket was half empty.) Bark is
+thicket was half empty.) The cut-outs keep their coverage with distance:
+a card's alpha is averaged down the mip chain, and a frond of fine leaflets
+averages to less than the cut-off — past twenty metres a tree fern's whole
+crown went, leaving a bare trunk with a coil on top — so the further down the
+chain a fragment samples, the more its alpha is scaled back up (in
+`addWind()`). The tree fern's fiddleheads are a hand across, on a stalk out
+of the crown, furred brown; the coil was half a metre wide, a ring on a post.
+A fern thicket is fronds from the ground up: an older tier half way, drooping,
+and a russet mat of dead fronds under it all (it was a table of green on
+stalks it never drew, daylight under it). And what lies on or spreads over
+the ground leans with it (`conform` on a species: fallen branches all the way,
+the ferns, thickets and low cover part way) — set level on a slope, fallen
+branches hung a metre off it at their downhill ends; a fallen log is set
+down onto the lowest of the ground along it, not by its middle. Bark is
 painted too, one kind per kind of trunk, each a relief for the light and the
 normal map: the redwood's deep fibrous furrows, the araucaria's grey flaking
 plates ringed by old branch scars, the palm's leaf-scar rings, the tree
