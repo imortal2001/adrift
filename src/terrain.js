@@ -73,6 +73,15 @@ const VIEW_CHUNKS = 7;                     // ~450m of terrain around the viewer
 const LOD_SEGMENTS = [64, 32, 16, 8, 8];   // by chunk-distance band
 const REEF_LOD = 1;                        // and beyond this, no reef — you cannot
                                            // see 60m through water anyway
+const _logAt = new THREE.Vector3(), _norm = new THREE.Vector3();
+const _fallLocal = new THREE.Vector3(), _fallInv = new THREE.Matrix4();
+/** The notch's slope and where the hinge stands, for a cut. */
+const notchOf = c => ({ k: 0.75, hd: c.outline ? c.r * 0.35 : 0 });
+const _up = new THREE.Vector3(0, 1, 0), _lean = new THREE.Vector3(), _q = new THREE.Quaternion();
+const _from = new THREE.Vector3(), _down = new THREE.Vector3(0, -1, 0), _nrm = new THREE.Vector3();
+const REEF_BUDGET = 4;                    // ms a frame spent growing reef
+const REEF_SEEN = 52;                     // reef further off than this is not drawn: the
+                                           // water has closed in well before it
 const REEF_CELL = 1.5;                     // obstacle-field resolution, metres
 const SOLID_CELL = 12.0;                   // bucket size for collision: wider than the biggest
                                            // rock on land plus a body, so a 3x3 look sees all
@@ -173,26 +182,108 @@ export function reefMask(x, z, out) {
   return band * patch;
 }
 
+// What the sea bed is made of where seabedAt() last looked — hard bottom (reef
+// framework or bedrock, 0..1), the cracks through it, and a slow tone for the
+// colour of its skin — so the ground colour can paint rock as rock and sand
+// as sand instead of guessing from the slope.
+const _bed = { rock: 0, crack: 0, tone: 0 };
+
+// Spurs and grooves run straight out to sea, a whole number of them round the
+// continent so the pattern closes on itself.
+const SPURS = Math.round(2 * Math.PI * (WORLD.radius + SHELF_EDGE) / 17);
+
+/** Cellular noise: distance to the nearest and second-nearest feature point,
+ *  and the nearest cell's id. One feature per unit cell. */
+const _cell = { d1: 0, d2: 0, id: 0 };
+function cells(x, z) {
+  const ix = Math.floor(x), iz = Math.floor(z);
+  let d1 = 1e9, d2 = 1e9, id = 0;
+  for (let b = -1; b <= 1; b++) {
+    for (let a = -1; a <= 1; a++) {
+      const cx = ix + a, cz = iz + b;
+      const px = cx + 0.15 + 0.7 * hash(cx * 7 + 3, cz * 13 + 1), pz = cz + 0.15 + 0.7 * hash(cx * 11 + 5, cz * 3 + 9);
+      const d = Math.hypot(px - x, pz - z);
+      if (d < d1) { d2 = d1; d1 = d; id = hash(cx * 17 + 1, cz * 29 + 7); } else if (d < d2) d2 = d;
+    }
+  }
+  _cell.d1 = d1; _cell.d2 = d2; _cell.id = id;
+  return _cell;
+}
+
 /** Sea floor height. `out` is metres out to sea, so it is >= 0 here. */
 function seabedAt(x, z, out) {
   // Beach shelves into the shallows, flattens onto the shelf, then drops away.
   let h = SHELF_FLOOR * smooth(0, 46, out);
   h += (BASIN - h) * smooth(SHELF_EDGE, ABYSS, out);
+  let rock = 0, crack = 0;
+  const shore = smooth(0, 8, out);
 
-  // Coral heads. Ridged noise builds mounds with saddles between them rather
-  // than the lumps plain fbm gives, which is the difference between a reef and
-  // a bumpy carpet.
+  // Patch reefs — bommies. Ridged noise lays out where they stand, with
+  // saddles between rather than the lumps plain fbm gives; a reef head is
+  // then shaped as one is: flanks that come up steeply off the sand and a
+  // broad, knobbly top, not a smooth sand dune. (It was one: the old head
+  // was the ridge noise raised as it was, sand to the crown.)
   const reef = reefMask(x, z, out);
   if (reef > 0.001) {
     const ridge = 1 - Math.abs(fbm(x * 0.019, z * 0.019, 4) * 2 - 1);
-    h += reef * Math.pow(ridge, 2.4) * REEF_HEIGHT * smooth(0, 8, out);
+    const lift = reef * Math.pow(ridge, 2.4);
+    const body = smooth(0.06, 0.42, lift);                 // 0 sand .. 1 on the framework
+    // Knobs and pockets in the framework, a few metres across — the heads
+    // of old colonies grown together — and crevices cut down through it.
+    const knob = (fbm(x * 0.29 + 13, z * 0.29 - 7, 2) - 0.5) * 1.4;
+    const cv = Math.abs(fbm(x * 0.062 + 31, z * 0.062 - 17, 2) * 2 - 1);
+    const crevice = 1 - smooth(0.0, 0.085, cv);
+    h += (body * 0.55 + lift * 0.45) * REEF_HEIGHT * shore + body * (knob - crevice * 1.7) * shore;
+    rock = smooth(0.1, 0.5, body);
+    crack = crevice * body;
   }
 
+  // Spur and groove, along the outer shelf where the swell breaks on it:
+  // fingers of reef running straight out to sea, a few metres wide, with
+  // sand channels between them as wide again.
+  const zone = smooth(SHELF_EDGE - 75, SHELF_EDGE - 40, out) * smooth(SHELF_EDGE + 18, SHELF_EDGE - 4, out);
+  if (zone > 0.001) {
+    const th = Math.atan2(z - WORLD.cz, x - WORLD.cx);
+    const wav = Math.sin(th * SPURS + (fbm(x * 0.02 + 5, z * 0.02 - 9, 2) - 0.5) * 7);
+    const spur = smooth(-0.35, 0.45, wav) * smooth(0.25, 0.5, fbm(x * 0.03 - 41, z * 0.03 + 3, 2));
+    const knob = (fbm(x * 0.33 - 3, z * 0.33 + 21, 2) - 0.5) * 1.0;
+    const s = spur * zone;
+    h += s * (3.2 + knob);
+    rock = Math.max(rock, smooth(0.15, 0.6, s));
+  }
+
+  // Bedrock: low ledges of old reef limestone breaking through the sand
+  // between the colonies, cracked into slabs that each sit at their own
+  // height and tilt, the cracks between them silted to the sand.
+  const pave = smooth(0.56, 0.68, fbm(x * 0.0085 + 77, z * 0.0085 + 19, 3)) *
+               (1 - reef) * smooth(14, 34, out) * smooth(SHELF_EDGE + 30, SHELF_EDGE - 10, out);
+  if (pave > 0.001) {
+    const c = cells(x / 5.5, z / 5.5);
+    const edge = (c.d2 - c.d1) * 5.5;                       // metres to the crack
+    const there = c.id > 0.22 ? 1 : 0;                      // some slabs gone: sand pockets
+    const top = 0.35 + c.id * 1.3 + (fbm(x * 0.4, z * 0.4, 2) - 0.5) * 0.35;
+    const lip = smooth(0.15, 0.9, edge);
+    h += pave * there * top * lip;
+    rock = Math.max(rock, pave * there * smooth(0.1, 0.6, lip));
+    crack = Math.max(crack, pave * there * (1 - smooth(0.1, 0.55, edge)));
+  }
+
+  // Sand: dunes, and ripples — crests along the shore, a few metres apart,
+  // as the swell combs them, wandering and broken. Not on the rock.
+  const sand = 1 - rock;
   h += smooth(4, 44, out) * (fbm(x * 0.012, z * 0.012, 3) - 0.5) * 3.2;  // sand dunes
+  // (Five metres apart: any closer and the coarser rings of ground, 2 m and
+  // 4 m to a vertex, alias them into moiré.)
+  const rip = Math.sin(out * 1.25 + (fbm(x * 0.05, z * 0.05, 2) - 0.5) * 9);
+  h += sand * smooth(3, 10, out) * rip * rip * rip * 0.24 * fbm(x * 0.03 + 9, z * 0.03, 2);
   // (Both fade in off the beach: at the water's edge the sea bed is the sand
   // the beach ran down into, not half a metre under it — the shore was a
   // little ledge where the ripples and a coral head came up to it.)
-  h += (fbm(x * 0.13, z * 0.13, 2) - 0.5) * 0.5 * smooth(0, 4, out);      // ripples
+  h += (fbm(x * 0.13, z * 0.13, 2) - 0.5) * 0.36 * smooth(0, 4, out);      // ripples
+
+  _bed.rock = rock;
+  _bed.crack = crack;
+  _bed.tone = rock > 0.01 ? fbm(x * 0.085 - 3, z * 0.085 + 11, 2) : 0;
   return h;
 }
 
@@ -237,7 +328,7 @@ function ridged(x, z) {
   return sum / norm;
 }
 
-const _land = { h: 0, m: 0, plain: 0, mountain: 0, cliff: 0, mesa: 0, river: 1e9, edge: 1e9, water: 0, bank: 0, lake: null };
+const _land = { h: 0, m: 0, plain: 0, mountain: 0, cliff: 0, mesa: 0, river: 1e9, edge: 1e9, water: 0, bank: 0, lake: null, rock: 0, crack: 0, tone: 0 };
 
 /**
  * Everything the land knows about one spot: its height and the masks it was
@@ -249,6 +340,7 @@ export function landAt(x, z, out = _land) {
   const m = coastDistance(x, z);
   out.m = m;
   out.plain = out.mountain = out.cliff = out.mesa = out.bank = 0;
+  out.rock = out.crack = out.tone = 0;
   out.river = 1e9;
   out.edge = 1e9;
   out.water = 0;
@@ -258,6 +350,7 @@ export function landAt(x, z, out = _land) {
   let h;
   if (m < 0) {
     h = seabedAt(x, z, -m);
+    out.rock = _bed.rock; out.crack = _bed.crack; out.tone = _bed.tone;
     out.cliff = seaCliff(x, z);
     // Under a sea cliff there is no beach: the shallows are rock and deeper.
     h -= out.cliff * smooth(0, -30, m) * 5;
@@ -853,7 +946,7 @@ export function riverGeometry(rv, keep = null) {
   };
   const pts = riverCourse(rv, 2).map(p => ((keep && !keep(p.x, p.z)) || inLake(p) || midFall(p) ? null : toSea(p)));
   if (pts.filter(Boolean).length < 2) return null;
-  const pos = [], uv = [], idx = [];
+  const pos = [], uv = [], idx = [], depth = [];
   // Above a fall the water stops at the lip, square to the cliff: the
   // ribbon's end is square to the river, which crosses the cliff at a slant,
   // so one corner of it would stick out over the drop.
@@ -871,7 +964,14 @@ export function riverGeometry(rv, keep = null) {
       if (past > 0) { x -= f.dx * past; z -= f.dz * past; }
     }
     pos.push(x, y, z);
+    // How deep it is over the bed here: the shader fades the water out to
+    // nothing where this runs to zero, so its edge is drawn where it meets
+    // the bank and not wherever the bank's triangles poke through it.
+    depth.push(y - heightAt(x, z));
   };
+  // Across the river, so the depth is sampled across it: two vertices, one
+  // each side, knew nothing of the bed between.
+  const ACROSS = 9;
   let along = 0, n = 0, prev = null;
   pts.forEach((p, k) => {
     if (!p) { prev = null; return; }
@@ -889,10 +989,15 @@ export function riverGeometry(rv, keep = null) {
     }
     const w = p.width / 2 + tuck;
     const last = !pts[k + 1] ? { x: dx / len, z: dz / len } : null;
-    atLip(p.x - sx * w, p.level - 0.02, p.z - sz * w, last);
-    atLip(p.x + sx * w, p.level - 0.02, p.z + sz * w, last);
-    uv.push(0, along / 7, w * 2 / 7, along / 7);
-    if (prev && prev.level - p.level < 6) { const a = (n - 1) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+    for (let c = 0; c < ACROSS; c++) {
+      const t = c / (ACROSS - 1) * 2 - 1;
+      atLip(p.x + sx * w * t, p.level - 0.02, p.z + sz * w * t, last);
+      uv.push((t + 1) * w / 7, along / 7);
+    }
+    if (prev && prev.level - p.level < 6) {
+      const a = (n - 1) * ACROSS, b = n * ACROSS;
+      for (let c = 0; c < ACROSS - 1; c++) idx.push(a + c, a + c + 1, b + c, a + c + 1, b + c + 1, b + c);
+    }
     prev = p;
     n++;
   });
@@ -900,6 +1005,7 @@ export function riverGeometry(rv, keep = null) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('aDepth', new THREE.Float32BufferAttribute(depth, 1));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return geo;
@@ -919,6 +1025,12 @@ const C = {
   coral: new THREE.Color(0xb2634c),   // warm reef rock
   coralB:new THREE.Color(0x7d6494),   // and the cool half of the colony
   algae: new THREE.Color(0x4a6b4c),
+  // The skin of the hard bottom (reef framework, bedrock ledges).
+  coralline: new THREE.Color(0xa06a8e),   // crustose coralline algae
+  turf:  new THREE.Color(0x4c5530),       // turf algae over dead rock
+  bone:  new THREE.Color(0xb8ab90),       // bare, dead coral
+  limestone: new THREE.Color(0x7a7468),   // deeper down, plain rock
+  crack: new THREE.Color(0x2c2c28),       // in the cracks and crevices
   lush:  new THREE.Color(0x3f6b2c),
   // Open ground as it was before there was grass to make a lawn of it: ferns,
   // spike-moss and moss over dark soil (flora.js: the low-fern cover).
@@ -935,6 +1047,8 @@ const C = {
   scree: new THREE.Color(0x8b857b),
 };
 
+const _skin = new THREE.Color();
+
 /**
  * @param L       landAt() for this spot
  * @param forest  forestAt() for this spot
@@ -949,11 +1063,27 @@ function groundColour(h, slope, wet, jitter, L, forest, out) {
     out.lerp(C.deepbed, smooth(-11, -19, h));
     out.lerp(C.silt, smooth(-22, -36, h));
 
-    if (slope > 0.2 && h > -20) {
+    // Hard bottom — the reef's framework and the bedrock ledges — is not
+    // sand: it is old limestone under a skin of whatever has settled on it,
+    // pink-lilac coralline crust, olive turf algae, the pale bone of dead
+    // coral, in patches a few metres across (L.tone), darker in its cracks.
+    // Steep sand that is not rock (a dune face, the drop-off) keeps the old
+    // warm-and-cool reef tint.
+    if (L.rock > 0.01) {
+      const t = L.tone;
+      _skin.copy(C.turf).lerp(C.coralline, smooth(0.4, 0.5, t)).lerp(C.bone, smooth(0.58, 0.68, t) * 0.8);
+      _skin.lerp(C.turf, smooth(0.5, 0.9, jitter) * 0.5).lerp(C.coralB, smooth(0.15, 0.0, jitter) * 0.4);
+      _skin.lerp(C.limestone, smooth(-14, -24, h) * 0.5);
+      // Mottled: rock is never one flat colour, and it is darker than the
+      // sand round it — which is most of what tells you it is rock.
+      _skin.multiplyScalar(0.72 + jitter * 0.4);
+      out.lerp(_skin, L.rock * 0.95);
+    } else if (slope > 0.2 && h > -20) {
       const rock = smooth(0.2, 0.55, slope) * smooth(-20, -9, h);
       out.lerp(jitter > 0.5 ? C.coral : C.coralB, rock * 0.6);
       out.lerp(C.algae, rock * 0.25 * jitter);
     }
+    out.lerp(C.crack, L.crack * 0.75);
     out.lerp(C.rock, L.cliff * smooth(-2, -12, h) * 0.6);
     return out.multiplyScalar(0.88 + jitter * 0.24);
   }
@@ -1016,7 +1146,7 @@ const bandOf = ring => Math.min(ring, 4);
 const TREE_RING = 3;              // real trees out to here; the far canopy beyond
 
 // The site record the flora rules read (see SPECIES in flora.js).
-const SITE_KEYS = ['h', 'slope', 'wet', 'forest', 'plain', 'mountain', 'mesa', 'cliff', 'river', 'edge', 'bank', 'm'];
+const SITE_KEYS = ['h', 'slope', 'wet', 'forest', 'plain', 'mountain', 'mesa', 'cliff', 'river', 'edge', 'bank', 'm', 'rock', 'crack', 'tone'];
 
 export class Terrain {
   constructor(scene) {
@@ -1028,7 +1158,7 @@ export class Terrain {
     // itself on being below the waterline, so the beach stays dry-looking.
     this.material = applyCaveCut(applyGroundDetail(applyCaustics(new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 0.96, metalness: 0,
-    }))));
+    })), { rockAttr: true }));
     this.reefMaterial = reefMaterial();
     this._c = new THREE.Color();
     this._dummy = new THREE.Object3D();
@@ -1044,6 +1174,8 @@ export class Terrain {
     this.plantsByKey = new Map();
     // A felled tree's stump, where it stood, until it grows back (addStump).
     this.stumps = new Map();
+    // Which way each was felled, so its stump's notch faces where it went.
+    this.fellDirs = new Map();
 
     this.far = this.buildFar();
     this.rivers = this.buildRivers();
@@ -1106,6 +1238,7 @@ export class Terrain {
       if (!wanted.has(key)) {
         if (c.reefProps || c.landProps) this.reefDirty = true;
         this.disposeChunk(c);
+        if (c.replaces) this.dropChunk(c.replaces);
         this.chunks.delete(key);
       }
     }
@@ -1122,38 +1255,111 @@ export class Terrain {
       if (!wanted.has(key)) continue;
       const old = this.chunks.get(key);
       if (old && old.band === job.band && !old.stale) continue;
-      if (old) { this.disposeChunk(old); }
-      this.chunks.set(key, this.buildChunk(job));
+      // Rebuilt finer or coarser as you came nearer or went away: with a
+      // reef to grow, the old chunk stays drawn, ground and reef together,
+      // and the new one hidden until its reef has grown — then the one
+      // swaps for the other. (The old reef kept on the new ground, a coarser
+      // or finer one, hung half a metre off it or sank into it for as long
+      // as the new reef took; dropped at once, the coral round you blinked
+      // out each time you crossed into a chunk.) The old one's plants and
+      // stumps let go first, by key: let go after, they took the new one's.
+      if (old) this.releaseChunk(old);
+      const c = this.buildChunk(job, true);
+      const shown = old && (old.replaces || old);
+      if (old?.replaces) this.dropChunk(old);         // rebuilt again before it was shown
+      if (shown && c.reefDue) {
+        c.group.visible = false;
+        c.replaces = shown;
+        c.reefProps = shown.reefProps;
+      } else if (shown) this.dropChunk(shown);
+      this.chunks.set(key, c);
       built++;
     }
+    // Reef, a few milliseconds of it a frame, nearest chunk first.
+    let next = null, best = Infinity;
+    for (const c of this.chunks.values()) {
+      if (!c.reefDue) continue;
+      const d = Math.max(Math.abs(c.i - pi), Math.abs(c.j - pj));
+      if (d < best) { best = d; next = c; }
+    }
+    if (next) this.finishReef(next, REEF_BUDGET);
 
     if (this.reefDirty) this.rebuildReefField();
+    this.cullReef(focus);
+  }
+
+  /** Show the quarters of reef near enough to see through the water; hide the rest. */
+  cullReef(focus) {
+    for (const c of this.chunks.values()) {
+      for (const q of c.reefQuads || []) {
+        const dx = Math.max(0, Math.abs(focus.x - q.userData.x) - CHUNK / 4);
+        const dz = Math.max(0, Math.abs(focus.z - q.userData.z) - CHUNK / 4);
+        q.visible = dx * dx + dz * dz < REEF_SEEN * REEF_SEEN;
+      }
+    }
   }
 
   disposeChunk(c) {
+    this.releaseChunk(c);
+    this.dropChunk(c);
+  }
+  /** Let go of its plants and their stumps (they are known by key, not by chunk). */
+  releaseChunk(c) {
+    for (const p of c.plants || []) { this.removeStump(p.key); this.plantsByKey.delete(p.key); }
+    c.plants = null;
+  }
+  /** Take it out of the world. */
+  dropChunk(c) {
     this.scene.remove(c.group);
     // Flora geometry is shared between every chunk; only the ground and the
     // cliff drapes belong to this one.
     c.group.traverse(o => { if (o.isMesh && o.userData.own) o.geometry.dispose(); });
-    for (const p of c.plants || []) { this.removeStump(p.key); this.plantsByKey.delete(p.key); }
   }
 
-  buildChunk({ i, j, ring, band = bandOf(ring) }) {
+  /**
+   * @param later  leave the reef to finishReef() on a later frame: ground and
+   *               reef together were one long frame each time you crossed into
+   *               a new chunk on the reef.
+   */
+  buildChunk({ i, j, ring, band = bandOf(ring) }, later = false) {
     const group = new THREE.Group();
     const segs = LOD_SEGMENTS[band];
     const grid = this.buildGround(i, j, segs, group, ring);
 
     this._plants = null;
-    this._reefProps = null;
     this._landProps = null;
     const trees = this.buildFlora(i, j, band, group, grid);
-    const coral = ring <= REEF_LOD ? this.buildReef(i, j, group, ring) : 0;
     if (band <= 2) this.buildDrapes(i, j, group, grid);
-    if (this._reefProps || this._landProps) this.reefDirty = true;
+    if (this._landProps) this.reefDirty = true;
 
     this.scene.add(group);
-    return { i, j, segs, band, group, trees, coral, plants: this._plants,
-             reefProps: this._reefProps, landProps: this._landProps, stale: false };
+    const c = { i, j, ring, segs, band, group, trees, coral: 0, plants: this._plants,
+                reefProps: null, reefQuads: null, landProps: this._landProps, stale: false, reefDue: ring <= REEF_LOD,
+                grid: ring <= REEF_LOD ? grid : null };
+    if (c.reefDue && !later) this.finishReef(c);
+    return c;
+  }
+
+  /**
+   * Grow a built chunk's reef: all of it, or (given a budget, in ms) as much
+   * as fits in that and the rest on later calls. Returns true when done.
+   */
+  finishReef(c, budget = Infinity) {
+    c.reefJob ||= this.growReef(c.i, c.j, c.group, c.ring, c.grid);
+    const until = performance.now() + budget;
+    let r;
+    do r = c.reefJob.next(); while (!r.done && performance.now() < until);
+    if (!r.done) return false;
+    // The chunk it replaces goes now, and not before.
+    if (c.replaces) { this.dropChunk(c.replaces); c.replaces = null; c.group.visible = true; }
+    c.reefDue = false;
+    c.reefJob = null;
+    c.grid = null;
+    c.coral = this.takeReef(r.value);
+    c.reefProps = this._reefProps;
+    c.reefQuads = this._reefQuads;
+    if (c.reefProps) this.reefDirty = true;
+    return true;
   }
 
   /**
@@ -1179,11 +1385,13 @@ export class Terrain {
           site.h[v] = L.h; site.plain[v] = L.plain; site.mountain[v] = L.mountain; site.mesa[v] = L.mesa;
           site.cliff[v] = L.cliff; site.river[v] = Math.min(L.river, 999); site.edge[v] = Math.min(L.edge, 999);
           site.bank[v] = L.bank; site.m[v] = L.m;
+          site.rock[v] = L.rock; site.crack[v] = L.crack; site.tone[v] = L.tone;
         }
       }
     }
     const count = n * n + 4 * n;          // the grid and the skirt
     const pos = new Float32Array(count * 3), nrm = new Float32Array(count * 3), colours = new Float32Array(count * 3);
+    const rocky = new Float32Array(count);
     const L = {};
     for (let b = 0; b < n; b++) {
       for (let a = 0; a < n; a++) {
@@ -1200,6 +1408,7 @@ export class Terrain {
         site.slope[v] = slope; site.wet[v] = wet; site.forest[v] = forest;
         groundColour(h, slope, wet, noise2(x * 0.35, z * 0.35), L, forest, this._c);
         colours[v * 3] = this._c.r; colours[v * 3 + 1] = this._c.g; colours[v * 3 + 2] = this._c.b;
+        rocky[v] = L.rock;
       }
     }
     const index = [];
@@ -1236,6 +1445,7 @@ export class Terrain {
       edge.forEach((v, k) => {
         pos[sv * 3] = pos[v * 3]; pos[sv * 3 + 1] = pos[v * 3 + 1] - dropAt(edge, k); pos[sv * 3 + 2] = pos[v * 3 + 2];
         for (let c = 0; c < 3; c++) { nrm[sv * 3 + c] = nrm[v * 3 + c]; colours[sv * 3 + c] = colours[v * 3 + c]; }
+        rocky[sv] = rocky[v];
         sv++;
       });
       for (let k = 0; k < n - 1; k++) {
@@ -1250,6 +1460,7 @@ export class Terrain {
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(colours, 3));
+    geo.setAttribute('aRock', new THREE.BufferAttribute(rocky, 1));
     geo.setIndex(index);
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, this.material);
@@ -1331,12 +1542,28 @@ export class Terrain {
           const fine = layer === 'grass' || layer === 'ground';
           let y = fine ? this.gridHeight(grid, x, z) : heightAt(x, z);
           let pitch = 0, roll = 0;
+          let lean = null;
           if (sp.lying) {
-            // Lie along the ground: tilt to the slope between its two ends.
+            // Lie along the ground: tilt to the slope between its two ends,
+            // and down onto the lowest of the ground along it — on a bumpy
+            // floor, set by its middle alone, a third of them hung half a
+            // metre over a dip at one end.
             const half = 7 * sc, dx = Math.cos(yaw) * half, dz = -Math.sin(yaw) * half;
+            const a = heightAt(x - dx, z - dz), b = heightAt(x + dx, z + dz), mid = (a + b) / 2;
             pitch = 0;
-            roll = Math.atan2(heightAt(x + dx, z + dz) - heightAt(x - dx, z - dz), half * 2);
-            y -= 0.25;
+            roll = Math.atan2(b - a, half * 2);
+            let low = 0;
+            for (const f of [-0.75, -0.4, 0, 0.4, 0.75]) low = Math.min(low, heightAt(x + dx * f, z + dz * f) - (mid + (b - a) / 2 * f));
+            y = mid + low - 0.2;
+          } else if (sp.conform) {
+            // Lying on, or spreading over, the ground: tilted with it, as
+            // far as `conform` says. (Set level on a slope, fallen branches
+            // hung a metre over it at their downhill ends, and the fronds of
+            // a fern on that side spread out over nothing.)
+            normalAt(x, z, _norm);
+            lean = { x: _norm.x * sp.conform, z: _norm.z * sp.conform };
+            pitch = (r1 - 0.5) * 0.06; roll = (r2 - 0.5) * 0.06;
+            y -= 0.04;
           } else if (sp.material === 'rock') {
             pitch = (r1 - 0.5) * 0.4; roll = (r2 - 0.5) * 0.4;
             y -= 0.3 * sc;
@@ -1348,10 +1575,31 @@ export class Terrain {
           let list = place.get(key);
           if (!list) place.set(key, list = { sp, v, lod, items: [] });
           const plantKey = `${i},${j},${li},${ci},${cj}`;
-          list.items.push({ x, y, z, sc, yaw, pitch, roll, plantKey, trunk, form: vAll, tint: hash(s + 29, i * 7 + j) });
+          list.items.push({ x, y, z, sc, yaw, pitch, roll, lean, plantKey, trunk, form: vAll, tint: hash(s + 29, i * 7 + j) });
 
-          // What it blocks: a trunk, a rock, a stump.
-          if (trunk || sp.solid) {
+          // What it blocks: a trunk, a rock, a stump — or a log lying, by a
+          // row of short posts down its length, each as high as the log is
+          // there. (Logs blocked nothing: you walked into one, and from in
+          // there it was gone, only the splinters of its snapped end hanging
+          // in the air round you.)
+          const body = sp.lying && speciesGeometry(sp, v, lod).userData.body;
+          if (body) {
+            const o = this._dummy;
+            o.position.set(x, y, z);
+            o.rotation.set(pitch, yaw, roll, 'YXZ');
+            o.scale.setScalar(sc);
+            o.updateMatrix();
+            for (let k = 0; k < body.length - 1; k++) {
+              const a = body[k], b = body[k + 1], r = Math.min(a.r, b.r) * sc;
+              const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) * sc / r));
+              for (let q = 0; q < steps; q++) {
+                const t = (q + 0.5) / steps;
+                _logAt.set(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t).applyMatrix4(o.matrix);
+                solids.push({ x: _logAt.x, z: _logAt.z, base: _logAt.y - r - 1, top: _logAt.y + r * 0.9,
+                              rad: r * 1.1, hit: r * 0.85, solid: true, plantKey });
+              }
+            }
+          } else if (trunk || sp.solid) {
             const geo = speciesGeometry(sp, v, lod);
             const bb = geo.boundingBox || (geo.computeBoundingBox(), geo.boundingBox);
             const rad = trunk ? trunk * sc : Math.max(bb.max.x, -bb.min.x, bb.max.z, -bb.min.z) * sc * 0.75;
@@ -1369,6 +1617,10 @@ export class Terrain {
       items.forEach((t, k) => {
         d.position.set(t.x, t.y, t.z);
         d.rotation.set(t.pitch, t.yaw, t.roll, 'YXZ');
+        if (t.lean) {
+          _lean.set(t.lean.x, 1, t.lean.z).normalize();
+          d.quaternion.premultiply(_q.setFromUnitVectors(_up, _lean));
+        }
         d.scale.setScalar(t.sc);
         d.updateMatrix();
         const felled = this.felled.has(t.plantKey);
@@ -1598,7 +1850,7 @@ export class Terrain {
     flow.magFilter = THREE.LinearFilter;
     flow.needsUpdate = true;
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x2c4a44, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.86,
+      color: 0xffffff, roughness: 0.08, metalness: 0, transparent: true, opacity: 1,
       normalMap: flow, normalScale: new THREE.Vector2(0.55, 0.55), depthWrite: false,
     });
     // There is no environment map to reflect, so the sky is added by hand:
@@ -1608,16 +1860,33 @@ export class Terrain {
     mat.onBeforeCompile = shader => {
       shader.uniforms.uRiverSkyTop = sky.top;
       shader.uniforms.uRiverSkyHorizon = sky.horizon;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>
+          attribute float aDepth;
+          varying float vDepth;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+          vDepth = aDepth;`);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
           uniform vec3 uRiverSkyTop;
-          uniform vec3 uRiverSkyHorizon;`)
+          uniform vec3 uRiverSkyHorizon;
+          varying float vDepth;`)
+        // Clear in the shallows, the bed showing through it tinted, and
+        // darkening to green-brown as it deepens (fresh water carries tannin
+        // and silt); gone at the very edge, so it meets the bank in a soft
+        // line where the bank comes up through it — it was a slab of one
+        // colour cut off in a sawtooth by the bank's triangles.
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          if (vDepth < 0.0) discard;
+          float deepness = smoothstep(0.03, 1.3, vDepth);
+          diffuseColor.rgb = mix(vec3(0.17, 0.2, 0.14), vec3(0.05, 0.11, 0.10), deepness);
+          diffuseColor.a = mix(0.4, 0.93, deepness) * smoothstep(0.0, 0.12, vDepth);`)
         .replace('#include <opaque_fragment>', `
           {
             vec3 v = normalize(vViewPosition);
             float fres = pow(1.0 - clamp(dot(normal, v), 0.0, 1.0), 4.0);
             vec3 skyc = mix(uRiverSkyTop, uRiverSkyHorizon, 0.55);
-            outgoingLight = mix(outgoingLight, skyc, 0.18 + fres * 0.62);
+            outgoingLight = mix(outgoingLight, skyc, 0.08 + fres * 0.6);
             diffuseColor.a = mix(diffuseColor.a, 1.0, fres * 0.8);
           }
           #include <opaque_fragment>`);
@@ -1660,12 +1929,35 @@ export class Terrain {
   }
 
   /**
-   * Coral, sponges and grass on the sea bed. Same deterministic scatter as the
-   * forest, filtered on depth, slope and the reef mask instead of height,
-   * slope and moisture — a colony grows on rock, the grass grows on the sand
-   * between colonies, and neither crosses into the other's ground.
+   * Coral, sponges, rock and grass on the sea bed, laid out the way a reef
+   * grows rather than sprinkled: big anchor pieces where the colony is, the
+   * small colonies crowded round each and thinning away from it, small things
+   * grown up on top of the rocks, and the open ground between left to
+   * seagrass meadows, rubble and cobbles (see REEF in reef.js for the roles).
+   * Corals settle on hard ground — the reef's framework and the bedrock
+   * ledges, landAt().rock — and seagrass on sand. Pieces keep out of one
+   * another (they may touch, as colonies do; one is never grown through
+   * another), and each is set down onto the lowest of the bed under its rim.
    */
-  buildReef(i, j, group, ring = 0) {
+  buildReef(i, j, group, ring = 0, grid = null) {
+    const steps = this.growReef(i, j, group, ring, grid);
+    let r = steps.next();
+    while (!r.done) r = steps.next();
+    return this.takeReef(r.value);
+  }
+
+  takeReef({ total, footprints, quads }) {
+    this._reefProps = footprints;
+    this._reefQuads = quads;
+    return total;
+  }
+
+  /**
+   * The reef, grown a step at a time: it yields every so often, so the game
+   * can spread a chunk's worth over a few frames (finishReef) instead of
+   * spending tens of milliseconds on one.
+   */
+  *growReef(i, j, group, ring = 0, grid = null) {
     // The chunk you are in gets the fine reef, the ring round it the lighter one.
     const geos = reefGeometry(ring > 0 ? 1 : 0);
     // How tall each species stands and how wide it spreads, measured once from
@@ -1677,125 +1969,322 @@ export class Terrain {
         return { top: b.max.y, rad: Math.max(b.max.x, -b.min.x, b.max.z, -b.min.z) };
       });
     }
+    const bounds = this._reefBounds;
     const slots = REEF.map(() => []);
     const eligible = new Float32Array(REEF.length);
     const ox = i * CHUNK, oz = j * CHUNK;
-    const samples = 460;
+    let seed = (i * 7919 + j * 104729) & 0xffff;
+    const rnd = () => hash(seed++, i * 31 + j * 17 + 5);
 
-    for (let s = 0; s < samples; s++) {
-      const rx = hash(i * 6421 + s, j * 51413);
-      const rz = hash(i * 51413, j * 6421 + s);
-      const x = ox - CHUNK / 2 + rx * CHUNK;
-      const z = oz - CHUNK / 2 + rz * CHUNK;
-      const h = heightAt(x, z);
-      if (h > WADE || h < -28) continue;      // dry land, or past the drop-off
-      const slope = slopeAt(x, z);
-      const reef = reefMask(x, z, -coastDistance(x, z));
+    // The ground as it was built for this chunk: its height on the very
+    // triangles drawn (so nothing floats over, or sinks into, a coarser
+    // ring's ground), and its rock, slope and distance out read off the same
+    // grid — a dozen calls to the ground function per piece, a few thousand
+    // pieces, were most of a long frame. Off the edge, the function itself.
+    const ground = (x, z) => {
+      if (!grid) return heightAt(x, z);
+      const { H, G, n, step, x0, z0 } = grid;
+      const fx = (x - x0) / step, fz = (z - z0) / step;
+      if (!(fx >= 0 && fz >= 0 && fx < n - 1 && fz < n - 1)) return heightAt(x, z);
+      const a = Math.floor(fx), b = Math.floor(fz), u = fx - a, v = fz - b;
+      const g = (b + 1) * G + a + 1;
+      // (Each cell is two triangles, split from its +x corner to its +z one.)
+      return u + v < 1 ? H[g] + u * (H[g + 1] - H[g]) + v * (H[g + G] - H[g])
+                       : H[g + G + 1] + (1 - u) * (H[g + G] - H[g + G + 1]) + (1 - v) * (H[g + 1] - H[g + G + 1]);
+    };
+    const here = { h: 0, rock: 0, m: 0, slope: 0 };
+    const siteOf = (x, z) => {
+      if (grid) {
+        const { site, n, step, x0, z0 } = grid;
+        const fx = (x - x0) / step, fz = (z - z0) / step;
+        if (fx >= 0 && fz >= 0 && fx < n - 1 && fz < n - 1) {
+          const a = Math.floor(fx), b = Math.floor(fz), u = fx - a, v = fz - b, k = b * n + a;
+          const lerp2 = q => (q[k] * (1 - u) + q[k + 1] * u) * (1 - v) + (q[k + n] * (1 - u) + q[k + n + 1] * u) * v;
+          here.h = ground(x, z); here.rock = lerp2(site.rock); here.m = lerp2(site.m); here.slope = lerp2(site.slope);
+          return here;
+        }
+      }
+      const L = landAt(x, z);
+      here.h = L.h; here.rock = L.rock; here.m = L.m; here.slope = slopeAt(x, z);
+      return here;
+    };
 
-      // Weighted lottery among everything that can live here. First-match-wins
-      // would hand every legal spot to whichever species is listed first, and
-      // a reef of one coral repeated 800 times is exactly the thing this is
-      // meant to fix.
+    // What is already standing, by 3 m cell, so nothing grows through anything.
+    const taken = new Map();
+    let widest = 0;
+    const cellKey = (a, b) => a * 4096 + b;
+    const fits = (x, y, z, r, give) => {
+      const reach = Math.ceil((r + widest) / 3);
+      const ci = Math.floor(x / 3), cj = Math.floor(z / 3);
+      for (let a = ci - reach; a <= ci + reach; a++) {
+        for (let b = cj - reach; b <= cj + reach; b++) {
+          const list = taken.get(cellKey(a, b));
+          if (!list) continue;
+          for (const o of list) {
+            const g = Math.max(give, o.give);
+            // (In three dimensions: up a reef face one colony grows over another.)
+            if (Math.hypot(o.x - x, (o.y - y) * 0.8, o.z - z) < (o.r + r) * (1 - g)) return false;
+          }
+        }
+      }
+      return true;
+    };
+    const claim = (x, y, z, r, give) => {
+      const key = cellKey(Math.floor(x / 3), Math.floor(z / 3));
+      const list = taken.get(key);
+      const o = { x, y, z, r, give };
+      if (list) list.push(o); else taken.set(key, [o]);
+      widest = Math.max(widest, r);
+    };
+
+    // Weighted lottery among everything that could live here in this role.
+    // First-match-wins would hand every legal spot to whichever species is
+    // listed first, and a reef of one coral repeated 800 times is exactly
+    // the thing this is meant to avoid.
+    const lottery = (role, x, z, h, slope, reef, hard) => {
       let total = 0;
       for (let f = 0; f < REEF.length; f++) {
         const sp = REEF[f];
-        eligible[f] =
-          h >= sp.depth[0] && h <= sp.depth[1] &&
-          slope <= sp.maxSlope &&
-          reef >= sp.reef[0] && reef < sp.reef[1] ? sp.weight : 0;
-        total += eligible[f];
+        let w = role === 'anchor' ? sp.anchor || 0 : role === 'perch' ? sp.perch || 0 : sp.weight || 0;
+        if (w > 0 && !(h >= sp.depth[0] && h <= sp.depth[1] && slope <= sp.maxSlope &&
+                       reef >= sp.reef[0] && reef < sp.reef[1] && hard >= sp.hard[0] && hard < sp.hard[1])) w = 0;
+        if (w > 0 && sp.patch) w *= smooth(sp.patch[1], sp.patch[2], fbm(x * sp.patch[0] + f * 13.7, z * sp.patch[0] - f * 7.3, 2));
+        eligible[f] = w;
+        total += w;
       }
-      if (total <= 0) continue;
-      // Bare ground between the colonies: never fill every legal spot.
-      if (hash(s * 37, i * 17 + j) > 0.46 + reef * 0.50) continue;
-
-      let pick = hash(s * 71 + 3, i * 29 + j * 7) * total;
+      if (total <= 0) return -1;
+      let pick = rnd() * total;
       for (let f = 0; f < REEF.length; f++) {
         pick -= eligible[f];
-        if (pick <= 0 && eligible[f] > 0) { slots[f].push({ x, z, y: h, s }); break; }
+        if (pick <= 0 && eligible[f] > 0) return f;
       }
-    }
+      return -1;
+    };
 
-    let total = 0;
+    // Put one down, if it fits. `size` 0..1 picks from the species' scale
+    // range (a colony is a few old heads and a lot of young ones); `on` is the
+    // rock it is perched on, if it is.
     const d = this._dummy;
-    const footprints = [];
-    for (let f = 0; f < REEF.length; f++) {
-      const list = slots[f];
-      if (!list.length) continue;
-      const sp = REEF[f];
-      const inst = new THREE.InstancedMesh(geos[f], this.reefMaterial, list.length);
-      inst.receiveShadow = true;
-      for (let k = 0; k < list.length; k++) {
-        const t = list[k];
-        // Scale spread is deliberately wide. A colony is a few old heads and a
-        // lot of young ones, and uniform size is what makes scatter read as
-        // wallpaper.
-        const g = Math.pow(hash(t.s, f * 23), 1.7);
-        const sc = THREE.MathUtils.lerp(sp.scale[0], sp.scale[1], g);
-        const bounds = this._reefBounds[f];
-        const sx = sc * (0.85 + hash(t.s, f * 59) * 0.3), sz = sc * (0.85 + hash(t.s, f * 83) * 0.3);
-        // Down onto the lowest of the bed under its rim, not the height at its
-        // middle: the reef floor is lumpy — coral heads stand metres up off it
-        // — and a head set on a knoll's crown overhung the drop all round,
-        // floating, by as much as two and a half metres. One that would go
-        // more than half under like that grows somewhere else.
-        const rim = bounds.rad * (sx + sz) / 2 * 0.8;
-        let low = t.y;
+    const place = (f, x, z, y, size, on = null, lean = null) => {
+      const sp = REEF[f], bd = bounds[f];
+      const sc = THREE.MathUtils.lerp(sp.scale[0], sp.scale[1], size);
+      const r = bd.rad * sc;
+      const give = sp.soft >= 0.5 || sp.solid === false ? 0.5 : 0.22;
+      const k = sp.lean ?? 0.8;
+      let gx = 0, gz = 0;
+      if (lean) {
+        // Up on a rock: clear of what else has settled on it, and leaning
+        // with its surface where it landed.
+        for (const o of on.kids) if (Math.hypot(o.x - x, o.y - y, o.z - z) < (o.r + r) * 0.75) return null;
+        on.kids.push({ x, y, z, r });
+        gx = -lean.x / Math.max(0.3, lean.y) * k; gz = -lean.z / Math.max(0.3, lean.y) * k;
+      } else {
+        if (!fits(x, y, z, r * 0.85, give)) return null;
+        // On a slope a colony grows out of the face, leaning with it — most
+        // of the way for what crusts and branches over the rock, a little for
+        // a fan or a sponge, which grow up into the water whatever they stand
+        // on. Then it is set down onto the lowest of the bed under its rim
+        // (measured from that leaning base): the reef is lumpy — a head set on
+        // a knoll's crown overhung the drop all round, floating — and one that
+        // would go more than half under that way grows somewhere else. (Set
+        // plumb, every colony on a reef face went more than half under, and
+        // the faces were bare.)
+        const e = 0.6;
+        gx = (ground(x + e, z) - ground(x - e, z)) / (2 * e) * k;
+        gz = (ground(x, z + e) - ground(x, z - e)) / (2 * e) * k;
+        const rim = r * 0.8;
+        let low = 0;
         for (let a = 0; a < 8; a++) {
-          const th = a * Math.PI / 4;
-          low = Math.min(low, heightAt(t.x + Math.cos(th) * rim, t.z + Math.sin(th) * rim));
+          const cx = Math.cos(a * Math.PI / 4) * rim, cz = Math.sin(a * Math.PI / 4) * rim;
+          low = Math.min(low, ground(x + cx, z + cz) - (y + cx * gx + cz * gz));
         }
         // (A rim a few centimetres proud of the bed is nothing; a starfish
         // flat on the sand stays where it is.)
-        if (t.y - low > 0.1) {
-          if (t.y - low > Math.max(0.25, bounds.top * sc * 0.5)) { inst.setMatrixAt(k, HIDDEN); continue; }
-          t.y = low;
+        if (low < -0.1) {
+          if (-low > Math.max(0.25, bd.top * sc * 0.5)) return null;
+          y += low;
         }
-        d.position.set(t.x, t.y - 0.08, t.z);
-        // A little tilt off vertical: nothing on a reef grew plumb.
-        d.rotation.set((hash(t.s, f * 41) - 0.5) * 0.30, hash(t.s, f * 31) * Math.PI * 2,
-                       (hash(t.s, f * 53) - 0.5) * 0.30);
-        d.scale.set(sx, sc, sz);
-        d.updateMatrix();
-        inst.setMatrixAt(k, d.matrix);
-
-        // Per-instance tint, multiplied onto the baked vertex colours. Two
-        // heads of the same species are never quite the same colour, and this
-        // is most of what stops 300 instances looking like 300 copies.
-        const a = hash(t.s, f * 61), b = hash(t.s, f * 67);
-        const v = sp.tint;
-        this._c.setRGB(1 + (a - 0.5) * 2 * v, 1 + (b - 0.5) * 1.3 * v,
-                       1 + (0.5 - a) * 1.6 * v).multiplyScalar(0.84 + hash(t.s, f * 97) * 0.34);
-        inst.setColorAt(k, this._c);
-
-        // Remember what this one occupies. The fish steer off this; without it
-        // they only know about the ground, and a boulder is three metres of
-        // geometry the ground function has never heard of.
-        const base = t.y - 0.08;
-        footprints.push({
-          x: t.x, z: t.z, base,
-          top: base + sc * bounds.top,
-          // Two radii from the same measurement, pulling opposite ways. The
-          // fish field wants to over-estimate so nothing ends up inside a
-          // rock; player collision wants to under-estimate, because a bounding
-          // box around a lumpy boulder is mostly empty at the corners and
-          // being stopped by that reads as an invisible wall.
-          rad: sc * 1.15 * bounds.rad,
-          hit: sc * 0.78 * bounds.rad,
-          // Anything that bends in the surge bends around you too.
-          solid: sp.soft < 0.5,
-          // Its shape across, for the fish: a barrel sponge is a column, the
-          // rest are mounds — highest at the middle, down to the bed at the rim.
-          column: sp.name === 'barrel',
-        });
+        claim(x, y, z, r * 0.85, give);
       }
-      inst.instanceMatrix.needsUpdate = true;
-      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
-      group.add(inst);
-      total += list.length;
+      const t = { f, x, z, y, sc, r, on, kids: [], s: seed++, matrix: new THREE.Matrix4() };
+      const sx = sc * (0.85 + hash(t.s, f * 59) * 0.3), sz = sc * (0.85 + hash(t.s, f * 83) * 0.3);
+      // (Sunk a little into what it grows from: the bed, or the rock.)
+      t.base = y - (on ? 0.05 : 0.08);
+      d.position.set(x, t.base, z);
+      // Leaning with what it grows on, and a little more off vertical:
+      // nothing on a reef grew plumb.
+      d.rotation.set((hash(t.s, f * 41) - 0.5) * 0.30, hash(t.s, f * 31) * Math.PI * 2,
+                     (hash(t.s, f * 53) - 0.5) * 0.30);
+      _lean.set(-gx, 1, -gz).normalize();
+      _q.setFromUnitVectors(_up, _lean);
+      d.quaternion.premultiply(_q);
+      d.scale.set(sx, sc, sz);
+      d.updateMatrix();
+      t.matrix.copy(d.matrix);
+      slots[f].push(t);
+      return t;
+    };
+
+    // Where a ray straight down meets a rock that was put down: its own
+    // surface, lumps and all, not a guess at it from its bounding box.
+    const probe = this._reefProbe ||= new THREE.Mesh(undefined, this.reefMaterial);
+    probe.matrixAutoUpdate = false;
+    const ray = this._reefRay ||= new THREE.Raycaster();
+    const onRock = (a, x, z) => {
+      probe.geometry = reefGeometry(1)[a.f];
+      probe.matrixWorld.copy(a.matrix);
+      ray.set(_from.set(x, a.base + bounds[a.f].top * a.sc * 1.5 + 1, z), _down);
+      const hit = ray.intersectObject(probe, false)[0];
+      if (!hit || !hit.face) return null;
+      _nrm.copy(hit.face.normal).transformDirection(a.matrix);
+      return _nrm.y > 0.35 ? { y: hit.point.y, n: _nrm } : null;   // not under an overhang
+    };
+
+    // The anchors, and round each its colony.
+    for (let s = 0; s < 280; s++) {
+      if (s % 4 === 3) yield;
+      const x = ox - CHUNK / 2 + hash(i * 6421 + s, j * 51413 + 1) * CHUNK;
+      const z = oz - CHUNK / 2 + hash(i * 51413 + 1, j * 6421 + s) * CHUNK;
+      const L = siteOf(x, z);
+      const h = L.h, hard = L.rock, slope = L.slope;
+      if (h > WADE || h < -28) continue;      // dry land, or past the drop-off
+      const reef = reefMask(x, z, -L.m);
+      const want = Math.max(reef, hard * 0.8);
+      if (rnd() > 0.05 + want * 0.8) continue;
+      const f = lottery('anchor', x, z, h, slope, reef, hard);
+      if (f < 0) continue;
+      const a = place(f, x, z, h, 0.35 + rnd() * 0.65);
+      if (!a) continue;
+
+      // Small colonies crowded round it, thinning out away from it.
+      const n = Math.round(2 + want * 14 * (0.5 + rnd()));
+      for (let k = 0; k < n; k++) {
+        const th = rnd() * Math.PI * 2, d = a.r * 0.9 + Math.pow(rnd(), 1.4) * (2 + want * 4);
+        const sx = x + Math.cos(th) * d, sz = z + Math.sin(th) * d;
+        const S = siteOf(sx, sz);
+        if (S.h > WADE || S.h < -28) continue;
+        const sr = reefMask(sx, sz, -S.m), shard = Math.max(S.rock, hard * 0.6 * smooth(a.r + 4, a.r, d));
+        const g = lottery('satellite', sx, sz, S.h, S.slope, Math.max(sr, reef * 0.8), shard);
+        if (g >= 0) place(g, sx, sz, S.h, Math.pow(rnd(), 1.5) * 0.75);
+      }
+
+      // And up on top of a rock, a few small things that have settled there.
+      if (REEF[f].carries) {
+        const up = Math.round(rnd() * 2.2 + want * 2.5);
+        for (let k = 0; k < up; k++) {
+          const th = rnd() * Math.PI * 2, rr = Math.sqrt(rnd()) * 0.6;
+          const px = x + Math.cos(th) * rr * a.r, pz = z + Math.sin(th) * rr * a.r;
+          const hit = onRock(a, px, pz);
+          if (!hit) continue;
+          const g = lottery('perch', px, pz, hit.y, 0, reef, 1);
+          if (g >= 0) place(g, px, pz, hit.y, Math.pow(rnd(), 2) * 0.5, a, hit.n);
+        }
+      }
     }
-    this._reefProps = footprints;
-    return total;
+
+    // The rest of the hard ground: a reef's framework is grown over, not
+    // dotted — small colonies of every kind packed in wherever there is room
+    // between the big ones.
+    // (Sampled over the plan, a steep face got next to nothing: it has a lot
+    // of surface and little plan. So the steeper, the more tries.)
+    for (let s = 0; s < 1400; s++) {
+      if (s % 60 === 59) yield;
+      const x = ox - CHUNK / 2 + hash(i * 7717 + s, j * 2203 + 3) * CHUNK;
+      const z = oz - CHUNK / 2 + hash(i * 2203 + 3, j * 7717 + s) * CHUNK;
+      const L = siteOf(x, z);
+      const h = L.h, hard = L.rock, slope = L.slope;
+      if (hard < 0.35 || h > WADE || h < -28) continue;
+      const reef = reefMask(x, z, -L.m);
+      const tries = (0.4 + reef * 0.6) * hard * (1 + slope * 4);
+      for (let k = 0; k < 3 && rnd() < tries - k; k++) {
+        const kx = x + (rnd() - 0.5) * k * 1.6, kz = z + (rnd() - 0.5) * k * 1.6;
+        const K = k ? siteOf(kx, kz) : null;
+        const f = lottery('satellite', kx, kz, K ? K.h : h, K ? K.slope : slope, reef, hard);
+        const kh = K ? K.h : h;
+        if (f >= 0) place(f, kx, kz, kh, Math.pow(rnd(), 1.3) * 0.85);
+      }
+    }
+
+    // The open ground between: meadows, rubble, cobbles, the odd colony.
+    yield;
+    for (let s = 0; s < 520; s++) {
+      if (s % 60 === 59) yield;
+      const x = ox - CHUNK / 2 + hash(i * 3571 + s, j * 9137 + 2) * CHUNK;
+      const z = oz - CHUNK / 2 + hash(i * 9137 + 2, j * 3571 + s) * CHUNK;
+      const L = siteOf(x, z);
+      const h = L.h;
+      if (h > WADE || h < -28) continue;
+      const reef = reefMask(x, z, -L.m);
+      if (rnd() > 0.5 + reef * 0.3) continue;
+      const f = lottery('fill', x, z, h, L.slope, reef, L.rock);
+      if (f >= 0) place(f, x, z, h, Math.pow(rnd(), 1.7));
+    }
+
+    let total = 0;
+    const footprints = [];
+    yield;
+    // In quarters, each drawn only while you are near enough to see it: the
+    // water closes in at 40-odd metres, and a chunk and the ring round it
+    // reach out to 96.
+    const quads = [0, 1, 2, 3].map(q => {
+      const g = new THREE.Group();
+      g.userData.x = ox + (q & 1 ? 1 : -1) * CHUNK / 4;
+      g.userData.z = oz + (q & 2 ? 1 : -1) * CHUNK / 4;
+      return g;
+    });
+    for (let f = 0; f < REEF.length; f++) {
+      if (!slots[f].length) continue;
+      if (f % 6 === 5) yield;
+      const sp = REEF[f];
+      const bd = bounds[f];
+      for (let q = 0; q < 4; q++) {
+        const list = slots[f].filter(t => (t.x >= ox ? 1 : 0) + (t.z >= oz ? 2 : 0) === q);
+        if (!list.length) continue;
+        const inst = new THREE.InstancedMesh(geos[f], this.reefMaterial, list.length);
+        inst.receiveShadow = true;
+        for (let k = 0; k < list.length; k++) {
+          const t = list[k], sc = t.sc, base = t.base;
+          inst.setMatrixAt(k, t.matrix);
+
+          // Per-instance tint, multiplied onto the baked vertex colours. Two
+          // heads of the same species are never quite the same colour, and this
+          // is most of what stops 300 instances looking like 300 copies.
+          const a = hash(t.s, f * 61), b = hash(t.s, f * 67);
+          const v = sp.tint;
+          this._c.setRGB(1 + (a - 0.5) * 2 * v, 1 + (b - 0.5) * 1.3 * v,
+                         1 + (0.5 - a) * 1.6 * v).multiplyScalar(0.84 + hash(t.s, f * 97) * 0.34);
+          inst.setColorAt(k, this._c);
+
+          // Remember what this one occupies. The fish steer off this; without it
+          // they only know about the ground, and a boulder is three metres of
+          // geometry the ground function has never heard of.
+          footprints.push({
+            x: t.x, z: t.z, base,
+            top: base + sc * bd.top,
+            // Two radii from the same measurement, pulling opposite ways. The
+            // fish field wants to over-estimate so nothing ends up inside a
+            // rock; player collision wants to under-estimate, because a bounding
+            // box around a lumpy boulder is mostly empty at the corners and
+            // being stopped by that reads as an invisible wall.
+            rad: sc * 1.15 * bd.rad,
+            hit: sc * 0.78 * bd.rad,
+            // Anything that bends in the surge bends around you too, and what
+            // lies flat to the bottom does not stop you.
+            solid: sp.soft < 0.5 && sp.solid !== false,
+            // Its shape across, for the fish: a sponge's barrel is a column, the
+            // rest are mounds — highest at the middle, down to the bed at the rim.
+            column: sp.name === 'barrel' || sp.name === 'tube' || sp.name === 'tubeYellow',
+          });
+        }
+        inst.instanceMatrix.needsUpdate = true;
+        if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+        inst.computeBoundingSphere();
+        quads[q].add(inst);
+        total += list.length;
+      }
+    }
+    for (const q of quads) group.add(q);
+    return { total, footprints, quads };
   }
 
   /**
@@ -1833,6 +2322,9 @@ export class Terrain {
         // swims in among, not over: stamped as solid, a kelp stand's 8 m
         // canopy was a floor they hovered on, nine metres off the sand.
         if (!p.solid) continue;
+        // Nor what stands lower than a fish swims over the bed anyway: most
+        // of the reef, by count, and most of the time this took.
+        if (p.top - p.base < 0.4) continue;
         const i0 = Math.floor((p.x - p.rad) / REEF_CELL), i1 = Math.floor((p.x + p.rad) / REEF_CELL);
         const j0 = Math.floor((p.z - p.rad) / REEF_CELL), j1 = Math.floor((p.z + p.rad) / REEF_CELL);
         for (let i = i0; i <= i1; i++) {
@@ -1944,6 +2436,36 @@ export class Terrain {
    * The height something swimming here has to clear: the sea bed, or the top
    * of whatever is standing on it. Over open sand this is just `heightAt`.
    */
+  /**
+   * The surface something crawling on the reef stands on at (x, z): the sea
+   * bed, or the top of a solid piece it is on — a mound, highest at its
+   * middle and down to the bed at its rim, as far out as it is solid (`hit`).
+   * Not clearanceAt(): that is the fish's field, the tallest thing over a
+   * metre and a half, padded out — a crab beside a coral head walked on it in
+   * mid-water, a metre over the sand.
+   */
+  walkHeight(x, z) {
+    let h = heightAt(x, z);
+    if (this.reefSolids.size === 0) return h;
+    const ci = Math.floor(x / SOLID_CELL), cj = Math.floor(z / SOLID_CELL);
+    for (let i = ci - 1; i <= ci + 1; i++) {
+      for (let j = cj - 1; j <= cj + 1; j++) {
+        const bucket = this.reefSolids.get(solidCell(i, j));
+        if (!bucket) continue;
+        for (const p of bucket) {
+          // Reef pieces only (land trunks stand sixty metres), and not up a
+          // sponge's column.
+          if (p.column !== false || p.off) continue;
+          const d2 = (x - p.x) ** 2 + (z - p.z) ** 2;
+          if (d2 >= p.hit * p.hit) continue;
+          const top = p.base + (p.top - p.base) * Math.sqrt(1 - d2 / (p.hit * p.hit));
+          if (top > h) h = top;
+        }
+      }
+    }
+    return h;
+  }
+
   clearanceAt(x, z) {
     const ground = heightAt(x, z);
     if (this.reefTops.size === 0) return ground;
@@ -2049,7 +2571,9 @@ export class Terrain {
     const scale = p.matrix.getMaxScaleOnAxis();
     if (p.sp.lying) return out.set(p.x, p.y + 0.35 * scale, p.z);
     const r = Math.min(1.4, (p.trunk ?? p.sp.trunk ?? 0.3) * scale * 0.42);
-    return out.set(p.x - dir.x * r, p.y + (p.sp.name === 'stump' ? 0.5 : 1.1), p.z - dir.z * r);
+    // (The chips fly from the cut, where it will come down.)
+    const y = p.sp.name === 'stump' ? 0.5 : p.sp.cut === 'solid' ? this.cutOf(p).hw : 1.1;
+    return out.set(p.x - dir.x * r, p.y + y, p.z - dir.z * r);
   }
 
   /**
@@ -2104,6 +2628,13 @@ export class Terrain {
    * ever: gone, and growing back in its own time.)
    */
   topple(p, dir, onLand = null) {
+    // The notch is cut on the side it falls to: remember which, and if its
+    // stump went in before it went over, cut that one again to match.
+    if (p.sp.cut) {
+      const ld = _fallLocal.copy(dir).transformDirection(_fallInv.copy(p.matrix).invert());
+      this.fellDirs.set(p.key, Math.atan2(-ld.z, ld.x));
+      if (this.stumps.has(p.key)) { this.removeStump(p.key); this.addStump(this.plantsByKey.get(p.key) || p); }
+    }
     // A tree is cut: what falls is the tree above the cut, hinged on the
     // stump's far edge (the side it falls to), its end a face of wood.
     const cut = p.sp.cut ? this.cutOf(p) : null;
@@ -2264,7 +2795,10 @@ export class Terrain {
   cutOf(p) {
     const scale = p.matrix.getMaxScaleOnAxis();
     const hollow = p.sp.cut === 'hollow';
-    const want = hollow ? 0.3 : THREE.MathUtils.clamp(0.5 + 0.12 * (p.trunk ?? p.sp.trunk ?? 1) * scale, 0.35, 0.9);
+    // About waist high, as a tree is felled by hand — you swing level, not
+    // at your feet — and higher on a big trunk, above the flare of its foot.
+    // (Knee high, the stump sat almost on the ground.)
+    const want = hollow ? 0.3 : THREE.MathUtils.clamp(0.95 + 0.12 * (p.trunk ?? p.sp.trunk ?? 1) * scale, 0.9, 1.35);
     const hl = Math.max(0.05, Math.round(want / scale / 0.05) * 0.05);          // (in the plant's own units, a few heights to cache)
     const geo = p.inst.geometry, key = `${geo.uuid}|${hl.toFixed(2)}`;
     this._cutCache ||= new Map();
@@ -2284,7 +2818,7 @@ export class Terrain {
       const c = m.clone();
       c.onBeforeCompile = m.onBeforeCompile;
       c.customProgramCacheKey = m.customProgramCacheKey;
-      c.clippingPlanes = [plane];
+      c.clippingPlanes = Array.isArray(plane) ? plane : [plane];
       c.clipShadows = true;
       return c;
     });
@@ -2309,18 +2843,44 @@ export class Terrain {
   }
 
   /** Felled, a tree leaves its stump: to stand on, where the trunk stood (`solids`: the chunk's, while it is built). */
+  /** Which way (a yaw in the plant's own frame) a tree went over: as it was felled, or for one from a save, some way. */
+  fallAngle(p) {
+    const a = this.fellDirs.get(p.key);
+    if (a !== undefined) return a;
+    let h = 7;
+    for (let i = 0; i < p.key.length; i++) h = Math.imul(h ^ p.key.charCodeAt(i), 16777619);
+    return ((h >>> 0) / 4294967296) * Math.PI * 2;
+  }
+
+  /**
+   * How a stump is cut, in the plant's own frame: the planes its bark is
+   * clipped to and the face on top — the flat of the cut, or (cut with an axe,
+   * a solid trunk) the notch, back cut and torn hinge of notchFace(), the
+   * notch on the side it fell to, `a`. `own`: the face is this stump's alone.
+   */
+  stumpCut(p, c = this.cutOf(p), a = this.fallAngle(p)) {
+    const flat = new THREE.Plane(new THREE.Vector3(0, -1, 0), c.hl);
+    if (!c.outline) return { planes: [flat], top: c.top, own: false };
+    const fx = Math.cos(a), fz = -Math.sin(a), { k, hd } = notchOf(c);
+    const n = new THREE.Vector3(-k * fx, -1, -k * fz), len = n.length();
+    const notch = new THREE.Plane(n.divideScalar(len), (c.hl + k * (hd + c.outline.cx * fx + c.outline.cz * fz)) / len);
+    return { planes: [flat, notch], top: notchFace(c.outline, c.hl, a, k, hd, p.key.length * 7919 + Math.round(a * 1000)), own: true };
+  }
+
   addStump(p, solids = null) {
     if (!p.sp.cut || this.stumps.has(p.key)) return;
     const c = this.cutOf(p);
-    // Below the cut, in the plant's own frame (it may lean a little).
-    const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), c.hl).applyMatrix4(p.matrix);
-    const mesh = this.clippedCopy(p, plane);
+    // Below the cut, in the plant's own frame (it may lean a little) — and,
+    // cut with an axe, below the notch on the side it fell to (notchFace()).
+    const cut = this.stumpCut(p, c);
+    const planes = cut.planes.map(q => q.clone().applyMatrix4(p.matrix)), topGeo = cut.top;
+    const mesh = this.clippedCopy(p, planes);
     // (It stays put, unlike what falls: out of view, it need not be drawn.)
     mesh.frustumCulled = true;
     mesh.computeBoundingSphere();
     this.scene.add(mesh);
-    const top = c.top && this.cutFace(p, c.top);
-    if (top) this.scene.add(top);
+    const top = topGeo && this.cutFace(p, topGeo);
+    if (top) { top.userData.own = cut.own; this.scene.add(top); }
     this.stumps.set(p.key, { mesh, top });
     // Still in the way, but only as high as it was cut: you step up onto it.
     const lists = solids ? [solids] : [...this.chunks.values()].map(ch => ch.landProps || []);
@@ -2340,7 +2900,7 @@ export class Terrain {
     this.scene.remove(st.mesh);
     for (const m of st.mesh.userData.mats) m.dispose();
     st.mesh.dispose();
-    if (st.top) this.scene.remove(st.top);
+    if (st.top) { this.scene.remove(st.top); if (st.top.userData.own) st.top.geometry.dispose(); }
     this.stumps.delete(key);
   }
 
@@ -2442,7 +3002,79 @@ function cutFaces(geo, hl) {
     g.computeVertexNormals();
     return g;
   };
-  return { top: face(true), end: face(false), r: rad.reduce((s, r) => s + r, 0) / N };
+  return { top: face(true), end: face(false), r: rad.reduce((s, r) => s + r, 0) / N, outline: { cx, cz, rad } };
+}
+
+/**
+ * The top of a stump as an axe leaves it, in the plant's own frame, the tree
+ * gone over toward `a` (a yaw, +x turned by it): the notch — the wedge chopped
+ * out of the side it fell to, its floor sloping away down that side — the
+ * flat of the back cut behind it, and between them the hinge, the strip of
+ * wood that held to the last and tore, its fibres left standing up and leaning
+ * the way it went. `k` is the notch's slope and `hd` how far toward the fall
+ * the hinge stands from the middle; the stump's bark is clipped to the same.
+ */
+function notchFace({ cx, cz, rad }, hl, a, k, hd, seed) {
+  const N = rad.length, M = 8;
+  const fx = Math.cos(a), fz = -Math.sin(a);
+  const rMean = rad.reduce((s, r) => s + r, 0) / N;
+  let h = seed >>> 0;
+  const rnd = () => ((h = Math.imul(h ^ (h >>> 15), 2246822519) + 0x9e3779b9 >>> 0) / 4294967296);
+  const v = [cx, hl, cz], uv = [0.5, 0.5], ix = [];
+  const heightAtS = (sAlong, x, z, inner) => {
+    if (sAlong > hd) return hl - k * (sAlong - hd);
+    // The torn hinge: a band of fibres standing proud of the back cut.
+    const band = 1 - Math.min(1, (hd - sAlong) / (rMean * 0.16));
+    return hl + (inner ? band * rMean * (0.04 + rnd() * 0.1) : 0);
+  };
+  for (let j = 1; j <= M; j++) {
+    for (let b = 0; b <= N; b++) {
+      const ang = (b % N + 0.5) / N * Math.PI * 2 - Math.PI, r = rad[b % N] * j / M;
+      const x = cx + Math.cos(ang) * r, z = cz + Math.sin(ang) * r;
+      const sAlong = (x - cx) * fx + (z - cz) * fz;
+      v.push(x, heightAtS(sAlong, x, z, j < M && b < N), z);
+      uv.push(0.5 + Math.cos(ang) * 0.5 * j / M, 0.5 + Math.sin(ang) * 0.5 * j / M);
+    }
+  }
+  // (The seam vertex of each ring sits where its first does.)
+  const W = N + 1;
+  for (let j = 1; j <= M; j++) { const r0 = 1 + (j - 1) * W; v[(r0 + N) * 3 + 1] = v[r0 * 3 + 1]; }
+  for (let b = 0; b < N; b++) ix.push(0, 1 + b + 1, 1 + b);
+  for (let j = 1; j < M; j++) {
+    const r0 = 1 + (j - 1) * W, r1 = r0 + W;
+    for (let b = 0; b < N; b++) {
+      ix.push(r0 + b, r0 + b + 1, r1 + b + 1);
+      ix.push(r0 + b, r1 + b + 1, r1 + b);
+    }
+  }
+  // Splinters along the hinge: thin shards of the torn wood, standing up out
+  // of it and leaning over toward where the tree went.
+  const sx = -fz, sz = fx;                                    // along the hinge
+  const half = rMean * 0.85;
+  for (let q = 0; q < 14; q++) {
+    const t = (rnd() * 2 - 1) * half * Math.sqrt(1 - Math.min(1, (hd / rMean) ** 2));
+    const bx = cx + fx * (hd - rMean * 0.04) + sx * t, bz = cz + fz * (hd - rMean * 0.04) + sz * t;
+    const ht = rMean * (0.06 + rnd() * rnd() * 0.24), w = rMean * (0.05 + rnd() * 0.06), th = w * 0.3;
+    const lean = 0.3 + rnd() * 0.5;
+    const tx = bx + fx * ht * lean + sx * (rnd() - 0.5) * w, tz = bz + fz * ht * lean + sz * (rnd() - 0.5) * w, ty = hl + ht;
+    const base = v.length / 3;
+    // A flat shard: two along the hinge at its foot, a third behind for its
+    // thickness, all drawn to a ragged edge at the top (two points).
+    v.push(bx - sx * w, hl - 0.01, bz - sz * w,   bx + sx * w, hl - 0.01, bz + sz * w,   bx - fx * th, hl - 0.01, bz - fz * th,
+           tx - sx * w * 0.5, ty, tz - sz * w * 0.5,   tx + sx * w * 0.4, ty - ht * 0.15, tz + sz * w * 0.4);
+    // (Torn from the sapwood band, pale, not the dark heart: uv out at its radius.)
+    const u0 = 0.5 + 0.41 * Math.cos(q), v0 = 0.5 + 0.41 * Math.sin(q);
+    uv.push(u0, v0, u0, v0, u0, v0, u0, v0, u0, v0);
+    ix.push(base, base + 1, base + 4, base, base + 4, base + 3,                   // front face
+            base + 1, base, base + 2, base + 2, base + 3, base + 4, base + 2, base + 4, base + 1,   // back and sides
+            base, base + 3, base + 2);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(ix);
+  g.computeVertexNormals();
+  return g;
 }
 
 /**
@@ -2497,7 +3129,8 @@ function cutFaceMaterial(sp) {
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
-  m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, metalness: 0 });
+  // (Two-sided: the splinters of a torn hinge are thin shards.)
+  m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, metalness: 0, side: THREE.DoubleSide });
   _cutFaces.set(sp.name, m);
   return m;
 }

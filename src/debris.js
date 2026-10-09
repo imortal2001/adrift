@@ -374,6 +374,12 @@ export class DebrisField {
         if (!this.follow && (heightAt(it.x, it.z) > -0.3 || !this.hubs().some(o => this.inReach(it.x, it.z, o)))) this.respawn(it);
       }
 
+      // A shadow only over the shallows. Through fifteen metres of water the
+      // shade of a plank is scattered to nothing; drawn crisp, the flotsam's
+      // shadows lay on the sea bed under you like black cut-outs.
+      const shade = heightAt(it.x, it.z) > -3;
+      if (shade !== it.shade) { it.shade = shade; it.obj.traverse(o => { if (o.isMesh) o.castShadow = shade; }); }
+
       it.yaw += it.spin * dt;
       it.y = waveHeight(it.x, it.z, time) + it.buoy;
 

@@ -41,7 +41,12 @@ void main(){
   // put out as it was it showed as a navy far darker than the teal the same
   // fog gives the sea bed — a hard band along the edge of the view.
   if (uUnderwater > 0.5) {
-    vec3 w = uWaterColor * mix(0.45, 1.0, smoothstep(-0.7, -0.08, up));
+    // (Darker only looking steeply down. Darkened from just below the
+    // horizon, it was darker than the fogged sea bed in front of it, which
+    // is the fog's colour exactly — and where there is no near ground, over
+    // the open basin, the far sea bed beyond stood out of it as a pale flat
+    // panel with straight edges.)
+    vec3 w = uWaterColor * mix(0.6, 1.0, smoothstep(-0.97, -0.6, up));
     gl_FragColor = linearToOutputTexel(vec4(w, 1.0));
     return;
   }

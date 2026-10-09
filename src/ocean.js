@@ -189,15 +189,29 @@ void main(){
     if (dot(N, V) < 0.0) N = -N;
     // V runs fragment → camera, so a surface overhead gives V.y < 0: how
     // steeply we are looking up is -V.y.
-    float upness = clamp(-V.y, 0.0, 1.0);
-    float window = smoothstep(0.22, 0.88, upness);
-    vec3 outside = mix(uSkyHorizon, uSkyTop, upness) * (1.0 - uNight * 0.7);
-    vec3 mirrored = mix(uDeep, uShallow, 0.55);
-    vec3 col = mix(mirrored, outside, window);
-    // The sun, smeared across the window.
-    float sunAlign = max(dot(-V, uSunDir), 0.0);
-    col += uSunColor * pow(sunAlign, 16.0) * 0.7 * window;
-    col += uSunColor * pow(sunAlign, 3.0) * 0.06 * window;
+    // (Wobbled by the ripples: the window's rim is never a clean circle.)
+    float upness = clamp(-V.y + (N.x * V.x + N.z * V.z) * 0.35, 0.0, 1.0);
+    // Snell's window: the whole sky squeezed into a cone 97° across overhead
+    // (cos 48.6° = 0.66), the horizon at its rim and the zenith in the
+    // middle — the brightest thing down here, nearly white at the rim where
+    // the light comes in at a slant. Outside it the surface is a mirror of
+    // the water below: the water's own colour, a little lighter. (It was
+    // the sky's deep blue straight overhead, and the mirror the deep sea's
+    // navy: from the reef, the surface was a dark lid.)
+    float window = smoothstep(0.6, 0.7, upness);
+    float t = clamp((upness - 0.66) / 0.34, 0.0, 1.0);
+    vec3 sky = mix(uSkyHorizon * 1.25 + 0.12, uSkyTop * 1.1 + 0.05, sqrt(t)) * (1.0 - uNight * 0.85);
+    vec3 mirrored = uUnderFog * 1.35 + vec3(0.01, 0.03, 0.04);
+    vec3 col = mix(mirrored, sky, window);
+    // A bright ring at the rim, where the light from the horizon crowds in.
+    col += uSkyHorizon * 0.35 * window * (1.0 - smoothstep(0.0, 0.25, t)) * (1.0 - uNight);
+    // The sun, squeezed toward the middle with the rest of the sky, and
+    // glittering in the ripples round it.
+    vec3 sunIn = normalize(vec3(uSunDir.x * 0.75, max(uSunDir.y, 0.05) + 0.4, uSunDir.z * 0.75));
+    float sunAlign = max(dot(-V, sunIn), 0.0);
+    float glint = 0.6 + 0.4 * sin(dot(N.xz, vec2(40.0, 31.0)) + uTime * 3.0);
+    col += uSunColor * pow(sunAlign, 24.0) * 1.4 * window;
+    col += uSunColor * pow(sunAlign, 4.0) * 0.12 * glint * window;
     // Fog the underside with the water we are actually standing in. Using the
     // air fog here made the whole ceiling fade to near-black a few metres out,
     // which is what the water column looked like from below: a lid, not a

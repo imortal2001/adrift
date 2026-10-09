@@ -8,9 +8,13 @@ ever own starts as something you pulled out of the water. This prototype covers 
 
 You can dive: press `F` at the deck edge, `Z` to swim down, and the swell, the
 light and the colour of the water all change as you go. **Under the raft is a
-coral reef** — sand at about 18m with coral heads standing 8m off it, brain
-coral and staghorn and barrel sponges and sea fans swaying in the surge, with
-sunlight thrown across the sand in caustics. Reef fish work the coral in
+coral reef** — sand at about 18m in ripples, with patch reefs of old limestone
+standing 8m off it, cracked and creviced, spurs and grooves along the outer
+shelf and bedrock ledges between; massive, brain and table corals with
+staghorn thickets, plate, finger and leather corals, sea fans, tube and barrel
+sponges grown over and round them, seagrass meadows, rubble and cobbles on the
+sand; sunlight thrown across it all in caustics and hanging in shafts down
+through the water. Reef fish work the coral in
 schools — yellow and blue tangs, chromis, wrasse, red snapper, porgies — and
 the predators work the reef fish: a barracuda hanging motionless over a coral
 head, a grouper by its hole, blacktip reef sharks on patrol. A flounder lies
@@ -247,14 +251,14 @@ pause screen starts over.
 | `src/whale.js` | One humpback, passing by: a few minutes' company, then gone a while; cruises, surfaces to blow, sounds flukes-up. Not catchable. |
 | `src/reeflife.js` | The animals that move, other than fish and dinosaurs: sea turtles, stingrays, octopus and crabs on the reef, tortoises on land and pond turtles in the lakes — each with its own way of moving and of reacting to you; crab and octopus as catches. |
 | `src/reefmodels.js` | Their glTF bodies, when the models are here: the octopus's arm chains curled in code, the stingray's clip, and the tortoise's and pond turtle's limbs found in the mesh and moved in the vertex shader. |
-| `src/reef.js` | What lives on the sea bed: coral, sponges, anemones, seagrass, kelp, urchins, starfish, giant clams and rock, plus the surge that bends the soft ones. |
+| `src/reef.js` | What lives on the sea bed — massive, brain, table, staghorn, plate, finger and leather corals, sea fans, tube and barrel sponges, anemones, seagrass, macroalgae, kelp, urchins, starfish, giant clams — and its stone: boulders, outcrops, limestone slabs, cobbles and coral rubble; the roles each plays in a colony; the surge that bends the soft ones. |
 | `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Used by the reef. |
 | `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers, and the falls and lakes on them), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
 | `src/sound.js` | Sound, made on the spot with the Web Audio API — no recordings: the axe (swish, bite, the last stroke), a tree creaking, falling and crashing down; each placed in the world, heard from the camera. |
 | `src/caves.js` | Caves, sea caves, sea arches and rock shelves: where they are (surveyed from the land), their meshes, the dark inside them, and the floors and walls you walk on and within there; flint to chip, and the springs. |
-| `src/waterfall.js` | The lakes' still water, cut to their shores, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
+| `src/waterfall.js` | The lakes' still water, cut to their shores and knowing its depth over the bed, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
-| `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks. |
+| `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks; the terrain says per vertex where its flat ground is rock. |
 | `src/dinopose.js` | How the dinosaurs move on top of their clips, put right from the palaeontology: gaits (no running T. rex or stegosaur), mouths shut, heads down to graze and feed, level tails, the sauropod's neck. |
 | `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
 | `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
@@ -271,7 +275,7 @@ pause screen starts over.
 | `tools/make_starters.py` | Generates a correctly set up starter `.blend` per species. |
 | `tools/convert_glb.py` | Round-trips a third-party `.glb` through Blender to fix deprecated materials. |
 | `tools/export_models.py` | Blender-side exporter: settings, manifest upkeep and pre-flight checks. |
-| `src/underwater.js` | Light, colour and marine snow falling off with depth. |
+| `src/underwater.js` | Light, colour and marine snow falling off with depth; the red taken out of the light on the sea bed; caustics; sun shafts. |
 | `src/hook.js` | The throwable hook — ballistic flight, attach, reel in. |
 | `src/player.js` | Deck / air / swim states, and hunger, thirst and breath. |
 | `src/items.js` | All game data: items, recipes, buildables, debris yields, and what each item does in hand. |
@@ -331,6 +335,12 @@ nothing lines up in rows:
   banked into a flood plain across hollows. The first reaches the sea about
   200 m up the coast from the landing beach. The water is a ribbon at the
   surveyed level, flowing, reflecting the sky; you wade it, about a metre deep.
+  The ribbon is nine vertices across, and every vertex of it and of a lake's
+  surface knows how deep the water is over the bed there (`aDepth`): clear in
+  the shallows, the bed showing through tinted, darkening to green-brown as it
+  deepens, and gone at the very edge, so it meets the bank in a soft line.
+  (Two vertices across, one flat colour at 86%, it was a slab of grey-blue
+  cut off in a sawtooth wherever the bank's triangles came up through it.)
   At the mouth it slopes down over the last few metres of beach and slides
   under the sea, rather than ending in a square slab on top of the waves; and
   a lake's water stops at its shore where the river leaves it over a cascade,
@@ -474,7 +484,20 @@ scalloped and apart, a Gleichenia's a fine comb down every fork — for a floor
 carpeted in fronds painted as solid masses of overlapping leaves read as one
 sheet, banded in crescents. (The Gleichenia frond is painted stretched up its
 cell: drawn round, it filled only the lower half, and every leaf of a
-thicket was half empty.) Bark is
+thicket was half empty.) The cut-outs keep their coverage with distance:
+a card's alpha is averaged down the mip chain, and a frond of fine leaflets
+averages to less than the cut-off — past twenty metres a tree fern's whole
+crown went, leaving a bare trunk with a coil on top — so the further down the
+chain a fragment samples, the more its alpha is scaled back up (in
+`addWind()`). The tree fern's fiddleheads are a hand across, on a stalk out
+of the crown, furred brown; the coil was half a metre wide, a ring on a post.
+A fern thicket is fronds from the ground up: an older tier half way, drooping,
+and a russet mat of dead fronds under it all (it was a table of green on
+stalks it never drew, daylight under it). And what lies on or spreads over
+the ground leans with it (`conform` on a species: fallen branches all the way,
+the ferns, thickets and low cover part way) — set level on a slope, fallen
+branches hung a metre off it at their downhill ends; a fallen log is set
+down onto the lowest of the ground along it, not by its middle. Bark is
 painted too, one kind per kind of trunk, each a relief for the light and the
 normal map: the redwood's deep fibrous furrows, the araucaria's grey flaking
 plates ringed by old branch scars, the palm's leaf-scar rings, the tree
@@ -488,7 +511,7 @@ animals are:
 | Canopy | **giant redwoods**, old and young together: the old ~55 m, a flared buttressed base then an almost untapered column clear for half its height, a few massive limbs sweeping down and turning up at their ends with the foliage clumped out there, a trunk or two re-grown up through the crown, and a rounded or dead broken top; the young a narrow cone ~30 m. **Araucarias**: old, an umbrella of candelabra arms on a tall bare trunk ringed with the stubs of shed branches, the foliage in tufts at the arm ends; young, a strict tiered cone of dead-level whorls. **Dawn redwoods** (Metasequoia, Cenomanian onward) on the river banks and levees: a narrow cone of ascending branches over a fluted, buttressed base, the foliage soft, feathery and paler |
 | Understorey | **tree ferns** (their bases flared with roots, a skirt of dead fronds), **cycads** (stiff upturned leaves round a cone, the trunk armoured in old leaf bases), **shrubs**, clumps of **horsetail** and taller stands of **giant horsetail** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
 | Ground | **ferns** thick on the forest floor; **low ferns and spike-moss** in the open, **fern thickets** waist-high on the plains, **cattails** at the water |
-| Deadfall | **fallen logs** (mossy, snapped at one end, ferns growing out of them), **stumps** with their roots, **fallen branches** |
+| Deadfall | **fallen logs** (mossy, torn off at one end, ferns growing out of them), **stumps** with their roots, **fallen branches** |
 | Rock | **boulders**, **crags** heaped on the slopes and escarpments, and **spires** — sea stacks off the cliff coasts, and buttes out in front of the escarpments |
 
 Vines also hang down the steep faces — cliffs and escarpment risers — draped
@@ -530,6 +553,22 @@ walking closer never changes what grows where, only how finely it is drawn.
 So the forest is dense where it is wet and sheltered, thins onto the beach,
 stunts into cloud forest on the tops, gives way to fern on the plains and to
 rock on the cliffs.
+
+A **fallen log** is torn at one end, as a trunk breaks: the bark ragged
+round it, a line of red-brown inner bark just inside, and the wood a
+splintered mass standing out of it — a surface of its own (rings of points,
+each well up or well down from its neighbours, so the steep facets between
+are the splinters' sides along the grain), pale and faceted, short and
+crushed on one side and pulled out long on the other, where a dozen and more
+flat slivers tore free. It is drawn in bare wood (`wood` in `floraMaterials()`:
+near white, a fine grain, flat-shaded), a third material every species
+carries and only what has a break draws — with the bark's texture the wood
+came out dark and furrowed. (The first end was seven needle-sharp cones set
+evenly round an open tube: a crown of thorns round a hole, and from that end
+you saw straight through the hollow log.) The branch stubs are short and
+broken off. And it is solid: a row of short posts down its length, each as
+high as the log is there (`body` on its geometry), so you walk round it
+rather than into it.
 
 **How many.** The scatter is set against measured stands. Old-growth coast
 redwood on alluvial flats carries 45–74 canopy trees per hectare of 118–183
@@ -606,9 +645,17 @@ ground where the ground is (on a slope uphill, it stops short), bounces, and
 throws up leaves and dust where it lands — the ground shakes if you are
 close — and the wood is yours as it hits. It lies a few seconds, then sinks
 out of sight. It is cut, not pulled up whole: what comes down is the tree
-above the cut, knee high or so (higher on a big trunk), its end a face of
+above the cut, waist high or so (higher on a big trunk), its end a face of
 wood, and the **stump** stays where it stood — its own flared, fluted foot,
 bark and all — until the tree grows back; you can climb up and stand on it.
+Its top is as an axe leaves one (`stumpCut()`, `notchFace()` in
+`terrain.js`): the notch, the wedge chopped out of the side it fell to, its
+floor sloping away down that side; the flat of the back cut behind it; and
+between them the hinge, the strip of wood that held to the last and tore,
+its pale splinters standing and leaning the way the tree went. The stump's
+bark is clipped to the notch's plane as well as the cut's. Which way it fell
+is kept (`fellDirs`), so the notch faces where the trunk lies; a stump from a
+save is notched some way or other.
 The face is the trunk's own cross-section at the cut, buttresses and flutes
 and all: the heartwood (a redwood's cherry red, an araucaria's pale
 yellow-brown, a dawn redwood's red-brown), a narrow band of paler sapwood,
@@ -635,8 +682,36 @@ press a key.
 
 The sea bed comes out of the same `heightAt(x, z)` as the land — there is one
 surface, and the waterline is just where it crosses zero. Out from the beach it
-shelves to a sand floor at about 18m, ridged noise piles coral heads up to 8m
-off that, and past the shelf edge it drops into a basin at 42m.
+shelves to a sand floor at about 18m, patch reefs stand up to 8m off that, and
+past the shelf edge it drops into a basin at 42m.
+
+It is built from what a reef is made of rather than from noise alone (real
+reef zonation — [IHO benthic habitat classes](https://iho.int/mtg_docs/com_wg/HGMIO/HGMIO_Website/Benthic%20Habitat%20Objects%20and%20Attributes.pdf),
+[spur and groove at JCU](https://www.jcu.edu.au/news/releases/2020/february/how-the-reef-got-its-groove-back)):
+
+- **Patch reefs (bommies).** Ridged noise says where they stand, with saddles
+  between; each is shaped as one is — flanks that come up steeply off the sand
+  and a broad top — with knobs a few metres across where old colonies grew
+  together, and crevices cut down through it. (The old heads were the ridge
+  noise raised as it was: smooth sand dunes, sand to the crown.)
+- **Spur and groove** along the outer shelf, where the swell breaks on it:
+  fingers of reef a few metres wide running straight out to sea, with sand
+  channels between as wide again — a whole number of them round the continent,
+  so the pattern closes on itself.
+- **Bedrock ledges** breaking through the sand between colonies: old reef
+  limestone cracked into slabs (cellular noise), each at its own height, some
+  gone to leave sand pockets, the cracks silted.
+- **Sand** in ripples — crests along the shore, five metres apart (any closer
+  and the coarser rings of ground alias them into moiré), wandering and broken.
+
+`seabedAt()` reports what it built — how much of the spot is hard bottom, how
+much crack, and a slow tone — and `landAt()` passes it on (`rock`, `crack`,
+`tone`), so the ground colour paints rock as rock: limestone under a skin of
+olive turf algae, pink-lilac coralline crust and the pale bone of dead coral in
+patches a few metres across, mottled and darker than the sand, darker still in
+its cracks. The terrain tells the ground-detail shader per vertex (`aRock`)
+where its flat ground is rock, so a bommie's top cracks and pits like a cliff
+face instead of reading as sand.
 
 **The waves die on the shore.** The sea knows how deep it is: `setSeabed()`
 hands the ocean the same `heightAt`, and a 900 m depth texture that follows
@@ -664,35 +739,71 @@ You have about 18 seconds and you descend at 2.4 m/s, so coral tops at ~10m are
 a comfortable visit, the sand at ~18m spends most of a breath, and the basin is
 deliberately below `MAX_DEPTH` — deep water is meant to stay out of reach.
 
-`reefMask(x, z, out)` says where coral grows, and everything downstream reads
-it: the terrain raises coral heads where the mask is high, the props grow on
-the colonies while the seagrass takes the sand between them, and the reef fish
-school over ground the mask likes. Species are picked by **weighted lottery**
-among everything that could live at that spot rather than first-match-wins,
-which is the difference between a reef and one coral repeated 800 times.
-Each prop is set down onto the lowest of the bed under its rim rather than the
-height at its middle — the reef floor is lumpy, and a brain coral set on a
-knoll's crown overhung the drop all round, floating by as much as two and a
-half metres (a third of them by more than 0.3 m). One that would go more than
-half under that way grows somewhere else; a starfish flat on the sand stays
-put.
+`reefMask(x, z, out)` says where the colonies are, and everything downstream
+reads it: the terrain raises patch reefs where the mask is high, the props
+grow on them, and the reef fish school over ground the mask likes.
+
+**What grows there** (`REEF` in `reef.js`) is laid out the way a reef grows,
+not sprinkled ([growth forms](https://newheavenreefconservation.org/learning-resources/explore-topics/coral-growth-forms)).
+Each species has a part in a colony:
+
+- **anchors** — massive *Porites* and brain coral, table coral, a staghorn
+  thicket, an outcrop or a slab of rock — are put down first, where the
+  colony is;
+- **satellites** crowd round each anchor, thinning out away from it;
+- **perched** things — small corals, sponges, fans, urchins, a clam — settle
+  up on top of the rocks (`carries`), set down by a ray onto the rock's own
+  lumpy surface and leaning with it there: a rock on a reef is never bare;
+- then the rest of the **hard ground** is grown over: a reef's framework is
+  covered, not dotted, so small colonies are packed in wherever there is room
+  — sampled more densely the steeper it is, since a reef face has a lot of
+  surface and little plan (sampled over the plan, the faces were bare);
+- and the **open ground** between is left to seagrass in meadows (`patch`),
+  coral rubble and cobbles on the sand round the colonies, starfish, and the
+  odd colony on a bedrock ledge.
+
+Corals need something hard to settle on and seagrass needs sand, so each
+species also has the range of hard bottom (`hard`) it takes, as well as its
+depths, slopes and reef-mask window. Within a role the species are picked by
+**weighted lottery** among everything that could live at that spot rather
+than first-match-wins, which is the difference between a reef and one coral
+repeated 800 times. Pieces keep out of one another (they may touch, as
+colonies do, but none is grown through another — measured in three
+dimensions, since up a reef face one grows over another), and on a slope a
+colony leans out of the face (`lean`: most of the way for what crusts and
+branches over the rock, a little for a fan, a sponge or a table, which grow
+up into the water whatever they stand on). Each is then set down onto the
+lowest of the bed under its rim, measured from that leaning base — the reef
+floor is lumpy, and a brain coral set on a knoll's crown overhung the drop
+all round, floating — and one that would go more than half under that way
+grows somewhere else. All of this reads the ground off the grid the chunk was
+built from, so pieces sit on the very triangles drawn there (a coarser ring's
+ground is tens of centimetres off the height function in places) and a dozen
+calls to the ground function per piece do not cost a long frame.
 
 The solid pieces are smooth-shaded and their surfaces worked (`worked()` in
-`reef.js`): a brain coral's dome carries the meandering ridges of the real
-thing, raised off it with the valleys between darker; a rock is weathered
-stone, lumped and pitted, with moss over whatever faces up to the light; a
-barrel sponge is ribbed up its sides; the staghorn's branches have rounded
-knuckles and tips. They were flat-shaded raw polyhedra — a rock two
-twelve-faced dodecahedra — and every face showed as a facet, low-poly
-props on a smooth, textured sea bed among textured fish. Past the chunk you
-are in, 32 m and more off where the detail is lost in the haze, the reef is
-built from a lighter set of the same shapes (about 0.8 million triangles in
-view on the reef, against 1.4 million all fine).
+`reef.js`): a brain coral is one dome on the reef (three darker balls tucked
+under a bigger one read as a mushroom on stones), carrying the meandering
+ridges of the real thing, raised off it with the valleys between darker; a massive coral is a
+pile of fused hummocks, yellow-brown on top and grey with turf round its base;
+a table coral is a lobed plate on one stalk, its top a carpet of tiny upright
+branchlets and its growing edge pale blue; a plate coral is a rosette of thin
+leaves, each cupped up to a pale rim; a rock is weathered stone, lumped and
+pitted, with the reef's turf and coralline crust over whatever faces up; a
+barrel sponge is ribbed up its sides; staghorn is a thicket of forking stems,
+brown with the algae in them and pale only at the growing tips (paler all
+over, it read as bleached bone); a sea fan branches and branches
+again in one bowed plane, a lace face on and almost nothing edge on. Every
+piece is darker toward where it meets the bed, as the light down there is
+shut out by everything round it — without that each looked set down on the
+sand rather than grown out of it. Past the chunk you are in, 32 m and more off
+where the detail is lost in the haze, the reef is built from a lighter set of
+the same shapes.
 
 Besides the corals there is golden **kelp**, standing four and five metres tall
-in the shallower water and swaying in the surge; **sea urchins** and **giant
-clams**, gaping to show their blue-green mantles, on the colonies; and
-**starfish** out on the sand.
+in the shallower water and swaying in the surge, its blades tapered and
+drooping; **sea urchins** and **giant clams**, gaping to show their blue-green
+mantles, on the colonies; and **starfish** out on the sand.
 
 Two things do most of the work for how it *reads*. Water clarity is a depth
 curve in `underwater.js`, opened up so you can see 25–30m on the shelf; the
@@ -704,6 +815,51 @@ column behind it all is the fog's own colour, put out in the same colour space
 as the fogged sea bed, so the far reef fades into it with no line at the edge
 of the view (drawn linear, it showed as a navy band twice as dark).
 
+Over that, the light itself. It reaches the bed through the water, and the
+water takes the red out of it first, then the green ([FishBase's per-metre
+figures](https://fishbase.se/manual/FishBaseFishAtDepthViewer.htm), softened:
+the game's red is half gone by about 15 m, not 3) — so the reef top at 8 m is
+warmer than the sand at 18 m beside it, as on a dive. And the swell focuses
+the sun into **shafts** that plunge down through the water: a few dozen long
+soft quads hung from the surface along the sun's direction after it bends into
+the water (Snell: steeper than in the air), each turned about its own axis to
+face you, brightest just under the surface and dying away with depth, each
+swaying and flickering on its own; they wrap round you like the marine snow,
+so a few dozen read as a sea of them, and they go with the sun, the cloud and
+the night.
+
+**Looking up** you see the surface as a diver does: Snell's window, the whole
+sky squeezed into a cone 97° across overhead, the horizon crowding in at its
+rim in a bright ring and the sun near its middle glittering in the ripples,
+the rim wobbled by them; outside it the surface is a mirror of the water
+below, the water's own colour a little lighter. (It was the sky's deep blue
+straight up and the deep sea's navy round it: from the reef, the surface was
+a dark lid.) The marine snow is soft round flecks, not points — drawn as
+points they were hard squares, a finger's width across close to your face.
+Flotsam casts a shadow only over the shallows: through fifteen metres of
+water a plank's shade is scattered to nothing, and drawn crisp the flotsam's
+shadows lay on the sea bed under you like black cut-outs. And the water
+column behind it all darkens only looking steeply down: darkened from just
+below the horizon, it was darker than the fogged sea bed in front of it (the
+fog's colour exactly), and out over the open basin, where no near ground is
+built, the far sea bed beyond stood out of it as a pale flat panel.
+
+**What it costs.** A reef chunk is now about 800 pieces where it was 250, and
+about 1.6–1.9 million triangles are in view on the reef against 1.4–1.5
+before (5–7 ms of GPU at 1224×1786 against 4–6). Two things keep it there:
+each chunk's reef is drawn in quarters, and only the quarters within 52 m of
+you are drawn at all — the water has closed in well before that, and a chunk
+and the ring round it reach out to 96; and the reef is grown a few
+milliseconds a frame (`growReef()` yields, `REEF_BUDGET`), nearest chunk
+first, after the ground — grown in one go it was 20–40 ms, and with the
+ground, a hitch every time you crossed into a new chunk. A chunk rebuilt finer
+as you swim into it is built hidden, and the old one — ground and reef
+together — stays drawn until the new one's reef has grown; then the one swaps
+for the other. So the coral round you never blinks out, and never sits on the
+wrong ground: the old reef kept on the new, finer ground hung half a metre off
+it, or sank into it, for as long as the new reef took to grow. Swimming across the reef, no step of
+the terrain takes longer than about 6 ms.
+
 The props are geometry standing **on** the sea bed, not part of it, so nothing
 that reads `heightAt` knows they exist — which is how the first cut had a third
 of the reef fish swimming through boulders. `Terrain.clearanceAt(x, z)` answers
@@ -712,12 +868,22 @@ whatever is standing on it*. It is backed by a 1.5m obstacle field stamped as
 the props are scattered — each by its shape, a mound highest at its middle
 and down to the bed at its rim, a barrel sponge a column (stamped at full
 height over every cell it touched, the fish beside a coral head hovered at its
-crown); and not the kelp, fans, anemones and seagrass, which bend in the surge
-and a fish swims in among (stamped too, a kelp stand's canopy was a floor
-they hovered on, nine metres off the sand) — rebuilt whole whenever the reef chunk set changes
+crown), the tube sponges columns too; and not the kelp, fans, anemones and
+seagrass, which bend in the surge and a fish swims in among (stamped too, a
+kelp stand's canopy was a floor they hovered on, nine metres off the sand),
+nor what stands lower than a fish swims over the bed anyway — most of the
+reef by count, rubble and cobbles and small colonies, and most of what the
+field cost to build — rebuilt whole whenever the reef chunk set changes
 (props near a chunk edge stamp cells on both sides, and unpicking one chunk's
 contribution from a shared maximum costs more than the rebuild). One lookup per
 fish per frame, about 0.05ms for the lot.
+
+That field is for what swims over the reef, not what walks on it: padded out
+and as tall as the tallest thing in a metre and a half, it had a crab beside
+a coral head walking in mid-water, a metre over the sand, and an octopus
+hovering over a gap. The crabs, octopuses and rays walk on
+`Terrain.walkHeight(x, z)`: the sea bed, or the top of a solid piece they
+are actually on, a mound out to its solid rim.
 
 The swimmer gets the sharper version of the same problem. `heightAt` is the
 sea bed, so clamping to it stops you sinking through the sand — but the props
@@ -733,7 +899,8 @@ and nothing is bucketed twice. About 0.0001ms a frame.
 
 Soft props are not solid. A sea fan, an anemone and a clump of seagrass bend in
 the surge, so they bend around you too; it is the same `soft` column in the
-`REEF` table that drives the sway shader.
+`REEF` table that drives the sway shader. Nor is what lies flat to the bottom
+(`solid: false`) — rubble, cobbles, an urchin, a starfish.
 
 The two radii come from one measurement pulling opposite ways: the fish field
 pads it (nothing should end up inside a rock) and player collision shrinks it

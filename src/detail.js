@@ -7,7 +7,9 @@
 // a cliff face gets strata rather than stretched smears.
 //
 // Shared by the terrain and the rocks, so a boulder sits in the ground it
-// came out of.
+// came out of. The terrain also says, per vertex (`aRock`), where its flat
+// ground is rock — the sea bed's reef framework and bedrock ledges — so they
+// crack and pit like the cliffs instead of reading as sand.
 
 import * as THREE from 'three';
 
@@ -59,7 +61,7 @@ function detailTexture() {
  * Add world-space detail to a MeshStandardMaterial. `strength` scales the
  * colour variation, `bump` the relief; `rock` biases it toward cracks.
  */
-export function applyGroundDetail(material, { strength = 1, bump = 1, rock = 0 } = {}) {
+export function applyGroundDetail(material, { strength = 1, bump = 1, rock = 0, rockAttr = false } = {}) {
   const prev = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
     if (prev) prev(shader, renderer);
@@ -67,9 +69,12 @@ export function applyGroundDetail(material, { strength = 1, bump = 1, rock = 0 }
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
         varying vec3 vDetailPos;
-        varying vec3 vDetailNrm;`)
+        varying vec3 vDetailNrm;
+        varying float vDetailRock;
+        ${rockAttr ? 'attribute float aRock;' : ''}`)
       .replace('#include <project_vertex>', `#include <project_vertex>
         {
+          vDetailRock = ${rockAttr ? 'aRock' : '0.0'};
           vec4 dp = vec4(transformed, 1.0);
           vec3 dn = objectNormal;
           #ifdef USE_INSTANCING
@@ -84,6 +89,7 @@ export function applyGroundDetail(material, { strength = 1, bump = 1, rock = 0 }
         uniform sampler2D uDetail;
         varying vec3 vDetailPos;
         varying vec3 vDetailNrm;
+        varying float vDetailRock;
         float gDetailH;
         // Triplanar: blend the three axis projections by how much the surface
         // faces each, so steep faces are not stretched.
@@ -100,7 +106,8 @@ export function applyGroundDetail(material, { strength = 1, bump = 1, rock = 0 }
           vec4 near = detailAt(2.3);
           vec4 far = detailAt(19.0);
           float steep = 1.0 - abs(normalize(vDetailNrm).y);
-          float rocky = clamp(${rock.toFixed(2)} + smoothstep(0.35, 0.7, steep), 0.0, 1.0);
+          // (Flat rock is rock too: the sea bed says where it has some, aRock.)
+          float rocky = clamp(${rock.toFixed(2)} + smoothstep(0.35, 0.7, steep) + vDetailRock, 0.0, 1.0);
           float grit = near.r;
           float blot = far.g;
           float cracks = mix(near.b, far.b, 0.5) * rocky;
@@ -128,6 +135,6 @@ export function applyGroundDetail(material, { strength = 1, bump = 1, rock = 0 }
         }`);
   };
   const key = material.customProgramCacheKey?.bind(material);
-  material.customProgramCacheKey = () => `detail-${strength}-${bump}-${rock}-${key ? key() : ''}`;
+  material.customProgramCacheKey = () => `detail-${strength}-${bump}-${rock}-${rockAttr}-${key ? key() : ''}`;
   return material;
 }

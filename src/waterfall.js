@@ -20,9 +20,15 @@ import { lakeShore, landAt } from './terrain.js';
 
 const TUCK = 2.2;          // m a lake's surface runs past its shore, under the bank
 
-/** A lake's surface: a fan from its middle out to just past its shore. */
+/**
+ * A lake's surface: rings from its middle out to just past its shore, each
+ * vertex knowing how deep the water is over the bed there (`aDepth`), so the
+ * shader can clear it in the shallows and fade it out where the shore comes
+ * up through it. (A fan from the middle to the rim knew only the middle.)
+ */
 export function lakeGeometry(L, segments = 96) {
-  const pos = [L.x, L.level, L.z], uv = [L.x / 7, L.z / 7], idx = [];
+  // The rim, as before: the shore and its tuck under the bank.
+  const rim = [];
   for (let i = 0; i <= segments; i++) {
     const th = (i / segments) * Math.PI * 2;
     let r = lakeShore(L, th) + TUCK;
@@ -49,13 +55,31 @@ export function lakeGeometry(L, segments = 96) {
       const past = (x - L.cut.x) * L.cut.dx + (z - L.cut.z) * L.cut.dz + keep;
       if (past > 0) { x -= L.cut.dx * past; z -= L.cut.dz * past; }
     }
-    pos.push(x, L.level, z);
-    uv.push(x / 7, z / 7);
-    if (i) idx.push(0, i + 1, i);                  // wound to face up
+    rim.push([x, z]);
+  }
+  // Rings in toward the middle, closest together at the shore, where the
+  // depth changes fastest.
+  const RINGS = 9, pos = [L.x, L.level, L.z], uv = [L.x / 7, L.z / 7], depth = [], idx = [];
+  depth.push(L.level - landAt(L.x, L.z).h);
+  for (let k = 1; k <= RINGS; k++) {
+    const f = Math.pow(k / RINGS, 0.5);
+    for (const [x, z] of rim) {
+      const px = L.x + (x - L.x) * f, pz = L.z + (z - L.z) * f;
+      pos.push(px, L.level, pz);
+      uv.push(px / 7, pz / 7);
+      depth.push(L.level - landAt(px, pz).h);
+    }
+  }
+  const W = segments + 1;
+  for (let i = 0; i < segments; i++) idx.push(0, 1 + i + 1, 1 + i);   // wound to face up
+  for (let k = 1; k < RINGS; k++) {
+    const a = 1 + (k - 1) * W, b = a + W;
+    for (let i = 0; i < segments; i++) idx.push(a + i, a + i + 1, b + i + 1, a + i, b + i + 1, b + i);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('aDepth', new THREE.Float32BufferAttribute(depth, 1));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
