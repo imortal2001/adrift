@@ -14,8 +14,15 @@ const hullTexture = new THREE.DataTexture(hullData, 64, 64 * HULLS, THREE.RedFor
 hullTexture.magFilter = hullTexture.minFilter = THREE.NearestFilter;
 hullTexture.needsUpdate = true;
 
+// Where the nearest rafts have been: a wake that stays in the water where it
+// was laid, and curves where the raft turned (see setHulls).
+const TRAILS = 2;                  // rafts that leave one
+const TRAIL_N = 32;                // points along each: where it is now, then where it was
+const TRAIL_STEP = 0.8;            // s between them: 25 s of wake
+const TRAIL_AGE = (TRAIL_N - 1) * TRAIL_STEP;
+
 const TAU = Math.PI * 2;
-const _vel = new THREE.Vector3();
+const _vel = new THREE.Vector3(), _mid = new THREE.Vector3();
 
 // dir is normalised at build time. len = crest-to-crest metres, speed = m/s-ish.
 const WAVES = [
@@ -165,6 +172,9 @@ uniform int uHullN;
 uniform sampler2D uHullMap;
 uniform vec4 uHullBox[${HULLS}];   // the raft's squares' extent in its own frame, metres: min x, min z, max x, max z
 uniform vec3 uHullVel[${HULLS}];   // its way through the water in its own frame: x, z, and speed
+uniform vec4 uTrail[${TRAILS * TRAIL_N}];   // where a raft has been, newest first: world x, z, when, speed
+uniform vec4 uTrailInfo[${TRAILS}];         // how many points, the raft's half width and half length across its way
+uniform vec4 uTrailBox[${TRAILS}];          // world x, z extent of all a wake can reach
 varying vec3 vWorld;
 varying float vHeight;
 varying float vDepth;
@@ -204,9 +214,7 @@ void main(){
   // 64×64 block of uHullMap.)
   //
   // And where the sea meets a raft, it froths: a ring of foam round the hull,
-  // worked up as the swell slaps the logs and more as the raft makes way; and
-  // under way, a wake — churned water straight behind it and the two arms of
-  // a V spreading back from it, fading as it goes on.
+  // worked up as the swell slaps the logs and more as the raft makes way.
   float raftFoam = 0.0;
   for (int i = 0; i < ${HULLS}; i++) {
     if (i >= uHullN) break;
@@ -233,23 +241,56 @@ void main(){
       float ring = 1.0 - smoothstep(0.0, reach, out_);
       raftFoam = max(raftFoam, ring * (0.3 + 0.4 * wash + 0.4 * sk) * froth(fp * 2.2));
     }
-    if (mv.z > 0.05) {
-      vec2 u = mv.xy / mv.z, across = vec2(-u.y, u.x);
-      vec2 mid = (box.xy + box.zw) * 0.5, half_ = (box.zw - box.xy) * 0.5;
-      float len = abs(u.x) * half_.x + abs(u.y) * half_.y, wid = abs(u.y) * half_.x + abs(u.x) * half_.y;
-      vec2 rel = l.xz - mid;
-      float back = -dot(rel, u) - len, side = abs(dot(rel, across));
-      // (A raft at a walking pace leaves a modest wake: churned water about
-      // its own width for a few lengths, and two faint lines. Drawn as a
-      // ship's, it was a white fan twenty metres across.)
-      if (back > -1.0 && back < 30.0) {
-        float b = max(back, 0.0);
-        float start = smoothstep(-1.0, 0.6, back);
-        float trail = (1.0 - smoothstep(wid * 0.3, wid * 0.65 + b * 0.04, side)) * exp(-b / (0.8 + 1.6 * sk));
-        float arm = exp(-pow((side - wid * 0.8 - b * 0.36) / (0.12 + b * 0.02), 2.0)) * exp(-b / (2.0 + 3.0 * sk));
-        float churn = mix(0.35, 1.0, froth(fp * 2.2 + vec2(b * 0.3, 0.0)));
-        raftFoam = max(raftFoam, (trail * 0.45 + arm * 0.22) * sk * start * churn);
-      }
+  }
+
+  // ── the wake ──
+  // Laid along where the raft has actually been, so it stays in the water
+  // where it was made and bends where the raft turned. (Drawn from where the
+  // raft was going this moment, the whole wake swung round with it on a turn.)
+  // A wake is two things (Kelvin; and the ship-wake literature since): a
+  // strip of churned water about the hull's width, which lasts and widens
+  // ever more slowly; and the Kelvin arms, waves spreading from each point the
+  // hull passed at a third of the speed it passed at — the 19.5° wedge. And
+  // after the foam has gone a glassy streak stays, where the churning has
+  // flattened the chop. The foam is a pattern fixed in the water, shown
+  // through the wake's shape, and it breaks into patches as it ages.
+  float wakeFoam = 0.0, slick = 0.0, bubbles = 0.0;
+  float patches = cFbm(vWorld.xz * 2.1 + vec2(uTime * 0.03, -uTime * 0.02), 3);
+  for (int t = 0; t < ${TRAILS}; t++) {
+    vec4 inf = uTrailInfo[t];
+    if (inf.x < 2.0) continue;
+    vec4 bb = uTrailBox[t];
+    if (vWorld.x < bb.x || vWorld.z < bb.y || vWorld.x > bb.z || vWorld.z > bb.w) continue;
+    float along = 0.0;
+    for (int i = 0; i < ${TRAIL_N - 1}; i++) {
+      if (float(i + 1) >= inf.x) break;
+      vec4 a = uTrail[t * ${TRAIL_N} + i], b = uTrail[t * ${TRAIL_N} + i + 1];
+      vec2 seg = b.xy - a.xy;
+      float L = length(seg);
+      float hu = L > 1e-3 ? dot(vWorld.xz - a.xy, seg) / (L * L) : 0.0, h = clamp(hu, 0.0, 1.0);
+      float lat = length(vWorld.xz - a.xy - seg * h);
+      float s = along + L * h;
+      along += L;
+      float spd = mix(a.w, b.w, h);
+      float sk = smoothstep(0.05, 2.0, spd);
+      if (sk <= 0.0) continue;
+      float age = max(uTime - mix(a.z, b.z, h), 0.0);
+      // (Alongside the raft itself, the foam is the ring's.)
+      float behind = smoothstep(inf.z * 0.5, inf.z + 1.0, s);
+      float gone = 1.0 - smoothstep(${(TRAIL_AGE * 0.6).toFixed(2)}, ${TRAIL_AGE.toFixed(2)}, age);
+      float w = inf.y * 0.6 + 0.45 * sqrt(age);
+      float strip = 1.0 - smoothstep(w * 0.45, w, lat);
+      float churn = strip * exp(-age / 9.0);
+      // (Only abreast of a stretch, not round its ends: from every point of
+      // the path at once, the arms were rings of circles.)
+      float abreast = smoothstep(-0.15, 0.05, hu) * smoothstep(1.15, 0.95, hu);
+      float arm = exp(-pow((lat - inf.y * 0.8 - 0.354 * spd * age) / (0.12 + 0.03 * age), 2.0)) * exp(-age / 4.0) * abreast;
+      float broken = smoothstep(0.3 + age * 0.014, 0.52 + age * 0.014, patches);
+      wakeFoam = max(wakeFoam, (churn * 0.6 * broken + arm * 0.25 * mix(0.5, 1.0, broken)) * sk * behind * gone);
+      slick = max(slick, (1.0 - smoothstep(w * 0.6, w * 1.3, lat)) * exp(-age / 18.0) * sk * behind * gone);
+      // (The bubbles still in the water under it: from above, a wake is a
+      // pale green-blue band long after the white has gone.)
+      bubbles = max(bubbles, strip * exp(-age / 14.0) * sk * behind * gone * mix(0.7, 1.0, patches));
     }
   }
   float k = calm(depth);
@@ -261,6 +302,8 @@ void main(){
 
   // Soften the normal with distance or the horizon turns into aliased confetti.
   N = normalize(mix(N, vec3(0.0, 1.0, 0.0), clamp(dist / 160.0, 0.0, 0.92)));
+  // (Flatter in a wake's slick: the chop smoothed out.)
+  N = normalize(mix(N, vec3(0.0, 1.0, 0.0), slick * 0.45));
 
   // ── seen from underneath ──
   // Without this the surface is invisible from below and deep water reads as
@@ -339,6 +382,7 @@ void main(){
   float through = pow(clamp(dot(V, -uSunDir) * 0.5 + 0.5, 0.0, 1.0), 3.0);
   body += uShallow * through * smoothstep(0.45, 1.0, crest) * 0.55;
 
+  body = mix(body, uShallow * 1.25 + uTurquoise * 0.15, bubbles * 0.5);
   vec3 col = mix(body, sky, fres);
 
   vec3 H = normalize(uSunDir + V);
@@ -354,6 +398,7 @@ void main(){
   float broken = 0.55 + 0.45 * sin(vWorld.x * 0.83 + uTime * 0.35) * sin(vWorld.z * 1.07 - uTime * 0.27);
   foam = max(foam, edge * broken * (0.3 + 0.35 * lap));
   foam = max(foam, raftFoam * 0.85);
+  foam = max(foam, wakeFoam * 0.85);
   col = mix(col, vec3(0.86, 0.94, 0.98) * (1.0 - uNight * 0.75), foam);
 
   float f = 1.0 - exp(-pow(dist * uFogDensity, 2.2));
@@ -431,6 +476,10 @@ export class Ocean {
       uHullMap:     { value: hullTexture },
       uHullBox:     { value: Array.from({ length: HULLS }, () => new THREE.Vector4()) },
       uHullVel:     { value: Array.from({ length: HULLS }, () => new THREE.Vector3()) },
+      // Where the rafts have been, for their wakes (setHulls).
+      uTrail:       { value: Array.from({ length: TRAILS * TRAIL_N }, () => new THREE.Vector4()) },
+      uTrailInfo:   { value: Array.from({ length: TRAILS }, () => new THREE.Vector4()) },
+      uTrailBox:    { value: Array.from({ length: TRAILS }, () => new THREE.Vector4()) },
       ...CLOUDS,
       uTurquoise:   { value: new THREE.Color(0x3f9e9c) },
     };
@@ -445,7 +494,7 @@ export class Ocean {
   }
 
   /** Where the rafts' decks are this frame, so the sea is not drawn over them. */
-  setHulls(rafts) {
+  setHulls(rafts, time = this.uniforms.uTime.value) {
     const u = this.uniforms;
     let n = 0, dirty = false;
     this._hullKeys ||= [];
@@ -471,10 +520,55 @@ export class Ocean {
       const v = _vel.set(r.vel?.x || 0, 0, r.vel?.y || 0), speed = v.length();
       if (speed > 1e-4) v.transformDirection(u.uHullInv.value[n]).multiplyScalar(speed);
       u.uHullVel.value[n].set(v.x, v.z, speed);
+      if (n < TRAILS) this._trail(n, r, time, v, speed);
       n++;
     }
     if (dirty) hullTexture.needsUpdate = true;
     u.uHullN.value = n;
+    for (let t = n; t < TRAILS; t++) u.uTrailInfo.value[t].x = 0;
+  }
+
+  /**
+   * Where raft r (in slot t) has been: a point every TRAIL_STEP of sea time,
+   * newest first, after where it is now — for the wake (see the shader).
+   * v is its way through the water in its own frame.
+   */
+  _trail(t, r, time, v, speed) {
+    const u = this.uniforms, box = u.uHullBox.value[t];
+    this._trails ||= new WeakMap();
+    let tr = this._trails.get(r);
+    if (!tr) this._trails.set(r, tr = { pts: [], at: -Infinity });
+    // Its middle, in the world.
+    const mid = r.group.localToWorld(_mid.set((box.x + box.z) / 2, 0, (box.y + box.w) / 2));
+    const last = tr.pts[0];
+    // (Moved further than it could sail — set down somewhere new, or the clock
+    // went back: the old wake is not behind it.)
+    if (last && (Math.hypot(mid.x - last.x, mid.z - last.z) > 12 + speed * (time - last.t) || time < last.t)) {
+      tr.pts.length = 0; tr.at = -Infinity;
+    }
+    if (time - tr.at >= TRAIL_STEP) {
+      tr.pts.unshift({ x: mid.x, z: mid.z, t: time, v: speed });
+      if (tr.pts.length > TRAIL_N - 1) tr.pts.length = TRAIL_N - 1;
+      tr.at = time;
+    }
+    // Its size across its way and along it (the wake is as wide as the hull).
+    const hx = (box.z - box.x) / 2, hz = (box.w - box.y) / 2;
+    const ux = speed > 0.05 ? Math.abs(v.x / speed) : 0.7, uz = speed > 0.05 ? Math.abs(v.z / speed) : 0.7;
+    const wid = Math.min(uz * hx + ux * hz, Math.max(hx, hz)), len = Math.min(ux * hx + uz * hz, Math.max(hx, hz));
+    // Where it is now, then where it was.
+    const base = t * TRAIL_N, arr = u.uTrail.value;
+    arr[base].set(mid.x, mid.z, time, speed);
+    let x0 = mid.x, x1 = mid.x, z0 = mid.z, z1 = mid.z, vmax = speed;
+    for (let i = 0; i < tr.pts.length; i++) {
+      const q = tr.pts[i];
+      arr[base + 1 + i].set(q.x, q.z, q.t, q.v);
+      x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); z0 = Math.min(z0, q.z); z1 = Math.max(z1, q.z);
+      vmax = Math.max(vmax, q.v);
+    }
+    // As far out as any of it reaches: the slick, or the arms while they last.
+    const reach = wid + Math.max(0.354 * vmax * 12, 0.45 * Math.sqrt(TRAIL_AGE) * 1.3) + 2;
+    u.uTrailBox.value[t].set(x0 - reach, z0 - reach, x1 + reach, z1 + reach);
+    u.uTrailInfo.value[t].set(1 + tr.pts.length, wid, len, 0);
   }
 
   update(time, camPos) {

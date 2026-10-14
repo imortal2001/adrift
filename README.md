@@ -232,7 +232,7 @@ pause screen starts over.
 
 | File | Responsibility |
 |---|---|
-| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an open-ocean cobalt, not the navy-to-black it was under the raft. `setHulls()` keeps the swell from drawing through a raft's deck, and gives the shader what it needs for the foam round a raft's hull and the wake behind it under way. The clouds are in the water too. |
+| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an open-ocean cobalt, not the navy-to-black it was under the raft. `setHulls()` keeps the swell from drawing through a raft's deck, froths the water round a raft's hull, and records where the rafts have been for wakes that stay where they were made and curve where a raft turned. The clouds are in the water too. |
 | `src/sky.js` | Sun, moon, sky dome, stars and Milky Way, twilight, and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
 | `src/clouds.js` | Trade-wind cumulus: one deck of scattered clouds about a kilometre up, one GLSL function shared by the sky dome and the ocean's reflection. They drift with the wind the sail takes (`driftClouds`), cover changes from day to day, and they are lit from underneath in the sun's colour at dawn and dusk and faintly by the moon at night. |
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
@@ -1952,10 +1952,30 @@ would split the raft in two.
 raft's extent and its way through the water in its own frame. Within a couple
 of metres of the hull, the water finds its distance to the nearest square of
 deck and froths: a band a hand or two wide, wider where the swell rides up the
-logs and when the raft is moving. Under way there is a wake: churned water about
-the raft's width for a few lengths behind it, and two faint lines spreading at
-the Kelvin angle. It is sized for a raft at walking pace — drawn like a ship's
-wake, it was a white fan twenty metres across.
+logs and when the raft is moving.
+
+**A wake that stays where it was made.** For the two nearest rafts the ocean
+records where each has been: a point every 0.8 s of sea time, 25 s of them,
+plus where it is now (`Ocean._trail`). The shader finds each bit of water's
+distance from that path, how long ago the raft passed, and how fast it was
+going then. So the wake stays in the water where it was laid, and a turn leaves
+a curve behind instead of swinging the whole wake round with the raft. It is
+made the way real wakes are, in the three layers of the ship-wake literature
+([Rabaud & Moisy](https://arxiv.org/pdf/1304.2653)):
+
+- a turbulent strip about the hull's width, which widens more and more slowly
+  (as √age) and lasts. Its white foam is a pattern fixed in the water that
+  breaks into patches as it ages, over a pale turquoise band of bubbles still
+  under the surface, which outlasts the white.
+- the Kelvin arms: thin lines spreading from each stretch of the path at a
+  third of the speed the raft passed it, the 19.5° wedge. They are drawn only
+  abreast of a stretch; drawn round its ends too, every point of the path put
+  a ring of circles in the water.
+- a slick: flatter water where the churning smoothed the chop, the last thing
+  to go.
+
+All of it fades over 15–25 s once the raft stops. A jump the raft could not
+have sailed (a respawn, a correction from the host) starts a new wake.
 
 **Lit from the deck.** What is under a roof is planking in the sun, so the raft's
 pieces are lit from below by it as well (`DECK_BOUNCE` in `sky.js`, about a

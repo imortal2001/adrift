@@ -354,7 +354,7 @@ class Game {
     const pl = this.player;
     this.sky.update(dt, pl.pos);
     this.rafts.update(dt, this.time, this.sky.night);
-    this.ocean.setHulls(this.rafts.list);
+    this.ocean.setHulls(this.rafts.list, this.time);
     // Aboard, the raft still carries you where it goes.
     if (pl.state !== 'swim' && !pl.onLand && this.raft.wasUnder(pl.pos.x, pl.pos.z)) pl.yaw += this.raft.carry(pl.pos);
     this.updateFires(dt);
@@ -2587,7 +2587,7 @@ class Game {
     // World
     this.sky.update(dt, this.player.pos);
     this.rafts.update(dt, this.time, this.sky.night);
-    this.ocean.setHulls(this.rafts.list);
+    this.ocean.setHulls(this.rafts.list, this.time);
     // The flotsam, the fish and the whale keep near you out at sea; ashore,
     // they wait offshore, where you left the water.
     if (!this.player.onLand) {
