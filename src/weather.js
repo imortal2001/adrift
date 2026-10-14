@@ -50,6 +50,25 @@ export function weatherAt(time, out = { rain: 0, gloom: 0 }) {
   return out;
 }
 
+/**
+ * The wind at sea-clock `time`: which way it blows (a unit vector, world x
+ * and z) and how hard (0..1). It swings round slowly over the day and
+ * freshens and falls away — the same on every machine, since it runs on the
+ * shared sea clock.
+ */
+export function windAt(time, out = { x: 0, z: 0, strength: 0 }) {
+  const a = 0.9 + Math.sin(time / 310) * 0.8 + Math.sin(time / 97 + 1.3) * 0.18;
+  out.x = Math.sin(a);
+  out.z = Math.cos(a);
+  out.strength = 0.72 + 0.28 * Math.sin(time / 143 + 0.4);
+  // A squall brings its own wind: it freshens as the cloud comes over, and
+  // gusts while it rains (weatherAt, above).
+  const w = weatherAt(time, _weather);
+  if (w.gloom > 0) out.strength = Math.min(1, out.strength + 0.22 * w.gloom + 0.12 * w.rain * Math.sin(time * 0.9) ** 2);
+  return out;
+}
+const _weather = { rain: 0, gloom: 0 };
+
 // ── the rain ─────────────────────────────────────────────────────────────────
 const DROPS = 3200;
 const BOX = [34, 22, 34];          // m: the volume of rain kept round the camera

@@ -233,7 +233,7 @@ pause screen starts over.
 
 | File | Responsibility |
 |---|---|
-| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an open-ocean cobalt, not the navy-to-black it was under the raft. `setHulls()` keeps the swell from drawing through a raft's deck, froths the water round a raft's hull, and records where the rafts have been for wakes that stay where they were made and curve where a raft turned. The clouds are in the water too. |
+| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an open-ocean cobalt, not the navy-to-black it was under the raft. The sea state follows the wind and the squalls (`seaStateAt`), with the wind's ripples on top. `setHulls()` keeps the swell from drawing through a raft's deck, froths the water round a raft's hull, and records where the rafts have been for wakes that stay where they were made and curve where a raft turned. The clouds are in the water too. |
 | `src/sky.js` | Sun, moon, sky dome, stars and Milky Way, twilight, and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
 | `src/clouds.js` | Trade-wind cumulus: one deck of scattered clouds about a kilometre up, one GLSL function shared by the sky dome and the ocean's reflection. They drift with the wind the sail takes (`driftClouds`), cover changes from day to day, and they are lit from underneath in the sun's colour at dawn and dusk and faintly by the moon at night. In a squall they close into a grey overcast with darker rain cloud on it. |
 | `src/weather.js` | Squalls: fair trade-wind weather broken every quarter of an hour of play or so by a minute or two of rain. `weatherAt(time)` runs on the shared sea clock, so everyone on a raft is rained on at once. The sky goes grey and dim and the haze thickens (sky.js), the wind gusts on the sail (raft.js `windAt`), the sea goes grey with more whitecaps and is pocked by the drops (ocean.js), and a collector fills in about a minute instead of on dew. `Weather` draws the rain as streaks round the camera — not under the roof you stand under — and plays it. |
@@ -1934,6 +1934,23 @@ Three ideas do most of the work:
 the vertex shader *and* sampled on the CPU by `waveHeight()`. Nothing can drift
 out of sync, so a barrel bobbing 40m away is genuinely on the surface it
 appears to be on.
+
+**A sea that answers the weather.** The four waves are not fixed. The two long
+ones are swell from far off: the wind hardly changes them, but they are a third
+bigger out over deep open water than on the shelf round the island (the bed map
+now reaches 40 m down, so the sea can tell them apart). The two short ones are
+the wind's own sea. `seaStateAt(time)` reads the sea state, 0 to 1.2, from the
+wind and a squall's gloom on the shared sea clock. A still day lowers the short
+waves to two thirds; a squall raises them to about half as much again. Each
+wave's share goes to the CPU's sum and the shader alike, so the raft still
+rides exactly the sea you see, and everyone's sea is the same. Measured from
+trough to crest, the open sea runs about 1.7 m in a calm, 2 m in an average
+wind and 2.5 m in a squall; on the shelf near the island, about 1.5 m. Over
+that the shader lays the wind's ripples: six short waves, from a metre and a
+half down to a hand, running downwind at their own speeds. They come in gusty
+patches (cat's paws) that drift downwind, and in a squall they are everywhere.
+Rain beats them down; distance hands them to a wider, dimmer sun glitter;
+whitecaps come with the wind too.
 
 **The raft lies on the water it covers.** Every frame each cell's centre and
 four corners are sampled with `waveHeight()` and a plane is fitted through them

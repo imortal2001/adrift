@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { CLOUDS, CLOUD_GLSL } from './clouds.js';
+import { WEATHER, weatherAt, windAt } from './weather.js';
 
 // Up to this many rafts keep the sea off their decks (see setHulls).
 const HULLS = 4;
@@ -33,18 +34,49 @@ const TAU = Math.PI * 2;
 const _vel = new THREE.Vector3(), _mid = new THREE.Vector3();
 
 // dir is normalised at build time. len = crest-to-crest metres, speed = m/s-ish.
+// The long ones are swell, come from far off: the wind here hardly changes
+// them, but they are bigger out over deep water than on the shelf round the
+// island (`open`: how much more, fully out). The short ones are the wind's
+// own sea: low on a quiet day, steep and short in a squall (`base` + `gain`
+// × the sea state: 1 at an average wind).
 const WAVES = [
-  { dir: [ 1.00,  0.32], amp: 0.40, len: 27.0, speed: 1.00 },
-  { dir: [-0.62,  0.88], amp: 0.24, len: 14.5, speed: 1.30 },
-  { dir: [ 0.88, -0.52], amp: 0.13, len: 7.80, speed: 1.70 },
-  { dir: [-0.24, -0.98], amp: 0.06, len: 4.10, speed: 2.15 },
+  { dir: [ 1.00,  0.32], amp: 0.40, len: 27.0, speed: 1.00, open: 0.35, base: 0.92, gain: 0.22 },
+  { dir: [-0.62,  0.88], amp: 0.24, len: 14.5, speed: 1.30, open: 0.20, base: 0.86, gain: 0.40 },
+  { dir: [ 0.88, -0.52], amp: 0.13, len: 7.80, speed: 1.70, open: 0,    base: 0.755, gain: 0.70 },
+  { dir: [-0.24, -0.98], amp: 0.06, len: 4.10, speed: 2.15, open: 0,    base: 0.65, gain: 1.00 },
 ].map(w => {
   const l = Math.hypot(w.dir[0], w.dir[1]);
   const k = TAU / w.len;
-  return { dx: w.dir[0] / l, dz: w.dir[1] / l, amp: w.amp, k, w: w.speed * k };
+  return { dx: w.dir[0] / l, dz: w.dir[1] / l, amp: w.amp, k, w: w.speed * k, open: w.open, base: w.base, gain: w.gain };
 });
 
 export const WAVE_AMPLITUDE = WAVES.reduce((s, w) => s + w.amp, 0);
+
+// ── the sea state ──
+// How rough the sea is, 0..1.2, from the wind (weather.js windAt) and a
+// squall's gloom: on the shared sea clock, so everyone's sea is the same.
+// An average wind is 0.35; a still day near 0; a squall about 1. Each wave's
+// share of it (seaK) is what both the CPU's sum and the shader's use.
+const SEA_AVG = 0.35;
+const seaK = WAVES.map(() => 1);
+let seaNow = SEA_AVG;
+const _wind = { x: 0, z: 0, strength: 0 }, _wx = { rain: 0, gloom: 0 };
+/** The sea state at sea-clock `time`. */
+export function seaStateAt(time) {
+  const w = windAt(time, _wind);
+  const gloom = (WEATHER.override || weatherAt(time, _wx)).gloom;
+  return Math.min(1.2, Math.max(0, (w.strength - 0.44) / 0.56 * 0.7 + 0.5 * gloom));
+}
+function setSea(sea) {
+  seaNow = sea;
+  for (let i = 0; i < WAVES.length; i++) seaK[i] = WAVES[i].base + WAVES[i].gain * sea;
+}
+setSea(SEA_AVG);
+/** Deep water's share of the open sea's swell: none on the shelf, all of it 30 m down. */
+function openFor(depth) {
+  const t = Math.min(1, Math.max(0, (depth - 6) / 24));
+  return t * t * (3 - 2 * t);
+}
 
 // ── the shallows ──
 // The swell is the open sea's. Coming in over a shelving beach it loses its
@@ -59,7 +91,8 @@ export const WAVE_AMPLITUDE = WAVES.reduce((s, w) => s + w.amp, 0);
 // 256 steps it was up to 15 cm off the ground at the waterline, and the edge
 // was left to where the water plane cut the land's triangles — a sawtooth.)
 const SEA = 900, SHORE_N = 600, SHORE_CELL = SEA / SHORE_N;
-const BED_LO = -8, BED_HI = 4;                // the bed stored from 8 m down (or more — the open sea) to 4 m up
+// (Down to 40 m: deeper than 8, the sea can tell the shelf from open water.)
+const BED_LO = -40, BED_HI = 4;               // the bed stored from 40 m down (or more — the open sea) to 4 m up
 const EDGE = 0.05;                            // m of water where the sea's edge is drawn (see the shader)
 const shoreData = new Float32Array(SHORE_N * SHORE_N).fill(BED_LO);  // the bed, metres: for the CPU (open sea till sampled)
 const shoreHalf = new Uint16Array(SHORE_N * SHORE_N).fill(THREE.DataUtils.toHalfFloat(BED_LO));   // …and as half floats, for the GPU
@@ -80,12 +113,16 @@ function bedCell(i, j) {
   return shoreData[b * SHORE_N + a];
 }
 
+/** How deep the sea is here, as the map has it (open sea, with no land: as deep as it keeps). */
+function depthAt(x, z) {
+  if (!seabed) return -BED_LO;
+  const fx = x / SHORE_CELL, fz = z / SHORE_CELL, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+  return -((bedCell(i, j) * (1 - u) + bedCell(i + 1, j) * u) * (1 - v) + (bedCell(i, j + 1) * (1 - u) + bedCell(i + 1, j + 1) * u) * v);
+}
+
 /** How much of the open sea's swell there is here: 1 offshore, less in the shallows, none over land. */
 export function shoreCalm(x, z) {
-  if (!seabed) return 1;
-  const fx = x / SHORE_CELL, fz = z / SHORE_CELL, i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
-  const bed = (bedCell(i, j) * (1 - u) + bedCell(i + 1, j) * u) * (1 - v) + (bedCell(i, j + 1) * (1 - u) + bedCell(i + 1, j + 1) * u) * v;
-  return calmFor(-bed);
+  return seabed ? calmFor(depthAt(x, z)) : 1;
 }
 
 /** (The same as the shader's calm().) */
@@ -96,50 +133,59 @@ function calmFor(depth) {
 
 /** Surface height at world (x,z) and time t. */
 export function waveHeight(x, z, t) {
+  const depth = depthAt(x, z), open = openFor(depth);
   let h = 0;
   for (let i = 0; i < WAVES.length; i++) {
     const w = WAVES[i];
-    h += w.amp * Math.sin((w.dx * x + w.dz * z) * w.k - t * w.w);
+    h += w.amp * seaK[i] * (1 + w.open * open) * Math.sin((w.dx * x + w.dz * z) * w.k - t * w.w);
   }
-  return seabed ? h * shoreCalm(x, z) : h;
+  return seabed ? h * calmFor(depth) : h;
 }
 
 /** Analytic surface normal — same derivative the fragment shader uses. */
 export function waveNormal(x, z, t, out = new THREE.Vector3()) {
+  const depth = depthAt(x, z), open = openFor(depth);
   let dx = 0, dz = 0;
   for (let i = 0; i < WAVES.length; i++) {
     const w = WAVES[i];
-    const c = w.amp * w.k * Math.cos((w.dx * x + w.dz * z) * w.k - t * w.w);
+    const c = w.amp * seaK[i] * (1 + w.open * open) * w.k * Math.cos((w.dx * x + w.dz * z) * w.k - t * w.w);
     dx += c * w.dx;
     dz += c * w.dz;
   }
-  const k = seabed ? shoreCalm(x, z) : 1;
+  const k = seabed ? calmFor(depth) : 1;
   return out.set(-dx * k, 1, -dz * k).normalize();
 }
 
 // The identical sum, compiled into GLSL from the table above so the two can
 // never drift apart.
 const WAVE_GLSL = /* glsl */`
-struct Wave { vec2 dir; float amp; float k; float w; };
+struct Wave { vec2 dir; float amp; float k; float w; float open; };
 const int WAVE_N = ${WAVES.length};
 Wave waves[WAVE_N] = Wave[WAVE_N](
 ${WAVES.map(w =>
-  `  Wave(vec2(${w.dx.toFixed(6)}, ${w.dz.toFixed(6)}), ${w.amp.toFixed(6)}, ${w.k.toFixed(6)}, ${w.w.toFixed(6)})`
+  `  Wave(vec2(${w.dx.toFixed(6)}, ${w.dz.toFixed(6)}), ${w.amp.toFixed(6)}, ${w.k.toFixed(6)}, ${w.w.toFixed(6)}, ${w.open.toFixed(3)})`
 ).join(',\n')}
 );
-float waveHeight(vec2 p, float t){
+uniform float uSeaK[WAVE_N];       // each wave's share of the sea state (setSea)
+float openFor(float depth){ return smoothstep(6.0, 30.0, depth); }
+float waveHeight(vec2 p, float t, float open){
   float h = 0.0;
   for(int i = 0; i < WAVE_N; i++){
     Wave wv = waves[i];
-    h += wv.amp * sin(dot(wv.dir, p) * wv.k - t * wv.w);
+    h += wv.amp * uSeaK[i] * (1.0 + wv.open * open) * sin(dot(wv.dir, p) * wv.k - t * wv.w);
   }
   return h;
 }
-vec3 waveNormal(vec2 p, float t){
+float waveAmp(float open){
+  float a = 0.0;
+  for(int i = 0; i < WAVE_N; i++) a += waves[i].amp * uSeaK[i] * (1.0 + waves[i].open * open);
+  return a;
+}
+vec3 waveNormal(vec2 p, float t, float open){
   vec2 d = vec2(0.0);
   for(int i = 0; i < WAVE_N; i++){
     Wave wv = waves[i];
-    float c = wv.amp * wv.k * cos(dot(wv.dir, p) * wv.k - t * wv.w);
+    float c = wv.amp * uSeaK[i] * (1.0 + wv.open * open) * wv.k * cos(dot(wv.dir, p) * wv.k - t * wv.w);
     d += c * wv.dir;
   }
   return normalize(vec3(-d.x, 1.0, -d.y));
@@ -160,12 +206,15 @@ uniform float uTime;
 varying vec3 vWorld;
 varying float vHeight;
 varying float vDepth;
+varying float vAmp;
 ${WAVE_GLSL}
 ${SHORE_GLSL}
 void main(){
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vDepth = seaDepth(wp.xz);
-  vHeight = waveHeight(wp.xz, uTime) * calm(vDepth);
+  float open = openFor(vDepth);
+  vHeight = waveHeight(wp.xz, uTime, open) * calm(vDepth);
+  vAmp = waveAmp(open);
   wp.y += vHeight;
   vWorld = wp.xyz;
   gl_Position = projectionMatrix * viewMatrix * wp;
@@ -185,12 +234,39 @@ uniform vec4 uTrailInfo[${TRAILS}];         // how many points, the raft's half 
 uniform vec4 uTrailBox[${TRAILS}];          // world x, z extent of all a wake can reach
 uniform vec4 uSplash[${SPLASH_N}];          // splashes: x, z, when, size
 uniform float uRain, uStorm;                // the weather (weather.js): rain, and the squall's gloom
+uniform vec3 uWind;                         // which way the wind blows (x, z), and the sea state 0..1.2
 varying vec3 vWorld;
 varying float vHeight;
 varying float vDepth;
+varying float vAmp;
 ${WAVE_GLSL}
 ${SHORE_GLSL}
 ${CLOUD_GLSL}
+// The wind's ripples: short waves, a metre and a half down to a hand,
+// running downwind and fanned either side of it, each at its own deep-water
+// speed. Too small to move anything — only the light: their slope (x, z).
+// They come in patches, as the gusts touch the water (cat's paws): darker,
+// ruffled stretches on a quiet sea, drifting downwind.
+const int RIPPLE_N = 6;
+const float RIP_LEN[RIPPLE_N] = float[RIPPLE_N](1.6, 1.15, 0.83, 0.6, 0.43, 0.31);
+const float RIP_TURN[RIPPLE_N] = float[RIPPLE_N](0.25, -0.45, 0.7, -0.15, 0.55, -0.85);
+const float RIP_AMP[RIPPLE_N] = float[RIPPLE_N](0.016, 0.011, 0.008, 0.0055, 0.004, 0.0028);
+vec2 windRipples(vec2 p, float t){
+  vec2 wd = normalize(uWind.xy + vec2(1e-4, 0.0));
+  float a0 = atan(wd.y, wd.x);
+  vec2 slope = vec2(0.0);
+  for (int i = 0; i < RIPPLE_N; i++) {
+    float a = a0 + RIP_TURN[i];
+    vec2 d = vec2(cos(a), sin(a));
+    float k = 6.2832 / RIP_LEN[i];
+    float ph = dot(d, p) * k - t * sqrt(9.8 * k) + float(i) * 1.7;
+    slope += d * RIP_AMP[i] * k * cos(ph);
+  }
+  float gust = smoothstep(0.3, 0.75, cNoise(p * 0.04 - wd * t * 0.25));
+  // On a still day little but the gusts' patches; in a squall, all of it.
+  float sea = uWind.z;
+  return slope * (0.15 + 1.1 * sea) * mix(0.35 + 0.4 * sea, 1.2, gust);
+}
 // Is raft i's square c (in its own grid) there?
 bool hullAt(int i, vec2 c){
   c += 32.0;
@@ -346,8 +422,16 @@ void main(){
   }
 
   float k = calm(depth);
-  vec3 N = waveNormal(vWorld.xz, uTime);
+  vec3 N = waveNormal(vWorld.xz, uTime, openFor(depth));
   N = normalize(N + vec3(ripple.x, 0.0, ripple.y));
+  // The wind's ripples, near enough to resolve (further out, past what a
+  // pixel can hold, they would only shimmer: the glitter widens instead).
+  // Rain beats them down.
+  {
+    float near = 1.0 - smoothstep(20.0, 110.0, length(cameraPosition - vWorld));
+    vec2 rs = windRipples(vWorld.xz, uTime) * near * (1.0 - 0.5 * uRain);
+    N = normalize(N + vec3(-rs.x, 0.0, -rs.y));
+  }
   N = normalize(vec3(N.x * k, N.y, N.z * k));
   vec3 toCam = cameraPosition - vWorld;
   float dist = length(toCam);
@@ -420,7 +504,7 @@ void main(){
   vec4 cl = cloudsAlong(R, uSunDir, uSunColor, uSkyTop, uSkyHorizon, uNight, 3);
   sky = mix(sky, cl.rgb, cl.a * 0.6);
 
-  float crest = clamp(vHeight / max(${WAVE_AMPLITUDE.toFixed(3)} * k, 0.05) * 0.5 + 0.5, 0.0, 1.0);
+  float crest = clamp(vHeight / max(vAmp * k, 0.05) * 0.5 + 0.5, 0.0, 1.0);
   vec3 body = mix(uDeep, uShallow, crest * crest);
   // Over sand a few metres deep the bed shows through: turquoise, then, in the
   // last hand's depth, the colour of wet sand.
@@ -439,7 +523,9 @@ void main(){
   vec3 col = mix(body, sky, fres);
 
   vec3 H = normalize(uSunDir + V);
-  col += uSunColor * pow(max(dot(N, H), 0.0), 340.0) * 2.6;
+  // (A rougher sea scatters the sun into a wider, dimmer glitter.)
+  float shine = mix(340.0, 120.0, clamp(uWind.z, 0.0, 1.0));
+  col += uSunColor * pow(max(dot(N, H), 0.0), shine) * 2.6 * sqrt(shine / 340.0);
   col += uSunColor * pow(max(dot(N, H), 0.0), 22.0) * 0.06;
   // The rain on it, near enough to see each drop's ring; further off, the
   // pocked water only looks rougher and greyer.
@@ -451,8 +537,9 @@ void main(){
 
   // Whitecaps on the crests, fewer as the swell calms; and the wash along the
   // water's edge, coming and going with the swell.
-  // (More of them, and bigger, in a squall's wind.)
-  float foam = smoothstep(0.80 - 0.14 * uStorm, 0.99, crest) * (0.5 + 0.3 * uStorm) * smoothstep(0.3, 2.5, depth);
+  // (As many as the wind makes: few on a quiet day — none in a calm — and
+  // more and bigger in a fresh wind or a squall.)
+  float foam = smoothstep(0.87 - 0.2 * uWind.z, 0.99, crest) * clamp(0.1 + 0.6 * uWind.z, 0.0, 0.8) * smoothstep(0.3, 2.5, depth);
   float lap = 0.5 + 0.5 * sin(uTime * 0.8 + dot(vWorld.xz, vec2(0.071, 0.053)) + vHeight * 6.0);
   // (A thin, broken line: the last few centimetres, where the wash runs out.)
   float edge = 1.0 - smoothstep(${EDGE.toFixed(3)}, ${EDGE.toFixed(3)} + 0.05 + 0.1 * lap, water);
@@ -547,6 +634,9 @@ export class Ocean {
       ...SPLASHES,
       uRain:        { value: 0 },
       uStorm:       { value: 0 },
+      // The sea state (setSea) and the wind's way (update).
+      uSeaK:        { value: seaK },
+      uWind:        { value: new THREE.Vector3(0.6, 0.8, SEA_AVG) },
     };
 
     this.mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({
@@ -638,6 +728,9 @@ export class Ocean {
 
   update(time, camPos) {
     this.uniforms.uTime.value = time;
+    // How rough, and which way the ripples run: the shared clock's wind.
+    setSea(seaStateAt(time));
+    this.uniforms.uWind.value.set(_wind.x, _wind.z, seaNow);
     followShore(camPos.x, camPos.z);
     // Snap to the vertex spacing so vertices don't crawl as we follow the camera.
     const step = 900 / 300;
