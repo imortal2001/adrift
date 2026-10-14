@@ -2220,7 +2220,8 @@ export const SPECIES = [
                  smooth01(180, 230, s.h) * 0.85) *
                 band(s.h, 4, 12, 400, 450) * (s.slope < 0.58 ? 1 : 0) * (s.edge > 30 ? 1 : 0.3) },
   { name: 'treefern', group: 'Understorey', habitat: 'under the canopy where it is wet, the creeks and shaded gullies, and up into the mist of the high slopes', label: 'Tree fern', layer: 'under', make: treefern, variants: 3, material: 'tree', bark: 'fibre',
-    rings: 2, farFrom: 2, scale: [0.7, 1.4], trunk: 0.35, reach: 2.8, regrow: 120, yield: { leaf: 4 },
+    rings: 2, farFrom: 2, scale: [0.7, 1.4], trunk: 0.35, reach: 2.8, regrow: 120, yield: { leaf: 4 }, chop: 2, falls: true, hand: true, felledYield: { wood: 1 },
+    cut: 'solid', heartwood: [0x4a3222, 0x7a5a3a, 0x2e2018],      // a trunk of matted roots round a dark stem
     // (Up into the cloud forest of the tops, where the mist keeps them wet.
     // Thick in wet forest: a whole mid-layer, ~900/ha in Hawaii and Luquillo.)
     where: s => (s.forest * s.wet * 1.1 + band(s.edge, 1.5, 4, 25, 55) * s.forest * 0.45 + smooth01(150, 200, s.h) * s.forest * 0.6) *
@@ -2236,11 +2237,13 @@ export const SPECIES = [
     where: s => (s.forest * 0.22 + s.plain * 0.06 + (1 - s.forest) * 0.08 + band(s.shore, 5, 14, 40, 80) * 0.2) *
                 band(s.h, 2.5, 5, 400, 450) * (s.slope < 0.6 ? 1 : 0) },
   { name: 'palm', group: 'Understorey', habitat: 'the coastal lowlands: behind the beaches, the lake shores and the wet flats back from the rivers — settled, moist ground, not the fresh sand of the banks', label: 'Fan palm', layer: 'under', make: palm, variants: 3, material: 'tree', bark: 'rings',
-    rings: 2, farFrom: 2, scale: [0.75, 1.3], trunk: 0.3, reach: 2.8, regrow: 150, yield: { leaf: 4 },
+    rings: 2, farFrom: 2, scale: [0.75, 1.3], trunk: 0.3, reach: 2.8, regrow: 150, yield: { leaf: 4 }, chop: 3, falls: true, hand: true, felledYield: { wood: 2 },
+    cut: 'solid', heartwood: [0xb89a6c, 0xd6c094, 0x5a4a38],      // a palm has no rings: pale fibre, bundles all through
     where: s => (band(s.shore, 5, 12, 60, 130) * 0.4 + band(s.edge, 6, 14, 90, 200) * s.wet * 0.3 + s.plain * s.wet * 0.03) *
                 band(s.h, 2, 4, 45, 70) * (s.slope < 0.3 ? 1 : 0) },
   { name: 'magnolia', group: 'Understorey', habitat: 'fresh, wet ground with light: the river banks and bars, and the forest edges and clearings — the first flowering plants were weeds of disturbed ground', label: 'Magnolia', layer: 'under', make: magnolia, variants: 3, material: 'tree', bark: 'smooth',
-    rings: 2, farFrom: 2, scale: [0.8, 1.3], trunk: 0.25, reach: 2.6, regrow: 120, yield: { leaf: 2 },
+    rings: 2, farFrom: 2, scale: [0.8, 1.3], trunk: 0.25, reach: 2.6, regrow: 120, yield: { leaf: 2 }, chop: 3, falls: true, hand: true, felledYield: { wood: 3 },
+    cut: 'solid', cutAt: 0.22, heartwood: [0xb48a5c, 0xe4d2a8, 0x6a5848],   // creamy sapwood, a brown heart; cut at the base, below where its stems part
     where: s => (band(s.forest, 0.08, 0.25, 0.55, 0.8) * s.wet * 0.35 + band(s.edge, 1, 3, 30, 60) * (1 - s.forest * 0.6) * 0.3) *
                 band(s.h, 2.5, 6, 110, 140) * (s.slope < 0.4 ? 1 : 0) },
   { name: 'horsetail', group: 'Understorey', habitat: 'in stands on the wet sand of the river banks and the lake shores, in the sun', label: 'Horsetail', layer: 'under', make: horsetail, variants: 2, material: 'tree', bark: 'smooth',

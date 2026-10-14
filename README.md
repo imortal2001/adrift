@@ -117,7 +117,7 @@ instead of a key per tool:
 | Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
 | Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes. Put away, it smoulders for 45 seconds and flares up again if you take it out in that time; after that it needs lighting again, keeping what it had left. The water puts it straight out |
 | Fire striker | nothing in hand — it works from the pack: `E` at an unlit campfire strikes a spark into it (1 Palm fibre for tinder), at once, and a torch lights anywhere |
-| Axe | a stroke at the tree, log, stump or giant horsetail on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
+| Axe | a stroke at the tree, palm, tree fern, log, stump or giant horsetail on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
 | Material, or nothing | nothing |
 
 Build mode is no longer a toggle: it is simply *holding the hammer*. Take out
@@ -664,6 +664,16 @@ checks out from the pith. A horsetail stand leaves a stubble of hollow stems,
 and its canes go over each from its own: the clump leans by a shear about
 the cut, not turned as one body about a hinge — which lifted the canes behind
 the hinge half a metre off their stubble as they fell.
+Palms, magnolias and tree ferns fall too (two or three strokes), leaving
+their stumps — a palm's ringed and pale with no growth rings, a tree fern's a
+dark mat of roots, a magnolia cut low at its base, below where its stems part
+(cut at the waist, the face spanned the gap between two of them) — and give
+wood as well as fronds (`felledYield`). They were taken whole with one stroke
+and gone in a blink. By hand you can still strip their fronds (`hand`).
+Whatever is taken without falling — a shrub, a cycad, a fern, a log or stump
+chopped up — slumps and sinks into the ground over half a second in a burst
+of leaves or chips (`collapse()`), rather than vanishing between one frame and
+the next.
 A log or a stump is chopped up where it lies, in a burst of chips. Leave one
 half-chopped a minute and you start again.
 

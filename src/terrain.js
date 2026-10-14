@@ -2681,6 +2681,7 @@ export class Terrain {
   /** Once a frame: the shudders, the falls, and the bits flying. */
   animateFelling(dt) {
     const R = this._fallR ||= new THREE.Matrix4(), T = this._fallT ||= new THREE.Matrix4(), out = this._fallM ||= new THREE.Matrix4();
+    this._fallT2 ||= new THREE.Matrix4();
     const ax = this._ax ||= new THREE.Vector3();
     for (const s of this.shaking || []) {
       s.t += dt;
@@ -2738,6 +2739,21 @@ export class Terrain {
       }
     }
     if (this.falling) this.falling = this.falling.filter(f => !f.done);
+    // What was taken without falling: slumping, squashed down and leaning
+    // a little, and sinking into the ground.
+    for (const c of this.collapsing || []) {
+      c.t += dt;
+      const k = Math.min(1, c.t / 0.55), e = k * k;
+      const sq = 1 - e * 0.92;
+      R.makeRotationAxis(ax.set(c.tilt.z, 0, -c.tilt.x), e * 0.35);
+      out.makeTranslation(c.p.x, c.p.y - e * Math.min(0.6, c.H * 0.2), c.p.z).multiply(R)
+        .multiply(T.makeScale(1 + e * 0.15, sq, 1 + e * 0.15)).multiply(this._fallT2.makeTranslation(-c.p.x, -c.p.y, -c.p.z))
+        .multiply(c.p.matrix);
+      c.m.setMatrixAt(0, out);
+      c.m.instanceMatrix.needsUpdate = true;
+      if (k >= 1) { this.scene.remove(c.m); c.m.dispose(); c.done = true; }
+    }
+    if (this.collapsing) this.collapsing = this.collapsing.filter(c => !c.done);
     // The bits: thrown, falling (leaves drifting), resting where they land; gone when their time is up.
     for (const pool of this.fx ? [this.fx.small, this.fx.big] : []) {
       let live = false;
@@ -2760,7 +2776,8 @@ export class Terrain {
   }
 
   /** Fell a plant: hide that one instance and let it grow back later. */
-  harvest(p) {
+  /** Take a plant: hidden, its stump left, and what it gives — felled with an axe, the wood of its trunk too (`felledYield`). */
+  harvest(p, felled = false) {
     this.felled.set(p.key, p.sp.regrow);
     // (Its chunk may have been built again since it was picked — a new level
     // of detail, as you walked — and it is that one there now.)
@@ -2771,7 +2788,34 @@ export class Terrain {
     }
     this.setSolid(p.key, false);
     this.addStump(now);
-    return { label: p.sp.label, yield: p.yield || p.sp.yield };
+    const base = p.yield || p.sp.yield, extra = felled && p.sp.felledYield;
+    const out = { ...base };
+    if (extra) for (const k in extra) out[k] = (out[k] || 0) + extra[k];
+    return { label: p.sp.label, yield: out };
+  }
+
+  /**
+   * A plant taken that does not fall — gathered, stripped, chopped up where
+   * it lies: it goes as such a thing would rather than vanishing in a blink.
+   * A copy of it slumps and sinks into the ground over half a second, in a
+   * burst of leaves or of chips. (It went from whole to nothing between one
+   * frame and the next: no stroke seemed to have done anything.)
+   */
+  collapse(p, dir = null) {
+    const m = new THREE.InstancedMesh(p.inst.geometry, p.inst.material, 1);
+    m.setMatrixAt(0, p.matrix);
+    if (p.inst.instanceColor) { p.inst.getColorAt(p.index, this._c); m.setColorAt(0, this._c); }
+    m.castShadow = true;
+    m.frustumCulled = false;
+    this.scene.add(m);
+    const geo = p.inst.geometry;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    const H = geo.boundingBox.max.y * p.matrix.getMaxScaleOnAxis();
+    const woody = p.sp.material === 'tree' && !p.sp.yield?.leaf;
+    const at = new THREE.Vector3(p.x, p.y + Math.min(H * 0.5, 1.2), p.z);
+    const d = dir ? dir.clone().negate() : new THREE.Vector3(1, 0, 0);
+    this.burst(at, d, woody ? 'wood' : 'leaves', woody ? 22 : 30);
+    (this.collapsing ||= []).push({ m, p, t: 0, H, tilt: new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5).normalize() });
   }
 
   setSolid(key, on) {
@@ -2798,7 +2842,10 @@ export class Terrain {
     // About waist high, as a tree is felled by hand — you swing level, not
     // at your feet — and higher on a big trunk, above the flare of its foot.
     // (Knee high, the stump sat almost on the ground.)
-    const want = hollow ? 0.3 : THREE.MathUtils.clamp(0.95 + 0.12 * (p.trunk ?? p.sp.trunk ?? 1) * scale, 0.9, 1.35);
+    // (`cutAt`: where a species must be cut instead — a magnolia's stems
+    // part from the ground up, and cut at the waist the face spanned the
+    // gap between two of them.)
+    const want = hollow ? 0.3 : p.sp.cutAt ?? THREE.MathUtils.clamp(0.95 + 0.12 * (p.trunk ?? p.sp.trunk ?? 1) * scale, 0.9, 1.35);
     const hl = Math.max(0.05, Math.round(want / scale / 0.05) * 0.05);          // (in the plant's own units, a few heights to cache)
     const geo = p.inst.geometry, key = `${geo.uuid}|${hl.toFixed(2)}`;
     this._cutCache ||= new Map();

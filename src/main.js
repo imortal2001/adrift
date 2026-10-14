@@ -1092,10 +1092,11 @@ class Game {
     return hit?.object.userData.piece?.id === 'campfire';
   }
 
-  /** A plant down, or picked: what it gives, into the pack. */
+  /** A plant down, or picked: what it gives, into the pack — and it goes as it would, not in a blink. */
   takePlant(plant, how = null) {
     this.chops.delete(plant.key);
     const got = this.takeShared(plant, null, how);
+    this.terrain.collapse(plant);
     if (got) this.gain(got, how);
   }
 
@@ -1108,7 +1109,7 @@ class Game {
    */
   takeShared(plant, away = null, how = null) {
     const a = away ? [+away.x.toFixed(2), +away.z.toFixed(2)] : null;
-    const got = this.terrain.harvest(plant);
+    const got = this.terrain.harvest(plant, !!away && !!plant.sp.falls);
     if (this.net.connected && !this.net.isHost) {
       this.plantClaims.set(plant.key, { how: how || got.label, wait: !!a && !!plant.sp.falls, y: undefined });
       this.net.event({ k: 'claimplant', key: plant.key, a, r: plant.sp.regrow, y: got.yield }, this.net.host);
@@ -1132,7 +1133,8 @@ class Game {
   plantGone(key, a, regrow) {
     const p = this.terrain.takenElsewhere(key, regrow);
     this.chops.delete(key);
-    if (!p || !p.sp.falls || !Array.isArray(a)) return;
+    if (!p) return;
+    if (!p.sp.falls || !Array.isArray(a)) { this.terrain.collapse(p); return; }
     if (Math.hypot(p.x - this.player.pos.x, p.z - this.player.pos.z) > 300) return;
     const away = new THREE.Vector3(a[0], 0, a[1]);
     if (away.lengthSq() < 1e-6) return;
@@ -1222,6 +1224,7 @@ class Game {
     this.chops.delete(plant.key);
     if (!plant.sp.falls) {
       const how = `You chop the ${name} up`, got = this.takeShared(plant, away, how);
+      this.terrain.collapse(plant, away);
       if (got) this.gain(got, how);
       return;
     }
@@ -2385,9 +2388,12 @@ class Game {
     if (plant) {
       // A tree, a log, a stump, bamboo: that takes an axe. Branches and
       // fronds come away in your hands.
-      if (plant.sp.chop) {
+      // (A palm, a magnolia, a tree fern: an axe fells them; by hand you
+      // can still strip their fronds.)
+      const axe = this.hotbar.held === 'axe' && this.inv.has('axe');
+      if (plant.sp.chop && (axe || !plant.sp.hand)) {
         const name = plant.sp.label.toLowerCase();
-        if (this.hotbar.held === 'axe' && this.inv.has('axe')) {
+        if (axe) {
           const done = this.chops.get(plant.key)?.n ?? 0;
           return { prompt: `<b>Click</b> or <b>E</b>: chop the ${name}${done ? ` — ${done} of ${plant.chop ?? plant.sp.chop}` : ''}`,
                    act: () => this.chop(plant, dir) };
