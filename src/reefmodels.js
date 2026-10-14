@@ -245,7 +245,14 @@ function limbs(meshes) {
       const along = x * head[0] + z * head[1], lateral = Math.abs(x * head[1] - z * head[0]);
       const h = s(az * 0.55, az * 0.85, along) * s(ax * 0.32, ax * 0.18, lateral) * (straight ? 1 : s(top * 0.38, top * 0.55, y));
       const t = s(az * 0.7, az * 0.95, -z) * s(ax * 0.3, ax * 0.15, Math.abs(x));
-      out[i * 3] = w; out[i * 3 + 1] = h; out[i * 3 + 2] = t;
+      // A head held high over the front of the shell is as tall as the shell
+      // there, and the height map takes it for shell: it never moved, and
+      // drawn in, the rest of the head folded down from it into a dark slab.
+      // But a shell is a dome, low toward its rim: well above where the dome
+      // would be, in the head's way, it is head.
+      const r = Math.hypot(x / ax, z / az), dome = top * Math.sqrt(Math.max(0, 1 - r * r));
+      const raised = h * s(top * 0.18, top * 0.32, y - dome);
+      out[i * 3] = Math.max(w, raised); out[i * 3 + 1] = h; out[i * 3 + 2] = t;
       if (w > 0.3 && h < 0.3 && t < 0.3) {
         const leg = legs[(x > 0 ? 0 : 1) + (z > 0 ? 0 : 2)];
         leg[0] += x * w; leg[1] += z * w;
@@ -267,6 +274,7 @@ function limbUniforms(shape) {
     uPhase: { value: 0 },  uStride: { value: 0 }, uLift: { value: 0 }, uSwim: { value: 0 }, uFlap: { value: 0 },
     uHide: { value: 0 },   uGraze: { value: 0 },  uLook: { value: 0 },
     uShape: { value: new THREE.Vector4(shape.cx, shape.cz, shape.length, shape.top) },
+    uRim: { value: new THREE.Vector2(shape.ax, shape.az) },    // the shell's half width and half length
     uHeadDir: { value: new THREE.Vector2(...shape.head) },
     uLegsF: { value: new THREE.Vector4(...a, ...b) },    // left front, right front
     uLegsH: { value: new THREE.Vector4(...c, ...d) },    // left hind, right hind
@@ -282,6 +290,7 @@ function limbMaterial(material, u) {
         attribute vec3 aLimb;
         uniform float uPhase, uStride, uLift, uSwim, uFlap, uHide, uGraze, uLook;
         uniform vec4 uShape, uLegsF, uLegsH;
+        uniform vec2 uRim;
         uniform vec2 uHeadDir;
         // One leg's move: walking, paddling. ph its step; front, left ±1.
         vec3 legMove(float ph, float front, float left, float L) {
@@ -311,21 +320,28 @@ function limbMaterial(material, u) {
           // Diagonal pairs together: left front with right hind.
           vec3 d = m.x * legMove(uPhase, 1.0, 1.0, L) + m.y * legMove(uPhase + 3.14159, 1.0, -1.0, L)
                  + m.z * legMove(uPhase + 3.14159, -1.0, 1.0, L) + m.w * legMove(uPhase, -1.0, -1.0, L);
-          // Drawn in, under the shell's rim.
-          d.xz -= q * 0.4 * uHide;
-          d.y += max(0.0, uShape.w * 0.35 - transformed.y) * uHide;
           d *= max(0.0, 1.0 - hd - tl);
-          // The head: in under the shell; down to graze; turned to look.
+          // The head: down to graze; turned to look.
           vec3 h = vec3(0.0);
-          // (Drawn in by shrinking it toward where it leaves the shell: sliding it back would fold the neck.)
-          vec2 base = uShape.xy + uHeadDir * L * 0.4;
-          h.xz += (base - transformed.xz) * 0.6 * uHide;
-          h.y += (uShape.w * 0.45 - transformed.y) * 0.45 * uHide;
           h.y -= uGraze * 0.1 * L;
           h.xz += vec2(uHeadDir.y, -uHeadDir.x) * uLook * w * L * 0.06;
           d += h * hd;
           d.x += tl * sin(uPhase * 0.5) * L * 0.24 * (uStride + uSwim);
           transformed += d * w;
+          // Drawn in, each part shrunk — its shape kept, only smaller — back
+          // toward where it leaves the shell, and low under the rim: the legs
+          // and tail, whatever of them is out past the rim; the head, all of
+          // it, as one. The shell itself does not move. (Pushed toward the
+          // middle and lifted, the legs were squashed into jagged flaps; the
+          // head, part moved, folded into a dark slab standing out of the shell.)
+          float rim = 1.0 / length(dir / uRim);
+          vec3 root = vec3(uShape.x + dir.x * rim * 0.9, uShape.w * 0.2, uShape.y + dir.y * rim * 0.9);
+          float head = hd * smoothstep(0.0, 0.3, w);
+          transformed += (root - transformed) * 0.85 * uHide * smoothstep(rim, rim * 1.12, length(q)) * (1.0 - head);
+          vec2 neck = uShape.xy + uHeadDir * L * 0.4;
+          transformed += (vec3(neck.x, uShape.w * 0.3, neck.y) - transformed) * 0.9 * uHide * head;
+          // Hidden, it lets its shell down onto the ground over its legs.
+          transformed.y -= uShape.w * 0.1 * uHide;
         }`);
   };
   m.customProgramCacheKey = () => 'limbs';

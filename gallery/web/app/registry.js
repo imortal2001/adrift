@@ -359,7 +359,11 @@ export async function loadRegistry() {
     async build(variant) {
       const entry = variant === 'code' ? null : await reefModel('sea_turtle');
       const t = entry ? seaTurtleModel(entry, 1.1) : turtleBody(), fast = variant === 'flee';
-      return { object: t, keepHeight: true, frame: { center: V(0, 0.05, 0.1), size: V(1.4, 0.4, 1.5) },
+      // Swimming, clear of the sand: it is centred on its own middle, as it
+      // swims in the game. (Stood on the floor at y = 0, its flat flippers,
+      // level with its middle, were under the sand — a turtle with no flippers.)
+      t.position.y = 0.45;
+      return { object: t, keepHeight: true, frame: { center: V(0, 0.45, 0.1), size: V(1.4, 0.4, 1.5) },
                update: (dt, time) => t.userData.animate(time, fast ? 0.7 : 0.28, 1) };
     },
   });
@@ -421,7 +425,7 @@ export async function loadRegistry() {
       const g = new THREE.Group(), crabs = new Crabs(g, 1);
       const entry = variant === 'code' ? null : await reefModel('crab');
       if (entry) crabs.useModel(entry.scene);
-      const colour = variant === 'beach' ? 0xd9c79c : entry ? 0xffffff : 0xc24a2c;
+      const colour = variant === 'beach' ? 0xe6d6b4 : entry ? 0xffffff : 0xc24a2c;
       const k = { pos: V(0, 0, 0), heading: 0, size: 1.1, colour: new THREE.Color(colour), gait: 0, moving: 1, claws: 0.4 };
       return { object: g, keepHeight: true, backdrop: variant === 'beach' ? 'world' : 'underwater',
                frame: { center: V(0, 0.05, 0.01), size: V(0.42, 0.14, 0.3) },

@@ -1685,7 +1685,9 @@ same focus the fish do — and on the beaches when you are ashore:
   reach. The spear takes one — thrown, or thrust.
 - **Crabs** (7 on the reef, 8 on the beaches) scuttle sideways in short
   bursts. On the reef one runs a few metres from you; on a beach it runs for
-  the sea and is gone. Get close and **E** grabs it.
+  the sea and is gone. Get close and **E** grabs it. The reef's are blue
+  crabs, red, orange or maroon; the beach's are pale, sand-coloured ghost
+  crabs.
 
 And away from the sea:
 
@@ -1724,12 +1726,29 @@ game is sold), converted by `tools/build_sealife.py` and moved in code by
   it jets — and its texture is tinted through the camouflage colours;
 - the **crab** comes as a shell, two claws and ten legs, each with its
   origin at its joint: every part is one instanced mesh for all the crabs,
-  turned about its joint, the legs walking in a tetrapod gait;
+  turned about its joint, the legs walking in a tetrapod gait. It is painted
+  a blue crab; a crab of another colour keeps the painting's light and shade
+  and takes the new colour (an instance colour over 1 asks for it) — as a
+  tint over the blue, a sand-coloured beach crab came out blue and a red one
+  a muddy purple. The reef's crabs are made before the model has loaded, so
+  their colours are picked again when it comes;
 - the **tortoise** and **pond turtle** are one mesh each. Their legs, head
   and tail are found in the mesh — a height map from above says where the
   shell is; what reaches out past it, or hangs below its rim, is limb — and
   moved in the vertex shader, blended smoothly between limbs so the mesh
-  never tears: walking, paddling, grazing, drawing in.
+  never tears: walking, paddling, grazing, drawing in. A head held high
+  stands as tall as the shell over its front edge, so the height map took
+  its top for shell; but a shell is a dome, low toward its rim, and what
+  stands well above that dome in the head's way is head. Drawing in, each
+  part is shrunk, its shape kept, back toward where it leaves the shell and
+  low under the rim — the head as one piece, the legs whatever of them is
+  out past the rim — and the shell is let down onto the ground. (Pushed
+  toward the middle and flattened, the legs were jagged flaps sticking out
+  of the shell and the head a dark slab standing up from it.)
+
+In the gallery the sea turtle swims clear of the sand: it is centred on its
+own middle, as it swims in the game, and stood on the floor its flat
+flippers, level with its middle, were under the sand.
 
 Without the files, the sea's animals are the code-built ones they replace
 (a few meshes each, their wings and arms re-shaped on the CPU every frame; the

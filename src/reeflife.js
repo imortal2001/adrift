@@ -320,6 +320,39 @@ const HIPS = [];
 for (const s of [1, -1]) for (let k = 0; k < 4; k++) HIPS.push({ s, x: s * 0.07, z: 0.03 - k * 0.028, a: s * (0.55 - k * 0.38) });
 const CLAWS = [{ s: 1, x: 0.05, z: 0.06 }, { s: -1, x: -0.05, z: 0.06 }];
 
+// The crab model is painted a blue crab. A crab of another colour — a pale
+// ghost crab on the beach, a red one on the reef — keeps the painting's light
+// and shade but takes its colour: as a tint over the blue, a sand-coloured
+// crab came out blue, and a red one a muddy purple. An instance colour over 1
+// (draw doubles it) asks for that; a still crab asks with RECOLOUR.
+const RECOLOUR_GAIN = '2.3';
+function recolourable(material) {
+  material.onBeforeCompile = sh => {
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        #if defined( RECOLOUR ) && defined( USE_MAP )
+          diffuseColor.rgb = diffuse * dot(sampledDiffuseColor.rgb, vec3(0.299, 0.587, 0.114)) * ${RECOLOUR_GAIN};
+        #endif`)
+      // (The fragment shader is told USE_COLOR for an instance colour: USE_INSTANCING_COLOR is the vertex shader's.)
+      .replace('#include <color_fragment>', `#if defined( USE_COLOR ) && !defined( USE_COLOR_ALPHA )
+          if (max(vColor.r, max(vColor.g, vColor.b)) > 1.001)
+            diffuseColor.rgb = vColor * 0.5 * dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114)) * ${RECOLOUR_GAIN};
+          else diffuseColor.rgb *= vColor;
+        #else
+          #include <color_fragment>
+        #endif`);
+  };
+  material.customProgramCacheKey = () => 'crab-recolour';
+  return material;
+}
+const isWhite = c => c.r > 0.99 && c.g > 0.99 && c.b > 0.99;
+/** A reef crab's colour: with the model, its own blue (white) or a recolouring; built in code, a red. */
+function crabColour(model) {
+  const reef = model ? [0xffffff, 0xffffff, 0xd0502c, 0xc8742e, 0x9a3a4a] : [0xc24a2c, 0xb8662e, 0x9a3a4a];
+  return reef[Math.random() * reef.length | 0];
+}
+const _recol = new THREE.Color();
+
 /** Crabs, all of them: three instanced meshes, their matrices set every frame from each crab. */
 export class Crabs {
   constructor(scene, max) {
@@ -347,7 +380,7 @@ export class Crabs {
     const parts = [];
     scene.traverse(o => {
       if (!o.isMesh) return;
-      const m = new THREE.InstancedMesh(o.geometry, o.material.clone(), this.max);
+      const m = new THREE.InstancedMesh(o.geometry, recolourable(o.material.clone()), this.max);
       m.castShadow = true; m.frustumCulled = false; m.count = 0;
       const [, what, side, k] = o.name.match(/^(body|claw|leg)_?([LR])?(\d)?/) || [];
       parts.push({ mesh: m, what: what || 'body', s: side === 'R' ? -1 : 1, k: +(k || 0), at: o.position.clone() });
@@ -410,7 +443,8 @@ export class Crabs {
           P.compose(p.at, q, s.set(1, 1, 1)).premultiply(M);
         }
         p.mesh.setMatrixAt(n, P);
-        p.mesh.setColorAt(n++, k.colour);
+        // (Doubled: recoloured, not tinted — see recolourable.)
+        p.mesh.setColorAt(n++, isWhite(k.colour) ? k.colour : _recol.copy(k.colour).multiplyScalar(2));
       }
       p.mesh.count = n;
       p.mesh.instanceMatrix.needsUpdate = true;
@@ -427,7 +461,11 @@ export class Crabs {
     if (!this.parts) return null;
     const c = new THREE.Color(colour ?? 0xffffff), mats = new Map();
     const mat = m => {
-      if (!mats.has(m)) { const x = m.clone(); x.color = c; x.side = THREE.DoubleSide; mats.set(m, x); }
+      if (!mats.has(m)) {
+        const x = recolourable(m.clone()); x.color = c; x.side = THREE.DoubleSide;
+        if (!isWhite(c)) x.defines = { ...x.defines, RECOLOUR: '' };
+        mats.set(m, x);
+      }
       return mats.get(m);
     };
     const body = this.parts.find(p => p.what === 'body');
@@ -518,7 +556,13 @@ export class ReefLife {
       const entry = await this.library.get(key);
       if (!entry) return;
       this.models[kind] = entry;
-      if (kind === 'crab') { this.crabs.useModel(entry.scene); return; }
+      if (kind === 'crab') {
+        this.crabs.useModel(entry.scene);
+        // The reef's crabs were made before the model came, in the code-built
+        // crab's reds: now some are the model's own blue crab, as meant.
+        for (const a of this.animals) if (a.kind === 'crab' && !a.beach) a.colour.set(crabColour(true));
+        return;
+      }
       const sp = REEF_ANIMALS[kind];
       if (sp.model) {
         for (let k = 0; k < sp.count; k++) this.animals.push(this.make(kind));
@@ -558,9 +602,10 @@ export class ReefLife {
     }
     if (kind === 'crab') {
       a.size = rand(...REEF_ANIMALS.crab.length) / 0.2;
-      // (White is the model's own colour: a blue crab. The code-built one has none of its own, and is red.)
-      const reef = this.models.crab ? [0xffffff, 0xffffff, 0xc24a2c, 0xb8662e, 0x9a3a4a] : [0xc24a2c, 0xb8662e, 0x9a3a4a];
-      a.colour = new THREE.Color(beach ? 0xd9c79c : reef[Math.random() * reef.length | 0]);
+      // (White is the model's own colour: a blue crab; the others are recoloured
+      // from it. The code-built one has none of its own, and is red.) On the
+      // beach, the pale sand colour of a ghost crab.
+      a.colour = new THREE.Color(beach ? 0xe6d6b4 : crabColour(!!this.models.crab));
       a.gait = 0; a.moving = 0; a.claws = 0;
     }
     if (a.obj) { a.obj.visible = false; this.scene.add(a.obj); }
