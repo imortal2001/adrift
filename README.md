@@ -253,8 +253,8 @@ pause screen starts over.
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
 | `src/whale.js` | One humpback, passing by: a few minutes' company, then gone a while; cruises, surfaces to blow, sounds flukes-up. Not catchable. |
-| `src/reeflife.js` | The animals that move, other than fish and dinosaurs: sea turtles, stingrays, octopus and crabs on the reef, tortoises on land and pond turtles in the lakes — each with its own way of moving and of reacting to you; crab and octopus as catches. |
-| `src/reefmodels.js` | Their glTF bodies, when the models are here: the octopus's arm chains curled in code, the stingray's clip, and the tortoise's and pond turtle's limbs found in the mesh and moved in the vertex shader. |
+| `src/reeflife.js` | The animals that move, other than fish and dinosaurs: sea turtles, stingrays, a manta, octopus and crabs on the reef, tortoises on land and pond turtles in the lakes — each with its own way of moving and of reacting to you; crab and octopus as catches. |
+| `src/reefmodels.js` | Their glTF bodies, when the models are here: the octopus's arm chains curled in code, the manta's clip, and the tortoise's and pond turtle's limbs found in the mesh and moved in the vertex shader. |
 | `src/reef.js` | What lives on the sea bed — massive, brain, table, staghorn, plate, finger and leather corals, sea fans, tube and barrel sponges, anemones, seagrass, macroalgae, kelp, urchins, starfish, giant clams — and its stone: boulders, outcrops, limestone slabs, cobbles and coral rubble; the roles each plays in a colony; the surge that bends the soft ones. |
 | `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Used by the reef. |
 | `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers, and the falls and lakes on them), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
@@ -1676,9 +1676,20 @@ same focus the fish do — and on the beaches when you are ashore:
 - **Stingrays** (4) lie on the open sand between the reefs (never up on a rock), mottled the colour
   of it; now and then one lifts off and flies low on rippling wings — a wave
   running down each wing, front to back, growing toward the tips. Come within
-  3.5 m and it is off at a rush.
+  3.5 m and it is off at a rush. Each is a whipray built in code (`rayBody()`):
+  a rounded diamond of a disc, thick over the body and thin out to the wings,
+  sand-coloured and softly mottled on top and pale beneath, its eyes raised
+  with the spiracles behind them, the pelvic fins at the back, and a whip of a
+  tail twice the disc long with its spine, which trails in a slow wave.
+- **A manta ray** (1) cruises in open water off the reef, over sand 9 m down
+  and more, a few metres under the surface: 3.5 m across, on slow, deep
+  wingbeats, banking round in long turns and turning back from the
+  shallows. It does not run from you — mantas come to look at divers — but
+  swim right at it and it turns aside, unhurried. (Its model came titled
+  "Stingray" and was the stingrays, lying on the sand; a manta never does.)
 - **Octopus** (3) creep over the coral, eight arms reaching and curling, their
-  colour sliding through the reef's to match what they are on. Come within
+  colour sliding through the reef's to match what they are on — and once one
+  has jetted off and settled, the grey-green of the rock. Come within
   2.8 m and one blanches, jets off backwards and leaves a cloud of ink — then
   hides, still, where it lands, which is when you can get close. Drift in
   slowly and it trusts its camouflage to about half that, inside a thrust's
@@ -1709,18 +1720,18 @@ in the fish slot, bait a hook, cook on the spit and are eaten, raw or cooked.
 Each player's sea has its own: they are not shared playing together, as a
 school's fish are not.
 
-**Models.** The sea turtle, stingray, octopus, crab, tortoise and pond turtle are
+**Models.** The sea turtle, manta ray, octopus, crab, tortoise and pond turtle are
 third-party models (`assets/models/`, credited in `CREDITS.md`; **the
-stingray is CC BY-NC** — non-commercial — and must be replaced before the
-game is sold), converted by `tools/build_sealife.py` and moved in code by
-`src/reefmodels.js`:
+manta — `stingray.glb`, as its author titled it — is CC BY-NC** —
+non-commercial — and must be replaced before the game is sold, or left out:
+the game then simply has no manta), converted by `tools/build_sealife.py` and
+moved in code by `src/reefmodels.js`:
 
 - the **sea turtle** is one mesh; its flippers are found in it the way the
   tortoise's legs are (below) and beaten in the vertex shader — the front
   pair together, down and back, the downstroke the quicker, the hind pair
   only steering;
-- the **stingray** runs its own swim clip, as slowly or quickly as it is
-  going, nearly still on the sand;
+- the **manta** runs its own swim clip, at a manta's slow beat;
 - the **octopus**'s rig has eight arm chains, which are curled and swept in
   code — reaching and coiling as it creeps, trailing straight behind it as
   it jets — and its texture is tinted through the camouflage colours;

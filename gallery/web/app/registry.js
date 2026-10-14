@@ -369,22 +369,38 @@ export async function loadRegistry() {
   });
   add({
     id: 'reef-ray', name: 'Stingray', category: 'animals', group: 'Reef animals',
-    ...modelled('stingray', 'stingray.glb'), backdrop: 'underwater',
-    source: (manifest.has('stingray') ? 'assets/models/stingray.glb (CC BY-NC — see CREDITS.md) · tools/build_sealife.py · rayModel(); fallback ' : '') + 'src/reeflife.js · rayBody() · ReefLife.ray()',
-    facts: reefFacts('ray', [['Size', 'a metre across the wings, and a whip of a tail'],
+    kind: 'built in code', backdrop: 'underwater',
+    source: 'src/reeflife.js · rayBody() · rayTexture() · ReefLife.ray()',
+    facts: reefFacts('ray', [['Size', 'a metre across the disc, and a whip of a tail twice as long'],
+      ['Looks', 'a rounded diamond, sand-coloured and mottled on top, pale beneath; eyes and spiracles on top; a spine on the tail'],
       ['Behaviour', 'lies on the sand; lifts off and flies low on rippling wings; off at a rush if you come within 3.5 m'],
-      ['Moves by', manifest.has('stingray') ? 'its own swim clip, run as slow or as fast as it is going' : 'its disc re-shaped every frame'],
+      ['Moves by', 'its disc re-shaped every frame, a wave down each wing; its tail a chain that whips'],
       ['Caught with', 'nothing — it is left alone']]),
-    variants: [{ id: 'glide', label: 'Gliding' }, { id: 'flee', label: 'Fleeing' }, { id: 'rest', label: 'Resting' },
-               { id: 'code', label: 'Built in code' }],
+    variants: [{ id: 'glide', label: 'Gliding' }, { id: 'flee', label: 'Fleeing' }, { id: 'rest', label: 'Resting' }],
     async build(variant) {
-      const entry = variant === 'code' ? null : await reefModel('stingray');
-      const r = entry ? rayModel(entry, 1.1) : rayBody();
-      const [beat, amp] = { glide: [0.5, 0.06], flee: [1.4, 0.12], rest: [0.5, 0.004], code: [0.5, 0.06] }[variant || 'glide'];
+      const r = rayBody();
+      const [beat, amp] = { glide: [0.5, 0.06], flee: [1.4, 0.12], rest: [0.5, 0.004] }[variant || 'glide'];
       r.userData.animate(0, beat, amp);
-      return { object: r, keepHeight: true,
-               frame: entry ? { center: V(0, 0.15, 0), size: V(1.3, 0.5, 1.6) } : { center: V(0, 0.05, -0.2), size: V(1.3, 0.4, 1.9) },
+      r.position.y = variant === 'rest' ? 0.03 : 0.35;
+      return { object: r, keepHeight: true, frame: { center: V(0, r.position.y + 0.05, -0.45), size: V(1.2, 0.3, 2.0) },
                update: (dt, time) => r.userData.animate(time, beat, amp) };
+    },
+  });
+  if (manifest.has('stingray')) add({
+    id: 'reef-manta', name: 'Manta ray', category: 'animals', group: 'Reef animals',
+    ...modelled('stingray', 'stingray.glb'), backdrop: 'underwater',
+    source: 'assets/models/stingray.glb (a manta ray, CC BY-NC — see CREDITS.md) · tools/build_sealife.py · rayModel() · ReefLife.manta()',
+    facts: reefFacts('manta', [['Size', 'about 3.5 m from wingtip to wingtip'],
+      ['Behaviour', 'cruises in open water off the reef on slow, deep wingbeats, banking round in long turns; swim right at it and it turns aside, unhurried'],
+      ['Moves by', 'its own swim clip, run at a manta\'s slow beat'],
+      ['Caught with', 'nothing — it is left alone']]),
+    async build() {
+      const entry = await reefModel('stingray');
+      const r = rayModel(entry, REEF_ANIMALS.manta.length);
+      r.position.y = 1.2;
+      // (The model stands about 0.9 m above its origin.)
+      return { object: r, keepHeight: true, frame: { center: V(0, 2.1, 0), size: V(3.6, 1.9, 4.5) },
+               update: (dt, time) => r.userData.animate(time, 0.22, 0.08) };
     },
   });
   add({

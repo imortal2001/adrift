@@ -135,18 +135,26 @@ export function turtleBody() {
   return group;
 }
 
-/** A stingray, facing +z: a disc ~1 m across and its whip of a tail. Its wings ripple (animate). */
+/**
+ * A stingray, about a metre across, facing +z: a whipray of the reef flats.
+ * A rounded diamond of a disc — thick over the body, thin out to the wings —
+ * sand-coloured and mottled darker on top, pale underneath; eyes raised on
+ * top with the spiracles it breathes through just behind them; the pelvic
+ * fins at the back of the disc; and a whip of a tail, twice the disc long,
+ * with its spine a third of the way down. (It was a flat, plain diamond with
+ * two dots and a stick.)
+ */
 export function rayBody() {
   const group = new THREE.Group();
-  const rows = 18, cols = 16, W = 0.55, L = 0.46;
-  const pos = [], col = [], idx = [], base = [];
-  const top = new THREE.Color(), under = new THREE.Color(0xe7e3da);
-  // A diamond: widest a little ahead of the middle, the wingtips pointed,
-  // the snout blunt and the back tapering to where the tail starts.
-  const Z0 = L * 0.15;
+  const rows = 22, cols = 20, W = 0.55, L = 0.46;
+  const pos = [], col = [], uv = [], idx = [], base = [];
+  const under = new THREE.Color(0xe9e4d8);
+  // A rounded diamond: |x|^p + |z|^p = 1, between a rhombus (p 1) and an
+  // ellipse (p 2); widest a little ahead of the middle.
+  const Z0 = L * 0.1, P = 1.45;
   const halfW = z => {
     const f = z > Z0 ? (z - Z0) / (L - Z0) : (Z0 - z) / (L + Z0);
-    return W * Math.pow(Math.max(0, 1 - Math.pow(f, z > Z0 ? 1.25 : 1.05)), z > Z0 ? 0.7 : 0.95);
+    return W * Math.pow(Math.max(0, 1 - Math.pow(Math.min(1, f), P)), 1 / P);
   };
   for (const layer of [1, -1]) {
     const o = pos.length / 3;
@@ -154,15 +162,13 @@ export function rayBody() {
       const z = L - (2 * L * r) / rows, hw = halfW(z);
       for (let c = 0; c <= cols; c++) {
         const u = (c / cols) * 2 - 1, x = u * hw;
-        const dome = 0.07 * Math.sqrt(Math.max(0, 1 - u * u)) * (1 - (z / L) ** 2);
-        const y = layer > 0 ? dome : -dome * 0.35;
+        // The body a hump down the middle; the wings thin out to their edge.
+        const along = Math.pow(Math.max(0, 1 - ((z - Z0) / (L * 1.05)) ** 2), 0.7);
+        const hump = 0.075 * Math.exp(-((x / 0.17) ** 2)) * along + 0.012 * (1 - Math.abs(u)) * along;
+        const y = layer > 0 ? hump : -hump * 0.3;
         pos.push(x, y, z); base.push(x, y, z);
-        if (layer > 0) {
-          // Sandy grey-brown, mottled, darker along the middle.
-          const spot = Math.sin(x * 41 + z * 17) * Math.sin(x * 23 - z * 37);
-          top.set(0xa79877).multiplyScalar(0.92 + 0.12 * spot - 0.12 * (1 - Math.abs(u)));
-          col.push(top.r, top.g, top.b);
-        } else col.push(under.r, under.g, under.b);
+        if (layer > 0) { col.push(1, 1, 1); uv.push(0.5 + x / (2 * W), 0.5 + z / (2 * L)); }
+        else { col.push(under.r, under.g, under.b); uv.push(0.01, 0.01); }         // (the white corner of the skin)
       }
       if (r) {
         for (let c = 0; c < cols; c++) {
@@ -177,34 +183,96 @@ export function rayBody() {
   const disc = new THREE.BufferGeometry();
   disc.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   disc.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  disc.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   disc.setIndex(idx);
   disc.computeVertexNormals();
-  const mat = skin({ roughness: 0.55 });
-  const body = new THREE.Mesh(disc, mat);
+  const back = skin({ roughness: 0.6, map: rayTexture() });
+  const body = new THREE.Mesh(disc, back);
   body.castShadow = true;
   group.add(body);
-  const eyes = merge([-1, 1].map(s => paint(ball(0.02, 0.018, 0.024, 6), 0x3b362c).translate(s * 0.07, 0.065, 0.22)));
-  group.add(new THREE.Mesh(eyes, mat));
-  const tail = new THREE.Mesh(paint(new THREE.CylinderGeometry(0.004, 0.022, 0.85, 6).rotateX(Math.PI / 2).translate(0, 0.01, -0.425), 0x8f8468), mat);
-  tail.position.z = -L * 0.95;
-  group.add(tail);
-  const b = Float32Array.from(base), P = disc.attributes.position;
+  const mat = skin({ roughness: 0.5 });
+  // Eyes up on top, and the spiracles just behind them; the pelvic fins at the back.
+  const bits = [];
+  for (const s of [-1, 1]) {
+    bits.push(paint(ball(0.024, 0.022, 0.03, 8), 0x8f7c5a).translate(s * 0.07, 0.07, L * 0.4));
+    bits.push(paint(ball(0.013, 0.012, 0.016, 8), 0x1d1a15).translate(s * 0.074, 0.088, L * 0.43));
+    bits.push(paint(ball(0.02, 0.006, 0.026, 8), 0x2a241b).translate(s * 0.075, 0.072, L * 0.27));
+    bits.push(paint(ball(0.075, 0.01, 0.06, 10), 0xa08b66).rotateY(s * 0.35).translate(s * 0.085, 0.004, -L * 0.9));
+  }
+  group.add(new THREE.Mesh(merge(bits), mat));
+  // The tail: a chain of tapering pieces, so it can whip; the spine on the second.
+  const seg = [], n = 5, len = 0.2;
+  let parent = group;
+  for (let i = 0; i < n; i++) {
+    const r0 = 0.022 * (1 - i / n) + 0.002, r1 = 0.022 * (1 - (i + 1) / n) + 0.002;
+    const piece = new THREE.Mesh(paint(new THREE.CylinderGeometry(r1, r0, len, 6).rotateX(Math.PI / 2).translate(0, 0, -len / 2), i < 2 ? 0x8f7c5a : 0x5f5141), mat);
+    piece.position.z = i === 0 ? -L * 0.97 : -len;
+    piece.castShadow = i < 2;
+    parent.add(piece);
+    seg.push(piece);
+    parent = piece;
+  }
+  const spine = paint(new THREE.ConeGeometry(0.006, 0.09, 4).scale(1, 1, 0.35).rotateX(-Math.PI / 2).translate(0, 0.016, -0.06), 0xd2c6a6);
+  seg[1].add(new THREE.Mesh(spine, mat));
+  const b = Float32Array.from(base), Pp = disc.attributes.position;
   let every = 0;
   group.userData.animate = (t, beat, amp) => {
     // A wave down each wing, front to back, growing toward the tips.
-    for (let i = 0; i < P.count; i++) {
+    for (let i = 0; i < Pp.count; i++) {
       const x = b[i * 3], z = b[i * 3 + 2], reach = Math.pow(Math.abs(x) / W, 1.5);
-      P.setY(i, b[i * 3 + 1] + amp * reach * Math.sin(t * beat * Math.PI * 2 - z * 5.5));
+      Pp.setY(i, b[i * 3 + 1] + amp * reach * Math.sin(t * beat * Math.PI * 2 - z * 5.5));
     }
-    P.needsUpdate = true;
+    Pp.needsUpdate = true;
     if ((every = (every + 1) % 3) === 0) disc.computeVertexNormals();
-    tail.rotation.y = Math.sin(t * beat * Math.PI * 2 * 0.5) * 0.18 * (0.3 + amp * 6);
+    // The tail trails, a slow wave running down it.
+    seg.forEach((p, i) => { p.rotation.y = Math.sin(t * beat * Math.PI - i * 0.9) * (0.05 + 0.06 * i / n) * (0.4 + amp * 6); });
   };
   return group;
 }
 
+/** The ray's back: sand, mottled darker in soft blotches, freckled, paler at the rim; a white corner for its belly. */
+let RAY_SKIN = null;
+function rayTexture() {
+  if (RAY_SKIN) return RAY_SKIN;
+  const N = 256, c = document.createElement('canvas');
+  c.width = c.height = N;
+  const g = c.getContext('2d'), img = g.createImageData(N, N), d = img.data;
+  // (Seeded value noise, so every ray wears the same pattern: it is the species' look.
+  // Drawn as blotches with edges, it was polka dots.)
+  const h = (x, y) => { const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); };
+  const noise = (x, y) => {
+    const i = Math.floor(x), j = Math.floor(y), u = x - i, v = y - j, su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v);
+    return (h(i, j) * (1 - su) + h(i + 1, j) * su) * (1 - sv) + (h(i, j + 1) * (1 - su) + h(i + 1, j + 1) * su) * sv;
+  };
+  const light = [184, 162, 122], dark = [118, 98, 70];
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const fx = x / N * 7, fy = y / N * 7;
+    const n = noise(fx, fy) * 0.55 + noise(fx * 2.3 + 5, fy * 2.3) * 0.3 + noise(fx * 5.1, fy * 5.1 + 9) * 0.15;
+    const blot = Math.min(1, Math.max(0, (n - 0.42) / 0.22));
+    const freckle = noise(x * 0.45, y * 0.45) > 0.86 ? 0.35 : 0;
+    const r = Math.hypot(x / N - 0.5, y / N - 0.5) * 2, rim = Math.min(1, Math.max(0, (r - 0.7) / 0.35)) * 0.3;
+    const k = (x + y * N) * 4;
+    for (let ch = 0; ch < 3; ch++) {
+      let v = light[ch] + (dark[ch] - light[ch]) * (blot * 0.8 + freckle);
+      v += (232 - v) * rim;
+      d[k + ch] = v;
+    }
+    d[k + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, N - 8, 8, 8);                     // uv (0.01, 0.01): the belly's white
+  RAY_SKIN = new THREE.CanvasTexture(c);
+  RAY_SKIN.colorSpace = THREE.SRGBColorSpace;
+  RAY_SKIN.anisotropy = 4;
+  return RAY_SKIN;
+}
+
 // Colours an octopus slides through to match what it sits on.
 export const OCTO_SHADES = [0x8a3b2a, 0xa0663c, 0x6b5a4a, 0xb88a5a, 0x7a4658, 0x5f6a48];
+// …and the reef rock's grey-greens, which it takes on hiding: still, it is
+// the rock. (It kept the red-brown it crept about in, plain against the rock.)
+const ROCK_SHADES = [0x5f6a48, 0x6e6c5c, 0x7c7462, 0x56604a];
 
 /** An octopus: a mantle, eyes, and eight arms re-shaped every frame (animate). */
 export function octopusBody() {
@@ -510,6 +578,10 @@ export const REEF_ANIMALS = {
              length: 1.0, catch: false },
   ray:     { name: 'stingray', count: 4, where: 'on the open sand between the reefs, 3–20 m down',
              length: 1.1, catch: false },
+  // The manta model's (a manta ray, not a stingray: it came titled "Stingray",
+  // and lay on the sand as one — which a manta never does).
+  manta:   { name: 'manta ray', count: 1, where: 'in open water off the reef, over 9 m and more',
+             length: 3.5, catch: false, model: 'stingray' },
   octopus: { name: 'octopus', count: 3, where: 'on the coral, 3–18 m down', length: [0.5, 0.8], catch: 'spear' },
   crab:    { name: 'crab', count: 7, where: 'on the reef, 1–14 m down — and on the beaches', length: [0.18, 0.26], catch: 'hand' },
   // Models only (reefmodels.js): with no file, there are none.
@@ -519,7 +591,7 @@ export const REEF_ANIMALS = {
                  length: [0.17, 0.24], catch: false, model: 'pond_turtle', land: true },
 };
 // The model each takes its body from, when it is there.
-const MODEL_OF = { turtle: 'sea_turtle', octopus: 'octopus', ray: 'stingray', crab: 'crab', tortoise: 'tortoise', pond_turtle: 'pond_turtle' };
+const MODEL_OF = { turtle: 'sea_turtle', octopus: 'octopus', manta: 'stingray', crab: 'crab', tortoise: 'tortoise', pond_turtle: 'pond_turtle' };
 const BEACH_CRABS = 8;
 const LAND_RANGE = 55;               // tortoises and pond turtles keep this near you
 const POND_REACH = 140;              // a lake this near you has its turtles out
@@ -583,7 +655,8 @@ export class ReefLife {
   body(kind, a) {
     const m = this.models[kind];
     if (kind === 'turtle') return m ? seaTurtleModel(m, 1.1) : turtleBody();
-    if (kind === 'ray') return m ? rayModel(m, 1.1 * a.scale) : rayBody();
+    if (kind === 'ray') return rayBody();
+    if (kind === 'manta') return rayModel(m, REEF_ANIMALS.manta.length * a.scale);
     if (kind === 'octopus') return m ? octopusModel(m, 0.8) : octopusBody();
     // The tortoise's texture is painted near black (its shading baked in): lifted, it reads as the dark grey-brown it is.
     if (kind === 'tortoise') return shelledModel(m, a.length, 2.6);
@@ -594,7 +667,7 @@ export class ReefLife {
   make(kind, beach = false) {
     const a = { kind, beach, sp: REEF_ANIMALS[kind], pos: new THREE.Vector3(), heading: Math.random() * 6.28,
                 speed: 0, state: 'idle', timer: 0, t: Math.random() * 10, placed: false, away: 0 };
-    a.scale = kind === 'ray' ? rand(0.85, 1.15) : rand(0.85, 1.25);
+    a.scale = kind === 'ray' ? rand(0.85, 1.15) : kind === 'manta' ? rand(0.85, 1.1) : rand(0.85, 1.25);
     if (kind === 'tortoise' || kind === 'pond_turtle') { a.length = rand(...a.sp.length); a.hide = 0; a.step = 0; a.graze = 0; }
     a.obj = this.body(kind, a);
     if (kind === 'octopus') {
@@ -659,6 +732,7 @@ export class ReefLife {
     if (a.kind === 'pond_turtle') { const w = freshWaterAt(x, z); return !!w && w.kind !== 'river' && w.depth > 0.35; }
     const reef = reefMask(x, z, -coastDistance(x, z));
     if (a.kind === 'turtle') return h < -4;
+    if (a.kind === 'manta') return h < -9;
     // (On the open sand — not up on a rock lying on it.)
     if (a.kind === 'ray') return h < -3 && h > -20 && reef < 0.15 && this.floor(x, z) < h + 0.3;
     if (a.kind === 'octopus') return h < -3 && h > -18 && reef > 0.3;
@@ -678,6 +752,7 @@ export class ReefLife {
       a.placed = true;
       a.state = 'idle'; a.timer = rand(1, 6); a.speed = 0;
       if (a.kind === 'turtle') { a.pos.y = Math.min(-1.5, heightAt(x, z) + rand(2, 5)); a.breathe = rand(20, 90); }
+      else if (a.kind === 'manta') { a.pos.y = Math.max(heightAt(x, z) + 3, -rand(3, 7)); a.cruise = -rand(3, 7); }
       else if (a.sp.land) a.pos.y = heightAt(x, z);
       else a.pos.y = this.floor(x, z);
       a.away = 0;
@@ -817,6 +892,39 @@ export class ReefLife {
     a.obj.userData.animate(a.t, a.state === 'flee' ? 1.4 : 0.5, amp);
   }
 
+  /**
+   * A manta: cruising in open water off the reef, a few metres down, on slow,
+   * deep strokes of its wings, banking round in long turns. It does not run
+   * from you — mantas come to look at divers — but swim right at it and it
+   * turns aside, unhurried.
+   */
+  manta(a, dt, time) {
+    const th = this.threat(a.pos);
+    const bed = this.floor(a.pos.x, a.pos.z), sea = waveHeight(a.pos.x, a.pos.z, time);
+    if ((a.timer -= dt) <= 0) { a.turn = rand(-0.25, 0.25); a.timer = rand(6, 16); a.cruise = -rand(3, 7); }
+    let turn = a.turn || 0;
+    if (th.d < 4.5) {
+      // Aside, not away: turning off the line to you.
+      const off = Math.atan2(a.pos.x - th.from.x, a.pos.z - th.from.z);
+      turn = Math.sign(wrap(off - a.heading)) * 0.5;
+    }
+    // Out of the shallows: turned back toward deep water.
+    if (bed > -8) turn = (a.turnOut ||= Math.random() < 0.5 ? 0.6 : -0.6);
+    else a.turnOut = 0;
+    a.yawRate = (a.yawRate || 0) + (turn - (a.yawRate || 0)) * Math.min(1, dt * 0.5);
+    a.heading += a.yawRate * dt;
+    a.speed += (1.1 - a.speed) * Math.min(1, dt * 0.5);
+    this.step(a, dt);
+    const target = Math.max(bed + 3, Math.min(sea - 1.5, a.cruise ?? -5));
+    const climb = THREE.MathUtils.clamp((target - a.pos.y) * 0.3, -0.35, 0.35);
+    a.pos.y += climb * dt;
+    a.obj.visible = true;
+    a.obj.position.copy(a.pos);
+    // Banked into its turns, nose a little up or down as it climbs.
+    a.obj.rotation.set(-climb * 0.5, a.heading, -a.yawRate * 0.9, 'YXZ');
+    a.obj.userData.animate(a.t, 0.22, 0.08);
+  }
+
   octopus(a, dt) {
     const th = this.threat(a.pos);
     // (At full, 2.8 m: past a thrust's reach, so it could only ever be thrown at.)
@@ -827,7 +935,7 @@ export class ReefLife {
       a.shade.set(0xe8ddd0);                                                    // blanched
     }
     if ((a.timer -= dt) <= 0) {
-      if (a.state === 'jet') { a.state = 'hide'; a.timer = rand(6, 12); }
+      if (a.state === 'jet') { a.state = 'hide'; a.timer = rand(6, 12); a.want.set(ROCK_SHADES[Math.random() * ROCK_SHADES.length | 0]); }
       else if (a.state === 'hide' || a.state === 'idle') { a.state = 'crawl'; a.timer = rand(5, 14); }
       else { a.state = 'idle'; a.timer = rand(6, 18); a.want.set(OCTO_SHADES[Math.random() * OCTO_SHADES.length | 0]); }
     }
