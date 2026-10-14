@@ -232,7 +232,7 @@ pause screen starts over.
 
 | File | Responsibility |
 |---|---|
-| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an ocean blue, not the near-black it was under the raft. |
+| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an open-ocean cobalt, not the navy-to-black it was under the raft. `setHulls()` keeps the swell from drawing through a raft's deck. |
 | `src/sky.js` | Sun, moon, sky dome, stars and Milky Way, twilight, and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
@@ -1931,10 +1931,16 @@ the vertex shader *and* sampled on the CPU by `waveHeight()`. Nothing can drift
 out of sync, so a barrel bobbing 40m away is genuinely on the surface it
 appears to be on.
 
-**The raft never yaws.** It heaves and tilts, but its horizontal frame matches
-world space, so "which cell am I standing on" stays a rounding operation while
-height still comes from the real transform. Player position is cheap and never
-jitters.
+**The raft lies on the water it covers.** Every frame each cell's centre and
+four corners are sampled with `waveHeight()` and a plane is fitted through them
+by least squares: its height is the heave, its slope the tilt. A big raft rides
+the long swell and averages the short chop, as a real one does, and no corner
+sinks under a crest while the middle sits high. The chop that is left — a few
+centimetres past the deck at worst — is hidden by `Ocean.setHulls()`, which
+hands the shader each raft's inverse transform and a 64×64 map of its cells, so
+water that would rise through the planking is simply not drawn there. Turning
+is the only yaw, so "which cell am I standing on" stays a rounding operation in
+the raft's own frame.
 
 **Grid, not physics.** Cells, four edges, one roof slot and one object slot each.
 Walls and railings canonicalise to a shared boundary, so a wall between two

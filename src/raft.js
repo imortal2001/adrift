@@ -768,25 +768,46 @@ export class Raft {
   update(dt, time, night = 1) {
     mats().glow.opacity = 0.12 + 0.66 * night;
     this.sail(dt, time);
-    // Heave from the mean height under the hull, so a bigger raft rides flatter.
-    let ex = CELL, ez = CELL;
-    for (const c of this.cells.values()) {
-      ex = Math.max(ex, Math.abs(c.cx * CELL) + 1);
-      ez = Math.max(ez, Math.abs(c.cz * CELL) + 1);
-    }
+    // Riding the swell. The plane that best fits the sea under the whole
+    // hull — sampled at every square's corners and middle — is the one it
+    // lies on: a small raft takes every wave, a big one only the long ones,
+    // because short waves average out across it. (It heaved on six samples
+    // and tilted to the wave's slope at its middle, damped: the sea came up
+    // through a corner of the deck one frame in sixteen, by as much as a
+    // quarter of a metre, a flat sheet of water slicing across the planks.)
+    // (What short chop still comes up past the deck the sea does not draw
+    // there: Ocean.setHulls.)
     const w = this._w ||= { x: 0, z: 0 };
-    let h = 0;
-    for (const [a, b] of [[-ex, -ez], [ex, -ez], [-ex, ez], [ex, ez]]) {
-      this.toWorld(a, b, w);
-      h += waveHeight(w.x, w.z, time);
+    const pts = this._pts ||= [];
+    pts.length = 0;
+    let n = 0, sx = 0, sz = 0, sxx = 0, szz = 0, sxz = 0, sh = 0, sxh = 0, szh = 0;
+    const sample = (lx, lz) => {
+      this.toWorld(lx, lz, w);
+      const h = waveHeight(w.x, w.z, time);
+      pts.push(lx, lz, h);
+      n++; sx += lx; sz += lz; sxx += lx * lx; szz += lz * lz; sxz += lx * lz;
+      sh += h; sxh += lx * h; szh += lz * h;
+    };
+    const q = CELL * 0.48;
+    if (!this.cells.size) sample(0, 0);
+    for (const c of this.cells.values()) {
+      const x = c.cx * CELL, z = c.cz * CELL;
+      sample(x, z); sample(x - q, z - q); sample(x + q, z - q); sample(x - q, z + q); sample(x + q, z + q);
     }
-    h = (h + waveHeight(this.x, this.z, time) * 2) / 6;
-    this.group.position.set(this.x, h + 0.32, this.z);
-
-    // Tilt with the swell, damped as the raft grows — on top of its heading.
-    const damp = this.tilt * THREE.MathUtils.clamp(9 / (6 + this.cells.size), 0.22, 1);
-    waveNormal(this.x, this.z, time, this._n);
-    this.up.set(this._n.x * damp, 1, this._n.z * damp).normalize();
+    // Least squares for h = a + b·x + c·z (local x, z).
+    const mx = sx / n, mz = sz / n, mh = sh / n;
+    const cxx = sxx / n - mx * mx, czz = szz / n - mz * mz, cxz = sxz / n - mx * mz;
+    const cxh = sxh / n - mx * mh, czh = szh / n - mz * mh;
+    const det = cxx * czz - cxz * cxz;
+    let gb = 0, gc = 0;
+    if (det > 1e-6) { gb = (cxh * czz - czh * cxz) / det; gc = (czh * cxx - cxh * cxz) / det; }
+    else if (cxx > 1e-6) gb = cxh / cxx;
+    else if (czz > 1e-6) gc = czh / czz;
+    const ga = mh - gb * mx - gc * mz;
+    this.group.position.set(this.x, ga + 0.32, this.z);
+    // The deck's normal in its own frame, turned by its heading into the world's.
+    const ch = Math.cos(this.heading), shd = Math.sin(this.heading);
+    this.up.set(-gb * ch - gc * shd, 1, gb * shd - gc * ch).normalize();
     this._yaw.setFromAxisAngle(UP, this.heading);
     this.group.quaternion.setFromUnitVectors(UP, this.up).multiply(this._yaw);
     this.group.updateMatrixWorld();

@@ -5,6 +5,14 @@
 
 import * as THREE from 'three';
 
+// Up to this many rafts keep the sea off their decks (see setHulls).
+const HULLS = 4;
+const RAFT_CELL = 2;               // raft.js CELL
+const hullData = new Uint8Array(64 * 64 * HULLS);
+const hullTexture = new THREE.DataTexture(hullData, 64, 64 * HULLS, THREE.RedFormat, THREE.UnsignedByteType);
+hullTexture.magFilter = hullTexture.minFilter = THREE.NearestFilter;
+hullTexture.needsUpdate = true;
+
 const TAU = Math.PI * 2;
 
 // dir is normalised at build time. len = crest-to-crest metres, speed = m/s-ish.
@@ -150,6 +158,9 @@ const frag = /* glsl */`
 uniform float uTime, uFogDensity, uNight;
 uniform float uUnderwater, uUnderDensity, uShade;
 uniform vec3 uSunDir, uSunColor, uSkyTop, uSkyHorizon, uDeep, uShallow, uFog, uUnderFog, uSand, uTurquoise;
+uniform mat4 uHullInv[${HULLS}];
+uniform int uHullN;
+uniform sampler2D uHullMap;
 varying vec3 vWorld;
 varying float vHeight;
 varying float vDepth;
@@ -168,6 +179,21 @@ void main(){
   // worst error at the waterline, and a hair more.)
   float water = depth + vHeight;
   if (water < ${EDGE.toFixed(3)}) discard;
+  // No sea on a raft's deck. The raft rides the swell as one rigid thing and
+  // the sea is drawn on a grid three metres to a cell, so now and then a
+  // crest still comes up through a corner of the deck — a flat sheet of
+  // water slicing across the planks. Under a square of hull, water higher
+  // than the deck is not drawn: the deck shows. (Below that, it is: between
+  // the canes of a cane deck the sea still shows. Each raft's squares are a
+  // 64×64 block of uHullMap.)
+  for (int i = 0; i < ${HULLS}; i++) {
+    if (i >= uHullN) break;
+    vec3 l = (uHullInv[i] * vec4(vWorld, 1.0)).xyz;
+    if (l.y < -0.01) continue;
+    vec2 c = floor(l.xz / ${RAFT_CELL.toFixed(1)} + 0.5) + 32.0;
+    if (c.x < 0.0 || c.y < 0.0 || c.x > 63.0 || c.y > 63.0) continue;
+    if (texture2D(uHullMap, (c + 0.5) / vec2(64.0, ${(64 * HULLS).toFixed(1)}) + vec2(0.0, float(i) * 64.0 / ${(64 * HULLS).toFixed(1)})).r > 0.5) discard;
+  }
   float k = calm(depth);
   vec3 N = waveNormal(vWorld.xz, uTime);
   N = normalize(vec3(N.x * k, N.y, N.z * k));
@@ -240,7 +266,9 @@ void main(){
   // Over sand a few metres deep the bed shows through: turquoise, then, in the
   // last hand's depth, the colour of wet sand.
   float lit = (0.5 + 0.5 * max(uSunDir.y, 0.0)) * (1.0 - uNight * 0.8);
-  vec3 overSand = mix(uSand * 0.6, uTurquoise, smoothstep(0.05, 1.4, depth)) * lit;
+  // (The sand bright under the last of the water — at 0.6 of it, a band of
+  // muddy brown lay along every beach.)
+  vec3 overSand = mix(uSand * 0.9, uTurquoise, smoothstep(0.05, 1.4, depth)) * lit;
   float shoal = 1.0 - smoothstep(0.4, 4.5, depth);
   body = mix(body, overSand, shoal * 0.85);
 
@@ -333,6 +361,10 @@ export class Ocean {
       // The bed round the camera (see setSeabed), and the colour of sand showing through the shallows.
       uShore:       { value: shoreTexture },
       uSand:        { value: new THREE.Color(0xc9b48a) },
+      // The rafts' hulls, where the sea is not drawn over a deck (setHulls).
+      uHullInv:     { value: Array.from({ length: HULLS }, () => new THREE.Matrix4()) },
+      uHullN:       { value: 0 },
+      uHullMap:     { value: hullTexture },
       uTurquoise:   { value: new THREE.Color(0x3f9e9c) },
     };
 
@@ -343,6 +375,31 @@ export class Ocean {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = -1;
     scene.add(this.mesh);
+  }
+
+  /** Where the rafts' decks are this frame, so the sea is not drawn over them. */
+  setHulls(rafts) {
+    const u = this.uniforms;
+    let n = 0, dirty = false;
+    this._hullKeys ||= [];
+    for (const r of rafts) {
+      if (n >= HULLS || !r.cells?.size) continue;
+      u.uHullInv.value[n].copy(r.group.matrixWorld).invert();
+      // Its squares, redrawn only when they change.
+      const key = [...r.cells.keys()].join(';');
+      if (this._hullKeys[n] !== key) {
+        this._hullKeys[n] = key;
+        hullData.fill(0, n * 4096, (n + 1) * 4096);
+        for (const c of r.cells.values()) {
+          const x = c.cx + 32, z = c.cz + 32;
+          if (x >= 0 && x < 64 && z >= 0 && z < 64) hullData[n * 4096 + z * 64 + x] = 255;
+        }
+        dirty = true;
+      }
+      n++;
+    }
+    if (dirty) hullTexture.needsUpdate = true;
+    u.uHullN.value = n;
   }
 
   update(time, camPos) {

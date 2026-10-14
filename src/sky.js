@@ -294,9 +294,10 @@ export class Sky {
     o.uSunColor.value.copy(p.sun).lerp(this._moonC.setHex(0x9fb2cc).multiplyScalar(0.55 * Math.pow(moonUp, 0.3)), lunar);
     o.uNight.value = p.night;
     // (A deep ocean blue: at 0x05222f the water under the raft, looked down into
-    // with little of the sky in it, came out black.)
-    o.uDeep.value.setHex(0x0b3a55).multiplyScalar(0.35 + 0.65 * (1 - p.night));
-    o.uShallow.value.setHex(0x1d7d91).multiplyScalar(0.28 + 0.72 * (1 - p.night));
+    // with little of the sky in it, came out black — and at 0x0b3a55 still a
+    // navy next to black. Open ocean seen from a boat is cobalt.)
+    o.uDeep.value.setHex(0x14507a).multiplyScalar(0.3 + 0.7 * (1 - p.night));
+    o.uShallow.value.setHex(0x268aa2).multiplyScalar(0.25 + 0.75 * (1 - p.night));
     o.uFog.value.copy(p.hor);
     this.scene.fog.color.copy(p.hor);
 
