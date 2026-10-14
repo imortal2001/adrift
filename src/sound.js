@@ -247,3 +247,16 @@ export function rain(level, roofed = false) {
   rainTone.frequency.setTargetAtTime(roofed ? 1300 : 3500, t, 0.3);
   rainGain.gain.setTargetAtTime(Math.min(1, level) * (roofed ? 0.55 : 0.4), t, 0.5);
 }
+
+/**
+ * A whale blowing, at `at`: the explosive exhale — a deep, breathy roar,
+ * falling as it goes — and the short in-breath after it. Heard a long way
+ * over the water.
+ */
+export function blow(at) {
+  if (!ready()) return;
+  const out = place(at, 30, 600), t = ctx.currentTime;
+  hiss(out, t, { type: 'bandpass', freq: vary(900), to: 320, q: 0.6, env: [[0.04, 1.0], [0.5, 0.55], [1.6, 0.0001]] });
+  hiss(out, t, { type: 'lowpass', freq: 260, q: 0.7, env: [[0.05, 0.8], [1.2, 0.0001]] });
+  hiss(out, t + 1.7, { type: 'bandpass', freq: vary(600), to: 900, q: 0.8, env: [[0.3, 0.35], [0.8, 0.0001]] });
+}

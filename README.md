@@ -1778,9 +1778,14 @@ it picks goals where the bed is at least 15 m down with deep water all the
 way there, looks 40 m ahead as it swims, and swings off anything shallower
 than 12.5 m; it is never lifted out of the water, whatever is under it. It
 cruises at 9 m, and every minute or so comes up and blows
-three to five times, a dozen seconds apart — a bushy spout about 4 m tall —
-then arches over and sounds, the flukes coming up clear of the water as it
-goes down. It is scenery, not a catch: nothing on a raft lands forty tonnes.
+three to five times, a dozen seconds apart, then arches over and sounds, the
+flukes coming up clear of the water as it goes down. A blow is a misty column
+shot up four or five metres that widens at the top into a bushy cloud, hangs
+there a few seconds settling only slowly, drifts off downwind and thins
+away; and it is heard, a deep breathy roar and the short in-breath after it,
+a long way over the water (`sound.blow`). (It was a two-metre puff, gone in
+three seconds, falling back like spray, and silent.) Breaking the surface it
+throws a wash off its back, and its flukes going under slip in with a splash. It is scenery, not a catch: nothing on a raft lands forty tonnes.
 Its body is `whale_humpback.glb` (see *The faces* above), and it uses the same
 swim shader as the fish, bending up and down: the flukes beat, and the long
 flippers lift and droop slowly.

@@ -18,6 +18,8 @@
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
 import { splash } from './splash.js';
+import { windAt } from './weather.js';
+import * as sound from './sound.js';
 import { normalise, BODY_LENGTH } from './fish.js';
 import { swimMaterial, styleFor, Swimmer, applySkin, skinOf } from './swim.js';
 
@@ -46,8 +48,12 @@ const DEEP = -15;                    // a goal, or a place to start from
 const SHOAL = -12.5;                 // ahead of it: turn away from anything shallower
 const LOOK = [14, 28, 42];           // metres ahead it checks the depth at
 const TURN = 0.12, TURN_HARD = 0.24; // rad/s: cruising, and swinging off a shoal
-const SPOUT = 160;                   // particles in the blow
-const SPOUT_BURST = 0.45;            // seconds the blow lasts at the blowhole
+const SPOUT = 280;                   // particles in the blow
+const SPOUT_BURST = 0.6;             // seconds the blow lasts at the blowhole
+const SPOUT_LIFE = 4.5;              // seconds it hangs in the air, drifting off
+// (A humpback's blow is a bushy column three or four metres tall, widening
+// at the top, that hangs a few seconds and drifts off downwind — and is
+// heard a long way off. It was a two-metre puff, gone in three seconds, silent.)
 
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -224,7 +230,7 @@ export class Whale {
     g.fillStyle = grad;
     g.fillRect(0, 0, 64, 64);
     const mat = new THREE.PointsMaterial({
-      color: 0xf4f8fa, size: 0.9, map: new THREE.CanvasTexture(c), transparent: true,
+      color: 0xf4f8fa, size: 1.5, map: new THREE.CanvasTexture(c), transparent: true,
       opacity: 0, depthWrite: false,
     });
     const points = new THREE.Points(geo, mat);
@@ -251,14 +257,15 @@ export class Whale {
       sp.pos[i * 3] = at.x + rand(-0.15, 0.15);
       sp.pos[i * 3 + 1] = at.y - 0.6;       // waiting its turn, under water
       sp.pos[i * 3 + 2] = at.z + rand(-0.15, 0.15);
-      const up = rand(6.5, 9.5);          // ~4m: v² / 2g
-      sp.vel[i * 3] = rand(-1, 1) * 0.9;
+      const up = rand(9, 13.5);           // ~3.5-4.5 m, with the drag and the mist hanging
+      sp.vel[i * 3] = rand(-1, 1) * 1.1;
       sp.vel[i * 3 + 1] = up;
-      sp.vel[i * 3 + 2] = rand(-1, 1) * 0.9;
+      sp.vel[i * 3 + 2] = rand(-1, 1) * 1.1;
     }
     sp.t = 0;
     sp.points.visible = true;
     this.blows++;
+    sound.blow(at);
   }
 
   // ── playing together ───────────────────────────────────────────────────────
@@ -472,21 +479,27 @@ export class Whale {
   updateSpout(dt) {
     const sp = this.spout;
     if (sp.t >= 1) { sp.points.visible = false; return; }
-    sp.t = Math.min(1, sp.t + dt / 3.2);
+    sp.t = Math.min(1, sp.t + dt / SPOUT_LIFE);
     sp.age += dt;
+    const w = windAt(this.time ?? 0, this._wind ||= { x: 0, z: 0, strength: 0 });
     for (let i = 0; i < SPOUT; i++) {
       if (sp.age < sp.delay[i]) continue;
       if (sp.pos[i * 3 + 1] < sp.at.y - 0.3) sp.pos[i * 3 + 1] = sp.at.y;   // away it goes
-      sp.vel[i * 3 + 1] -= 9.8 * dt;
-      // Air drag spreads the column into the bushy cloud a humpback blows.
-      sp.vel[i * 3] *= 1 + dt * 0.6;
-      sp.vel[i * 3 + 2] *= 1 + dt * 0.6;
-      sp.vel[i * 3 + 1] *= 1 - dt * 0.9;
+      // Mist, not water: it slows and hangs, settling only slowly, rather
+      // than falling back. (Falling, the cloud was down on the water in two seconds.)
+      sp.vel[i * 3 + 1] = Math.max(-0.35, sp.vel[i * 3 + 1] - 6 * dt);
+      // Air drag spreads the column into the bushy cloud a humpback blows…
+      sp.vel[i * 3] *= 1 + dt * 0.9;
+      sp.vel[i * 3 + 2] *= 1 + dt * 0.9;
+      sp.vel[i * 3 + 1] *= 1 - dt * 1.1;
+      // …and the wind takes it.
+      sp.vel[i * 3] += w.x * w.strength * 1.6 * dt;
+      sp.vel[i * 3 + 2] += w.z * w.strength * 1.6 * dt;
       sp.pos[i * 3] += sp.vel[i * 3] * dt;
       sp.pos[i * 3 + 1] += sp.vel[i * 3 + 1] * dt;
       sp.pos[i * 3 + 2] += sp.vel[i * 3 + 2] * dt;
     }
     sp.points.geometry.attributes.position.needsUpdate = true;
-    sp.points.material.opacity = 0.75 * (1 - sp.t) * Math.min(1, sp.t * 12);
+    sp.points.material.opacity = 0.58 * Math.pow(1 - sp.t, 1.3) * Math.min(1, sp.t * 14);
   }
 }
