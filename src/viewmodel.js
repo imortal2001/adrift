@@ -957,7 +957,7 @@ export class Viewmodel {
     const sky = this.sky;
     this.sun.color.copy(sky.sun.color);
     this.sun.intensity = sky.sun.intensity * this.shade;
-    this.sun.position.copy(this.rig.position).addScaledVector(sky.sunDir, 5);
+    this.sun.position.copy(this.rig.position).addScaledVector(sky.lightDir, 5);   // the sun's, or at night the moon's
     this.sun.target.position.copy(this.rig.position);
     this.hemi.color.copy(sky.hemi.color);
     this.hemi.groundColor.copy(sky.hemi.groundColor);

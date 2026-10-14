@@ -233,7 +233,7 @@ pause screen starts over.
 | File | Responsibility |
 |---|---|
 | `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an ocean blue, not the near-black it was under the raft. |
-| `src/sky.js` | Sun, sky dome, stars and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
+| `src/sky.js` | Sun, moon, sky dome, stars and Milky Way, twilight, and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
 | `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
@@ -489,7 +489,15 @@ a card's alpha is averaged down the mip chain, and a frond of fine leaflets
 averages to less than the cut-off — past twenty metres a tree fern's whole
 crown went, leaving a bare trunk with a coil on top — so the further down the
 chain a fragment samples, the more its alpha is scaled back up (in
-`addWind()`). The tree fern's fiddleheads are a hand across, on a stalk out
+`addWind()`). And foliage is green in shade, not grey: a crown's normals point
+out of it rather than along each leaf, so seen from below or edge-on the
+Fresnel term went to full and every leaf took a white glaze — painted red, a
+lit crown still came out grey, and under the moon the trees read grey-white.
+The sheen on foliage is cut to an eighth, and the sky's light on it is tinted
+toward the leaf's own colour and darkened the further it faces from the sun
+(or the moon): inside a crown the leaves shade one another, and the light
+that reaches the back of it has come through leaves. The tree fern's
+fiddleheads are a hand across, on a stalk out
 of the crown, furred brown; the coil was half a metre wide, a ring on a post.
 A fern thicket is fronds from the ground up: an older tier half way, drooping,
 and a russet mat of dead fronds under it all (it was a table of green on
@@ -1938,6 +1946,29 @@ pieces are lit from below by it as well (`DECK_BOUNCE` in `sky.js`, about a
 quarter of the sun and sky on the deck): a face looking down gets all of it,
 a wall half. The sky's own light from below is the sea's and the land's — and
 was a deep teal next to nothing, so the underside of a roof came out black.
+
+**Sun, moon and stars.** The sky is a dome (`sky.js`) coloured from keyframes
+round the clock. Twilight is tropical, short: civil twilight is about
+twenty-five minutes there and the sky fully dark an hour and ten after
+sunset — it was three hours, a pink horizon at nine at night and the cliffs
+lit mauve by it. Near sunrise and sunset the glow along the horizon is on the
+sun's side; the opposite horizon goes blue-grey with the pink band of the Belt
+of Venus over it (the horizon was one colour all round, as orange behind you
+as in front). The sun is a disc a degree across — twice true, so it still
+reads (it was five degrees, a beach ball on the horizon) — limb-darkened, in
+the colour the air leaves it, with a tight aureole and a broad glow. At night:
+stars as round points of different brightness and colour, twinkling most low
+down (they were the cells of a flat grid read off the sky: little squares,
+stretched toward the horizon); a faint Milky Way mottled with dust; and a full
+moon opposite the sun, a disc with its seas on it and a haze of light round
+it. The moonlight comes from where the moon is — the same light as the sun's,
+handed over just after sunset, so trees, the raft and you throw moon shadows
+(a light of its own, it threw none: a moonlit forest stood on the sand with
+nothing under it), and only a little bluer than sunlight (deep blue, it took
+the green out of the leaves and they read grey-white). The sea's highlights
+follow it once the sun is down — a path of moonlight on the water instead of
+a sea glinting at a sun under the horizon. A moonlit night sky is a deep
+blue, not black.
 
 ## Tuning
 

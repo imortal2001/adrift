@@ -885,13 +885,47 @@ function addWind(material, { amount = 0.5, flutter = 1, fade = 0 } = {}) {
         }
         #include <alphatest_fragment>`);
     }
+    // Foliage turned from the light is dark green, not grey. A crown's far
+    // side gets only the sky, and the sky's light is blue-white: on the
+    // leaves it came out a pale grey-green, and under the moon grey-white.
+    // But inside a crown the leaves shade one another, and what light does
+    // reach the back of it has come through leaves, and is green. So the
+    // sky's light on foliage is darkened, and tinted toward the leaf's own
+    // colour, the further it faces from the strongest light.
+    if (flutter > 0) {
+      shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+        // Next to no sheen. A crown's normals point out of it, not along each
+        // leaf, so seen from below or edge-on a card's normal turns from you
+        // and the Fresnel term goes to full: the leaves took a white glaze
+        // whatever their colour — painted red, a lit crown still came out
+        // grey (it was most of what reached the eye). Under the moon, with
+        // little else, they read grey-white.
+        reflectedLight.directSpecular *= 0.12;
+        reflectedLight.indirectSpecular *= 0.12;
+        #if NUM_DIR_LIGHTS > 0
+        {
+          vec3 keyDir = directionalLights[0].direction;
+          float key = -1.0;
+          for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
+            float w = dot(directionalLights[i].color, vec3(0.3, 0.6, 0.1));
+            if (w > key) { key = w; keyDir = directionalLights[i].direction; }
+          }
+          float away = smoothstep(0.3, -0.4, dot(normal, keyDir));
+          vec3 leaf = diffuseColor.rgb / max(max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b)), 1e-3);
+          // (Some of it on the lit side too: the sky's light in a crown has
+          // been through leaves on its way. Lit by a navy night sky, the
+          // crowns came out blue-grey.)
+          reflectedLight.indirectDiffuse *= mix(vec3(1.0), leaf, 0.45 + 0.55 * away) * mix(1.0, 0.6, away);
+        }
+        #endif`);
+    }
     if (material.side === THREE.DoubleSide) {
       shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>',
         `#include <normal_fragment_begin>
         normal *= faceDirection;`);
     }
   };
-  material.customProgramCacheKey = () => `wind-${amount}-${flutter}-${fade}-${material.side}-${material.alphaTest > 0}`;
+  material.customProgramCacheKey = () => `wind-${amount}-${flutter}-${fade}-${material.side}-${material.alphaTest > 0}-shade2`;
   return material;
 }
 
