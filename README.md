@@ -84,6 +84,7 @@ code and models, runs on this machine only, and has its own
 | Arrow keys | also turn the view |
 | `Space` | jump — and climb aboard when you are in the water |
 | `V` | change the view: first person → third (behind you) → second (facing you) |
+| `P` | sound off / on (remembered in this browser) |
 | `E` | gather the debris you are looking at, take branches and fronds (a tree needs the axe in hand), drink from a collector — or a river, lake, pool or cave spring ashore — grab a crab, take back a thrown spear, chip flint out of a cave wall; at a campfire, cook the raw fish in hand, take fish that are done, feed it wood, light your torch in it, or strike a spark into it with the fire striker |
 | `1`–`5`, wheel | pick a hotbar slot |
 | Left-click | use whatever is in your hands |
@@ -234,7 +235,9 @@ pause screen starts over.
 |---|---|
 | `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an open-ocean cobalt, not the navy-to-black it was under the raft. `setHulls()` keeps the swell from drawing through a raft's deck, froths the water round a raft's hull, and records where the rafts have been for wakes that stay where they were made and curve where a raft turned. The clouds are in the water too. |
 | `src/sky.js` | Sun, moon, sky dome, stars and Milky Way, twilight, and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
-| `src/clouds.js` | Trade-wind cumulus: one deck of scattered clouds about a kilometre up, one GLSL function shared by the sky dome and the ocean's reflection. They drift with the wind the sail takes (`driftClouds`), cover changes from day to day, and they are lit from underneath in the sun's colour at dawn and dusk and faintly by the moon at night. |
+| `src/clouds.js` | Trade-wind cumulus: one deck of scattered clouds about a kilometre up, one GLSL function shared by the sky dome and the ocean's reflection. They drift with the wind the sail takes (`driftClouds`), cover changes from day to day, and they are lit from underneath in the sun's colour at dawn and dusk and faintly by the moon at night. In a squall they close into a grey overcast with darker rain cloud on it. |
+| `src/weather.js` | Squalls: fair trade-wind weather broken every quarter of an hour of play or so by a minute or two of rain. `weatherAt(time)` runs on the shared sea clock, so everyone on a raft is rained on at once. The sky goes grey and dim and the haze thickens (sky.js), the wind gusts on the sail (raft.js `windAt`), the sea goes grey with more whitecaps and is pocked by the drops (ocean.js), and a collector fills in about a minute instead of on dew. `Weather` draws the rain as streaks round the camera — not under the roof you stand under — and plays it. |
+| `src/splash.js` | Whatever goes into the sea: you off the side, a spear, the fishing float, a paddle stroke, the raft's bow meeting a crest, a felled tree, the whale surfacing or its flukes going under. `splash(at, size)` from anywhere: a crown of drops (and from a big one, the jet that rises after), white water and rings drawn by the ocean shader on the swell itself, and a plop or a slap you hear. |
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
 | `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
@@ -255,7 +258,7 @@ pause screen starts over.
 | `src/reef.js` | What lives on the sea bed — massive, brain, table, staghorn, plate, finger and leather corals, sea fans, tube and barrel sponges, anemones, seagrass, macroalgae, kelp, urchins, starfish, giant clams — and its stone: boulders, outcrops, limestone slabs, cobbles and coral rubble; the roles each plays in a colony; the surge that bends the soft ones. |
 | `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Used by the reef. |
 | `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers, and the falls and lakes on them), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
-| `src/sound.js` | Sound, made on the spot with the Web Audio API — no recordings: the axe (swish, bite, the last stroke), a tree creaking, falling and crashing down; each placed in the world, heard from the camera. |
+| `src/sound.js` | Sound, made on the spot with the Web Audio API — no recordings: the axe (swish, bite, the last stroke), a tree creaking, falling and crashing down, splashes, and the rain (a hiss on the sea, a patter on a roof over you); each placed in the world, heard from the camera. |
 | `src/caves.js` | Caves, sea caves, sea arches and rock shelves: where they are (surveyed from the land), their meshes, the dark inside them, and the floors and walls you walk on and within there; flint to chip, and the springs. |
 | `src/waterfall.js` | The lakes' still water, cut to their shores and knowing its depth over the bed, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
@@ -264,7 +267,7 @@ pause screen starts over.
 | `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
 | `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
 | `tools/build_fish.py` | Builds all fifteen sea-life bodies in Blender — each species' own face, textured skin (via `tools/fish_textures.py`), fins with rays, gills, eyes, every vertex tagged with its part for the swim shader — and exports them as one `.glb`. |
-| `gallery/` | The asset gallery: a separate app and server that shows every asset in a 3D viewer. See its README. |
+| `gallery/` | The asset gallery: a separate app and server that shows every asset in a 3D viewer. It is always silent, whatever the game's sound is set to. See its README. |
 | `tools/build_great_white.py` | Converts a third-party great white (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, fin tags from its bones, its teeth joined in, a dark eye, textures downsized. |
 | `tools/build_whale.py` | Converts a third-party humpback whale (CC BY 4.0, see CREDITS.md) for the game: centred and scaled to 12.5 m, flipper and fluke tags from its shape, dark eyes, its normal map flipped to glTF's convention. |
 | `tools/build_coconut.py` | Converts a third-party photoscanned coconut (CC BY 4.0, see CREDITS.md) for the game: a smooth 3,072-triangle shell fitted to the 199,500-triangle scan, pores up, ~17 cm, with the scan's colour and relief baked onto it at 1024² (23 MB down to 270 KB). Held in hand, and afloat as flotsam at 2.4 times the size. |
@@ -283,7 +286,7 @@ pause screen starts over.
 | `src/hotbar.js` | The five slots: registration, selection, and auto-assignment. |
 | `src/viewmodel.js` | What is in your hand: drawn as a second pass over the frame, with bob, sway, swap and a click animation per action. |
 | `src/spear.js` | Thrown spears: flight, sticking into ground, sea bed and deck, floating in water, and pulling them back out. |
-| `src/fishing.js` | The rod: the swing meter and cast, the float, nibbles and the bite, drawing the fight, and what bites where. |
+| `src/fishing.js` | The rod: the swing meter and cast, the float, nibbles and the bite, drawing the fight, and what bites where. The float landing, a nibble, the bite, a run and a leap are splashes (splash.js) that ride the swell; it was one flat ring mesh, which sank into the face of a wave. |
 | `src/fight.js` | The fight once a fish is hooked — tension, line and stamina, and how each species fights. Pure maths, no imports, so it can be simulated on its own. |
 | `src/hud.js`, `src/input.js` | DOM HUD (including the dev admin panel); held-vs-tapped keys, mouse look with and without pointer lock. |
 | `src/textures.js` | Every texture is painted into a canvas at load time — no image assets. |

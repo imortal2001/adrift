@@ -32,6 +32,7 @@
 
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
+import { splash } from './splash.js';
 import { heightAt, reefMask, coastDistance } from './terrain.js';
 import { Fight, LAND, SLACK, DANGER } from './fight.js';
 import { BIG } from './fish.js';
@@ -129,13 +130,6 @@ export class Fishing {
     this.line.visible = false;
     scene.add(this.line);
 
-    // One ripple ring, reused: the float landing, a nibble, the bite, a run.
-    this.ripple = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 28),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
-    this.ripple.rotation.x = -Math.PI / 2;
-    this.ripple.visible = false;
-    this.rippleT = 1;
-    scene.add(this.ripple);
 
     this.pos = new THREE.Vector3();  // the float
     this.vel = new THREE.Vector3();
@@ -345,11 +339,13 @@ export class Fishing {
     this.state = 'waiting';
   }
 
+  /**
+   * The float landing, a nibble, the bite, a run, a leap: a splash on the
+   * water (splash.js) — rings that ride the swell, and a plip you hear. (It
+   * was one flat ring mesh, which sank into the face of a wave.)
+   */
   splash(at, size = 1) {
-    this.ripple.position.set(at.x, at.y + 0.01, at.z);
-    this.ripple.userData.size = size;
-    this.rippleT = 0;
-    this.ripple.visible = true;
+    splash(at, size * 0.45);
   }
 
   dropCatch() {
@@ -377,7 +373,6 @@ export class Fishing {
    *                 cast is over
    */
   update(dt, time, player, holding) {
-    this.animateRipple(dt);
     if (this.state === 'idle') return;
 
     // ── ending it from outside ──
@@ -690,11 +685,4 @@ export class Fishing {
     this.line.geometry.attributes.position.needsUpdate = true;
   }
 
-  animateRipple(dt) {
-    if (this.rippleT >= 1) { this.ripple.visible = false; return; }
-    this.rippleT = Math.min(1, this.rippleT + dt / 0.9);
-    const s = (0.15 + this.rippleT * 0.9) * (this.ripple.userData.size || 1);
-    this.ripple.scale.set(s, s, s);
-    this.ripple.material.opacity = 0.55 * (1 - this.rippleT);
-  }
 }

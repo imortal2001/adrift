@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
+import { splash } from './splash.js';
 import { heightAt as landHeight, isLand, freshWaterAt, WADE } from './terrain.js';
 import { floorAt, clampInCave, collideArches, springAt } from './caves.js';
 
@@ -311,6 +312,9 @@ export class Player {
     }
     const sea = waveHeight(this.pos.x, this.pos.z, time);
     if (this.pos.y <= sea) {
+      // In you go: the harder you hit, the bigger the splash. (Stepping off
+      // a low deck is a slosh; a leap off the side, a proper one.)
+      splash(this.pos, THREE.MathUtils.clamp(0.45 + Math.max(0, -this.vy) * 0.12, 0.45, 1.6));
       this.pos.y = sea - EYE + SURFACE_EYE;
       this.vy = 0;
       this.vel.set(0, 0, 0);

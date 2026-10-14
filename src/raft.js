@@ -20,6 +20,7 @@ import { archLegsNear } from './caves.js';
 import { statueBody } from './statue.js';
 import { mergeGeometries } from '../vendor/jsm/utils/BufferGeometryUtils.js';
 import { DECK_BOUNCE } from './sky.js';
+import { WEATHER, weatherAt } from './weather.js';
 
 export const CELL = 2;
 export const DECK_Y = 0;        // walkable surface, in raft-local space
@@ -49,8 +50,13 @@ export function windAt(time, out = { x: 0, z: 0, strength: 0 }) {
   out.x = Math.sin(a);
   out.z = Math.cos(a);
   out.strength = 0.72 + 0.28 * Math.sin(time / 143 + 0.4);
+  // A squall brings its own wind: it freshens as the cloud comes over, and
+  // gusts while it rains (weather.js).
+  const w = weatherAt(time, _weather);
+  if (w.gloom > 0) out.strength = Math.min(1, out.strength + 0.22 * w.gloom + 0.12 * w.rain * Math.sin(time * 0.9) ** 2);
   return out;
 }
+const _weather = { rain: 0, gloom: 0 };
 const UP = new THREE.Vector3(0, 1, 0);
 /** A square's type as saved: a foundation of some kind, or the plank one. */
 const cellType = t => (BUILDABLE_BY_ID[t]?.kind === 'cell' ? t : 'foundation');
@@ -835,7 +841,9 @@ export class Raft {
         const spit = o.obj.getObjectByName('spit');
         if (spit) spit.visible = o.spitFish.length > 0;
       } else if (o.type === 'collector') {
-        o.water = Math.min(o.capacity, o.water + dt * o.rate);
+        // Dew, slowly; in a squall's rain, near ten times as fast — a downpour
+        // fills one in a minute or so.
+        o.water = Math.min(o.capacity, o.water + dt * o.rate * (1 + 8 * WEATHER.rain));
         this.refreshCollector(o);
       } else if (o.type === 'sail') {
         // Turned to the wind, its belly downwind; set, or rolled up under the yard.

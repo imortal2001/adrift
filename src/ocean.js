@@ -21,6 +21,14 @@ const TRAIL_N = 32;                // points along each: where it is now, then w
 const TRAIL_STEP = 0.8;            // s between them: 25 s of wake
 const TRAIL_AGE = (TRAIL_N - 1) * TRAIL_STEP;
 
+// Where things have gone into the sea lately (splash.js makes them): x, z,
+// when (sea time), size. Drawn here, on the water itself, so they ride the swell.
+export const SPLASH_N = 8;
+const SPLASH_LIFE = 6;
+export const SPLASHES = {
+  uSplash: { value: Array.from({ length: SPLASH_N }, () => new THREE.Vector4(0, 0, -1e4, 0)) },
+};
+
 const TAU = Math.PI * 2;
 const _vel = new THREE.Vector3(), _mid = new THREE.Vector3();
 
@@ -175,6 +183,8 @@ uniform vec3 uHullVel[${HULLS}];   // its way through the water in its own frame
 uniform vec4 uTrail[${TRAILS * TRAIL_N}];   // where a raft has been, newest first: world x, z, when, speed
 uniform vec4 uTrailInfo[${TRAILS}];         // how many points, the raft's half width and half length across its way
 uniform vec4 uTrailBox[${TRAILS}];          // world x, z extent of all a wake can reach
+uniform vec4 uSplash[${SPLASH_N}];          // splashes: x, z, when, size
+uniform float uRain, uStorm;                // the weather (weather.js): rain, and the squall's gloom
 varying vec3 vWorld;
 varying float vHeight;
 varying float vDepth;
@@ -191,6 +201,23 @@ bool hullAt(int i, vec2 c){
 // value noise cut sharp showed its grid — little squares of foam.)
 float froth(vec2 p){
   return smoothstep(0.38, 0.56, cFbm(p * 2.6, 3));
+}
+float patchy(vec2 p){ return cFbm(p * 2.4 + 5.7, 3); }
+// Rain on the sea: each drop a little ring, once a cycle in each cell of a
+// fine grid, at a time of its own; as many cells as it is raining hard.
+float rainRings(vec2 p, float rain){
+  float acc = 0.0;
+  for (int l = 0; l < 2; l++) {
+    vec2 q = p * (l == 0 ? 2.2 : 3.1) + float(l) * 17.3;
+    vec2 c = floor(q), f = fract(q) - 0.5;
+    float h = cHash(c);
+    if (h > rain) continue;
+    vec2 at = (vec2(cHash(c + 3.1), cHash(c + 7.7)) - 0.5) * 0.5;
+    float t = fract(uTime * (1.1 + h * 0.6) + h * 13.0);
+    float r = length(f - at);
+    acc += exp(-pow((r - t * 0.3) / 0.03, 2.0)) * (1.0 - t) * (1.0 - t);
+  }
+  return acc;
 }
 void main(){
   // (Per fragment, not the vertex's: the beach line is finer than the mesh.)
@@ -293,8 +320,34 @@ void main(){
       bubbles = max(bubbles, strip * exp(-age / 14.0) * sk * behind * gone * mix(0.7, 1.0, patches));
     }
   }
+  // ── splashes ──
+  // White water where it went in, spreading and breaking up as it settles;
+  // and rings running out over the swell from it — a ripple bends the light,
+  // so they are drawn as a tilt of the surface, not a line on it.
+  float splashFoam = 0.0;
+  vec2 ripple = vec2(0.0);
+  for (int i = 0; i < ${SPLASH_N}; i++) {
+    vec4 sp = uSplash[i];
+    float age = uTime - sp.z;
+    if (age < 0.0 || age > ${SPLASH_LIFE.toFixed(1)}) continue;
+    vec2 off = vWorld.xz - sp.xy;
+    float d = length(off), sz = sp.w;
+    if (d > 0.6 + 1.2 * age + 1.5 * sz) continue;
+    float spread = (0.35 + 0.55 * sqrt(age)) * sz;
+    float white = (1.0 - smoothstep(spread * 0.4, spread, d)) * exp(-age / (0.6 + 0.8 * sz));
+    splashFoam = max(splashFoam, white * smoothstep(0.25 + age * 0.08, 0.5 + age * 0.08, patchy(vWorld.xz)));
+    // Two rings, the second behind the first; fading as they spread.
+    float fade = exp(-age / 1.8) * min(1.0, sz * 1.6);
+    float r1 = 0.2 * sz + 1.05 * age, r2 = 0.1 * sz + 0.7 * age;
+    float w1 = 0.06 + 0.05 * age;
+    float ring = sin(clamp((d - r1) / w1, -3.14, 3.14)) * exp(-pow((d - r1) / (w1 * 1.6), 2.0))
+               + 0.6 * sin(clamp((d - r2) / w1, -3.14, 3.14)) * exp(-pow((d - r2) / (w1 * 1.6), 2.0));
+    ripple += off / max(d, 1e-3) * ring * fade * 0.35;
+  }
+
   float k = calm(depth);
   vec3 N = waveNormal(vWorld.xz, uTime);
+  N = normalize(N + vec3(ripple.x, 0.0, ripple.y));
   N = normalize(vec3(N.x * k, N.y, N.z * k));
   vec3 toCam = cameraPosition - vWorld;
   float dist = length(toCam);
@@ -388,10 +441,18 @@ void main(){
   vec3 H = normalize(uSunDir + V);
   col += uSunColor * pow(max(dot(N, H), 0.0), 340.0) * 2.6;
   col += uSunColor * pow(max(dot(N, H), 0.0), 22.0) * 0.06;
+  // The rain on it, near enough to see each drop's ring; further off, the
+  // pocked water only looks rougher and greyer.
+  if (uRain > 0.01) {
+    float nearRain = 1.0 - smoothstep(4.0, 22.0, dist);
+    col += mix(uSkyHorizon, vec3(0.7), 0.3) * rainRings(vWorld.xz, uRain * 0.6) * 0.13 * nearRain;
+    col = mix(col, uSkyHorizon * 0.85, uRain * 0.15 * (1.0 - nearRain));
+  }
 
   // Whitecaps on the crests, fewer as the swell calms; and the wash along the
   // water's edge, coming and going with the swell.
-  float foam = smoothstep(0.80, 0.99, crest) * 0.5 * smoothstep(0.3, 2.5, depth);
+  // (More of them, and bigger, in a squall's wind.)
+  float foam = smoothstep(0.80 - 0.14 * uStorm, 0.99, crest) * (0.5 + 0.3 * uStorm) * smoothstep(0.3, 2.5, depth);
   float lap = 0.5 + 0.5 * sin(uTime * 0.8 + dot(vWorld.xz, vec2(0.071, 0.053)) + vHeight * 6.0);
   // (A thin, broken line: the last few centimetres, where the wash runs out.)
   float edge = 1.0 - smoothstep(${EDGE.toFixed(3)}, ${EDGE.toFixed(3)} + 0.05 + 0.1 * lap, water);
@@ -399,6 +460,7 @@ void main(){
   foam = max(foam, edge * broken * (0.3 + 0.35 * lap));
   foam = max(foam, raftFoam * 0.85);
   foam = max(foam, wakeFoam * 0.85);
+  foam = max(foam, splashFoam * 0.9);
   col = mix(col, vec3(0.86, 0.94, 0.98) * (1.0 - uNight * 0.75), foam);
 
   float f = 1.0 - exp(-pow(dist * uFogDensity, 2.2));
@@ -482,6 +544,9 @@ export class Ocean {
       uTrailBox:    { value: Array.from({ length: TRAILS }, () => new THREE.Vector4()) },
       ...CLOUDS,
       uTurquoise:   { value: new THREE.Color(0x3f9e9c) },
+      ...SPLASHES,
+      uRain:        { value: 0 },
+      uStorm:       { value: 0 },
     };
 
     this.mesh = new THREE.Mesh(geo, new THREE.ShaderMaterial({

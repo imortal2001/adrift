@@ -46,6 +46,8 @@ import { Fishing } from '/src/fishing.js';
 import { Hook } from '/src/hook.js';
 import { DebrisField } from '/src/debris.js';
 import { Raft } from '/src/raft.js';
+import { Splashes, splash } from '/src/splash.js';
+import { Weather, WEATHER } from '/src/weather.js';
 import { PlayerBody } from '/src/body.js';
 
 // ── categories ───────────────────────────────────────────────────────────────
@@ -1079,6 +1081,51 @@ export async function loadRegistry() {
         object: null, ownsWater: true, ground: false, keepHeight: true,
         frame: up ? { center: V(0, 9, 0), size: V(4, 4, 4) } : { center: V(0, 2.5, 0), size: V(10, 3, 10) },
         view: up ? { yaw: 0.6, pitch: -0.9 } : { yaw: 0.6, pitch: -0.05 },
+      };
+    },
+  });
+
+  add({
+    id: 'splash', name: 'Splash', category: 'water', group: 'Sea',
+    kind: 'shader', backdrop: 'world', source: 'src/splash.js · Splashes (spray) + ocean.js (white water and rings)',
+    facts: [['Made by', 'you going in, a spear, the float, a paddle, the bow in a sea, a falling tree, the whale'],
+            ['Parts', 'a crown of drops; from a big one, the jet; white water and rings on the swell; the sound'],
+            ['Tip', 'it goes off every couple of seconds — switch the size']],
+    variants: [{ id: 'paddle', label: 'A paddle' }, { id: 'you', label: 'You, going in' }, { id: 'tree', label: 'A tree' }],
+    async build(variant) {
+      const size = { paddle: 0.3, you: 1.0, tree: 1.8 }[variant] ?? 1;
+      const holder = new THREE.Group(), drops = new Splashes(holder);
+      let wait = 0.1;
+      return {
+        object: holder, ownsWater: true, ground: false, keepHeight: true,
+        frame: { center: V(0, 0.8, 0), size: V(3 + 2 * size, 2 + size, 3 + 2 * size) }, view: { yaw: 0.6, pitch: 0.18 },
+        update: (dt, time, camera, stage) => {
+          if ((wait -= dt) <= 0) { splash(V(0, 0, 0), size); wait = 1.6 + size; }
+          drops.update(dt, time, camera, null, stage.sky);
+        },
+      };
+    },
+  });
+
+  add({
+    id: 'squall', name: 'Squall', category: 'water', group: 'Sky',
+    kind: 'shader', backdrop: 'world', source: 'src/weather.js · Weather (rain) + sky, clouds and ocean in a squall',
+    facts: [['How often', 'every quarter of an hour of play or so, on average; a minute or two of rain'],
+            ['What it does', 'grey overcast, gusts on the sail, whitecaps, rain on the sea; a collector fills in a minute'],
+            ['Tip', 'try it at dusk']],
+    variants: [{ id: 'rain', label: 'Pouring' }, { id: 'coming', label: 'Coming on' }],
+    async build(variant) {
+      const holder = new THREE.Group(), weather = new Weather(holder);
+      const state = variant === 'coming' ? { rain: 0, gloom: 0.5 } : { rain: 0.95, gloom: 1 };
+      return {
+        object: holder, ownsWater: true, ground: false, keepHeight: true,
+        frame: { center: V(0, 2.5, 0), size: V(14, 4, 14) }, view: { yaw: 0.6, pitch: 0.02 },
+        update: (dt, time, camera) => {
+          WEATHER.override = state;
+          weather.update(dt, time, camera, { wind: { x: 0.6, z: 0.8, strength: 0.9 } });
+        },
+        // (Back to fair weather for whatever is shown next.)
+        leave: () => { WEATHER.override = null; WEATHER.rain = WEATHER.gloom = 0; },
       };
     },
   });

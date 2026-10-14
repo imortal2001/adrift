@@ -19,6 +19,17 @@ import * as THREE from 'three';
 
 const VOLUME = 1.0;
 
+// Muted or not (P in the game): remembered in this browser, apart from the save
+// (`remember` false: for this page only, as the gallery mutes itself).
+const MUTE_KEY = 'adrift.muted';
+let muted = (() => { try { return localStorage.getItem(MUTE_KEY) === '1'; } catch { return false; } })();
+export const isMuted = () => muted;
+export function setMuted(on, remember = true) {
+  muted = !!on;
+  if (remember) try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0'); } catch { /* (private window: for this visit only) */ }
+  if (master) master.gain.setTargetAtTime(muted ? 0 : VOLUME, ctx.currentTime, 0.05);
+}
+
 let ctx = null, master = null, noise = null;
 
 /** Start the audio, from inside a user gesture. Safe to call again. */
@@ -28,7 +39,7 @@ export function unlock() {
     if (!AC) return;
     ctx = new AC();
     master = ctx.createGain();
-    master.gain.value = VOLUME;
+    master.gain.value = muted ? 0 : VOLUME;
     // A crash close by and a chop at once never clip: a gentle limiter last.
     const limit = ctx.createDynamicsCompressor();
     limit.threshold.value = -10; limit.knee.value = 8; limit.ratio.value = 6;
@@ -197,4 +208,42 @@ export function crash(at, size = 1) {
     hiss(out, at2, { freq: vary(2600, 0.35), q: 1.3, env: [[0.002, (0.25 + Math.random() * 0.35) * k], [0.05 + Math.random() * 0.05, 0.0001]] });
   }
   hiss(out, t + 0.05, { type: 'highpass', freq: 3000, q: 0.4, env: [[0.1, 0.3 * k], [1.4, 0.0001]] });
+}
+
+/**
+ * Something going into the sea at `at`, of about `size` metres: a small one
+ * is a plop — the bubble it pulls under ringing as it closes; a big one a
+ * slap on the water and the rush of the spray coming back down.
+ */
+export function splash(at, size = 1) {
+  if (!ready()) return;
+  const out = place(at, 2 + 3 * size, 120), t = ctx.currentTime, k = Math.min(1.3, 0.35 + 0.6 * size);
+  if (size < 0.7) tone(out, t, { f0: vary(1100 / (0.5 + size)), f1: vary(500), glide: 0.06, env: [[0.004, 0.22 * k], [0.09, 0.0001]] });
+  hiss(out, t, { type: 'lowpass', freq: vary(2600), to: 450, q: 0.8, env: [[0.008, 0.7 * k], [0.08 + 0.12 * size, 0.25 * k], [0.25 + 0.5 * size, 0.0001]] });
+  if (size >= 0.7) {
+    // The slap, low; then the spray falling back, a beat later.
+    tone(out, t, { f0: vary(140), f1: 60, glide: 0.15, env: [[0.005, 0.5 * k], [0.25, 0.0001]] });
+    hiss(out, t + 0.25 + 0.1 * size, { type: 'highpass', freq: 2200, q: 0.5, env: [[0.06, 0.18 * k], [0.4 + 0.4 * size, 0.0001]] });
+  }
+}
+
+// Rain: one loop of noise, always running once begun, its level eased to the
+// weather's. On the open sea a soft broad hiss; under a roof, the patter on
+// the thatch over you, lower and nearer.
+let rainSrc = null, rainGain = null, rainTone = null;
+export function rain(level, roofed = false) {
+  if (!ready()) return;
+  if (!rainSrc) {
+    if (level < 0.01) return;
+    rainSrc = ctx.createBufferSource();
+    rainSrc.buffer = noise; rainSrc.loop = true;
+    rainTone = ctx.createBiquadFilter();
+    rainTone.type = 'bandpass'; rainTone.Q.value = 0.4; rainTone.frequency.value = 3500;
+    rainGain = ctx.createGain(); rainGain.gain.value = 0;
+    rainSrc.connect(rainTone).connect(rainGain).connect(master);
+    rainSrc.start();
+  }
+  const t = ctx.currentTime;
+  rainTone.frequency.setTargetAtTime(roofed ? 1300 : 3500, t, 0.3);
+  rainGain.gain.setTargetAtTime(Math.min(1, level) * (roofed ? 0.55 : 0.4), t, 0.5);
 }

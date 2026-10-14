@@ -8,6 +8,11 @@ import { GLTFLoader } from '/vendor/jsm/loaders/GLTFLoader.js';
 import { CATEGORIES, GAPS, loadRegistry } from './registry.js';
 import { Stage } from './stage.js';
 import { Orbit } from './orbit.js';
+import { setMuted } from '/src/sound.js';
+
+// Silent, always: the game's sounds come in with its modules (a splash going
+// off every couple of seconds, a whale), and a gallery is for looking at.
+setMuted(true, false);
 
 const $ = id => document.getElementById(id);
 const KINDS = [

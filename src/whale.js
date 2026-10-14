@@ -17,9 +17,11 @@
 
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
+import { splash } from './splash.js';
 import { normalise, BODY_LENGTH } from './fish.js';
 import { swimMaterial, styleFor, Swimmer, applySkin, skinOf } from './swim.js';
 
+const _fwd = new THREE.Vector3();
 const LENGTH = 12.5;                 // metres; a grown humpback is 12-16
 const CRUISE_DEPTH = -9;             // where its back rides between breaths
 const CRUISE_SPEED = 2.0;            // m/s — an unhurried humpback
@@ -385,6 +387,8 @@ export class Whale {
       case 'rise':
         targetY = sea - 0.9;
         if (this.pos.y > sea - 1.3 || this.timer <= 0) {
+          // Breaking the surface: the wash off its back.
+          splash(this.pos.clone().addScaledVector(_fwd.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)), LENGTH * 0.2), 1.4);
           this.state = 'breathe';
           this.blowsLeft = Math.round(rand(...BLOWS));
           this.timer = 0.6;
@@ -401,6 +405,7 @@ export class Whale {
           } else {
             this.state = 'sound';
             this.timer = SOUND_TIME;
+            this.flukesIn = false;
           }
         }
         break;
@@ -409,6 +414,12 @@ export class Whale {
         // pitch ramps up and eases off again as it levels out below.
         const p = 1 - this.timer / SOUND_TIME;
         pitch = Math.sin(Math.min(1, p * 1.4) * Math.PI) * 0.85;
+        // The flukes going under, after they have stood up clear of it: the
+        // water pouring off them, and the slip of them going in.
+        if (p > 0.6 && !this.flukesIn) {
+          this.flukesIn = true;
+          splash(this.pos.clone().addScaledVector(_fwd.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)), -LENGTH * 0.45), 1.8);
+        }
         // It tips over more than it sinks at first — the body rolls forward
         // over the head, which is what lifts the tail clear — and only then
         // goes down in earnest.

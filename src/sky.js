@@ -4,6 +4,7 @@
 
 import * as THREE from 'three';
 import { CLOUDS, CLOUD_GLSL } from './clouds.js';
+import { WEATHER } from './weather.js';
 
 /**
  * The light thrown back up off a sunlit deck, as irradiance: what lights the
@@ -141,6 +142,10 @@ void main(){
 
   // The clouds, in front of all of it: the sun, the moon and the stars go
   // behind them. At night they are lit by the moon, if it is up.
+  // A squall's overcast: one grey lid over everything, and the darker
+  // bellies of the rain cloud on it. (Without it the squall was dark lumps
+  // with bright rims, and blue sky between them.)
+  col = mix(col, mix(uHorizon, uTop, 0.35) * 0.95, uCloudDark * 0.93 * smoothstep(-0.04, 0.1, up));
   vec3 lightDir = uNight > 0.5 && uMoonDir.y > 0.0 ? uMoonDir : uSunDir;
   vec3 lightCol = mix(uSunColor, vec3(0.16, 0.18, 0.24) * smoothstep(0.0, 0.3, uMoonDir.y), smoothstep(0.5, 0.9, uNight));
   vec4 cl = cloudsAlong(d, lightDir, lightCol, uTop, uHorizon, uNight, 5);
@@ -171,7 +176,7 @@ const KEYS = [
   { t: 1.000, top: 0x081430, hor: 0x16263f, sun: 0x22304d, night: 1.00, amb: 0.19 },
 ];
 
-const cA = new THREE.Color(), cB = new THREE.Color();
+const cA = new THREE.Color(), cB = new THREE.Color(), _grey = new THREE.Color();
 
 function sample(t) {
   let i = 0;
@@ -277,6 +282,16 @@ export class Sky {
 
     const f = this.dayFraction;
     const p = sample(f);
+    // A squall's sky (weather.js): grey and flat, darker, the sun dim
+    // through it and its shadows soft — the light all from the cloud.
+    const gloom = WEATHER.gloom;
+    if (gloom > 0) {
+      for (const c of [p.top, p.hor]) {
+        const l = c.r * 0.3 + c.g * 0.59 + c.b * 0.11;
+        c.lerp(_grey.setRGB(l * 0.9, l * 0.95, l), gloom * 0.75).multiplyScalar(1 - 0.38 * gloom);
+      }
+      p.amb *= 1 - 0.2 * gloom;
+    }
 
     // Sun rises in the east (+x) at 06:00 and sets in the west at 18:00.
     const ang = (f - 0.25) * Math.PI * 2;
@@ -286,7 +301,9 @@ export class Sky {
     this.night = p.night;
     // Some days fair, some days more cloud: it changes slowly, through the day.
     const days = this.day + f;
-    CLOUDS.uCloudCover.value = 0.4 + 0.13 * Math.sin(days * 2.3) + 0.06 * Math.sin(days * 7.9 + 1.0);
+    const fair = 0.4 + 0.13 * Math.sin(days * 2.3) + 0.06 * Math.sin(days * 7.9 + 1.0);
+    CLOUDS.uCloudCover.value = fair + (0.98 - fair) * gloom;
+    CLOUDS.uCloudDark.value = gloom;
     this.uniforms.uTime.value += dt;
     this.uniforms.uMoonDir.value.copy(this.moonDir);
 
@@ -304,15 +321,23 @@ export class Sky {
     // glinted at a sun below the horizon, a dull navy: it was black.)
     const moonUp = Math.max(0, this.moonDir.y), lunar = THREE.MathUtils.smoothstep(-this.sunDir.y, 0.02, 0.15);
     o.uSunDir.value.copy(this.sunDir).lerp(this.moonDir, lunar).normalize();
-    o.uSunColor.value.copy(p.sun).lerp(this._moonC.setHex(0x9fb2cc).multiplyScalar(0.55 * Math.pow(moonUp, 0.3)), lunar);
+    o.uSunColor.value.copy(p.sun).lerp(this._moonC.setHex(0x9fb2cc).multiplyScalar(0.55 * Math.pow(moonUp, 0.3)), lunar)
+      .multiplyScalar(1 - 0.85 * gloom);   // (no glint off the sea through a squall's cloud)
     o.uNight.value = p.night;
     // (A deep ocean blue: at 0x05222f the water under the raft, looked down into
     // with little of the sky in it, came out black — and at 0x0b3a55 still a
     // navy next to black. Open ocean seen from a boat is cobalt.)
-    o.uDeep.value.setHex(0x14507a).multiplyScalar(0.3 + 0.7 * (1 - p.night));
-    o.uShallow.value.setHex(0x268aa2).multiplyScalar(0.25 + 0.75 * (1 - p.night));
+    o.uDeep.value.setHex(0x14507a).lerp(_grey.setHex(0x2c3a44), gloom * 0.5).multiplyScalar((0.3 + 0.7 * (1 - p.night)) * (1 - 0.3 * gloom));
+    o.uShallow.value.setHex(0x268aa2).lerp(_grey.setHex(0x4a5d66), gloom * 0.5).multiplyScalar((0.25 + 0.75 * (1 - p.night)) * (1 - 0.3 * gloom));
+    o.uRain.value = WEATHER.rain;
+    o.uStorm.value = gloom;
     o.uFog.value.copy(p.hor);
     this.scene.fog.color.copy(p.hor);
+    // (The dome and the sea put their colours out as they are; what the fog
+    // greys is put out through the sRGB curve, which lightens it. In a
+    // squall's thick fog that showed: the island a pale ghost against a dark
+    // sky. So in one, the fog is given the dome's horizon as it shows.)
+    if (gloom > 0) this.scene.fog.color.lerp(_grey.copy(p.hor).convertSRGBToLinear(), gloom);
 
     const above = Math.max(this.sunDir.y, 0);
     // One light, one shadow map: the sun's by day, and once it is down the
@@ -323,13 +348,13 @@ export class Sky {
     const moonLight = 0.5 * p.night * Math.pow(Math.max(0, this.moonDir.y), 0.5);
     if (this.sunDir.y > -0.02) {
       this.sun.color.copy(p.sun);
-      this.sun.intensity = 2.6 * Math.pow(above, 0.45);
+      this.sun.intensity = 2.6 * Math.pow(above, 0.45) * (1 - 0.72 * gloom);
       this.sun.position.copy(focus).addScaledVector(this.sunDir, 45);
     } else {
       // Moonlight is sunlight, a little bluer to a night-adapted eye — but
       // only a little: deep blue, the green of the leaves went grey-white.
       this.sun.color.setHex(0xb8c4d6);
-      this.sun.intensity = moonLight;
+      this.sun.intensity = moonLight * (1 - 0.8 * gloom);
       this.sun.position.copy(focus).addScaledVector(this.moonDir, 45);
     }
     this.sun.target.position.copy(focus);
@@ -345,6 +370,7 @@ export class Sky {
     // deck round a roof lies in its shadow) and the sky's.
     DECK_BOUNCE.value.copy(p.sun).multiplyScalar(this.sun.intensity * above * 0.15)
       .add(this._sky.copy(p.hor).multiplyScalar(p.amb * 0.22)).multiply(DECK_TINT);
-    this.scene.fog.density = 0.00115 + 0.0016 * p.night;
+    // (Thick in the rain: in a downpour the coast a mile off is gone.)
+    this.scene.fog.density = (0.00115 + 0.0016 * p.night) * (1 + 1.5 * gloom) + 0.005 * WEATHER.rain;
   }
 }

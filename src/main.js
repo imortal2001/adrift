@@ -7,6 +7,8 @@ import { Sky, DAY_SECONDS } from './sky.js';
 import { Rafts, windAt } from './raft.js';
 import { setFloraWind } from './flora.js';
 import { driftClouds } from './clouds.js';
+import { Weather, WEATHER } from './weather.js';
+import { Splashes, splash } from './splash.js';
 import { DebrisField, CURRENT } from './debris.js';
 import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
@@ -217,6 +219,9 @@ class Game {
                                    () => this.viewmodel.cloneBody('spear'));
     this.spears.extra = this.reef;
     this.fishing = new Fishing(this.scene, this.raft, this.fish, this.viewmodel);
+    // The squalls, and the spray of whatever goes into the sea.
+    this.weather = new Weather(this.scene);
+    this.splashes = new Splashes(this.scene);
     // A fish in hand is the species it is: a still, hand-sized copy — a big
     // one scaled down, or a tuna held at arm's length would fill the view.
     this.viewmodel.fishBody = key => {
@@ -344,6 +349,52 @@ class Game {
   }
 
   // ── plumbing ───────────────────────────────────────────────────────────────
+  /** The squalls (weather.js), and the spray of what has gone into the sea (splash.js). */
+  weatherTick(dt) {
+    const p = this.player;
+    const wind = windAt(this.time, this._wWind ||= { x: 0, z: 0, strength: 0 });
+    const sheltered = p.state === 'deck' && !p.onLand && this.raft.shelteredAtWorld(p.pos.x, p.pos.z);
+    this.weather.update(dt, this.time, this.camera, { under: p.submerged, sheltered, wind, night: this.sky.night });
+    if (this.weather.changed) {
+      if (this.weather.changed === 'rain') {
+        this.hud.log(this.raft.objs && [...this.raft.objs.values()].some(o => o.type === 'collector')
+          ? 'A squall — rain! The collector fills fast while it pours.'
+          : 'A squall — rain! A collector would catch it to drink.');
+      }
+      this.weather.changed = null;
+    }
+    this.splashes.update(dt, this.time, this.camera, this.renderer, this.sky);
+  }
+
+  /**
+   * Under way, the raft's leading edge meets the swell: where a crest comes up
+   * against it, it throws spray. (Not every wave: only one rising fast up
+   * the logs, with the raft moving into it.)
+   */
+  bowSpray(dt) {
+    const r = this.raft, speed = r.vel.length();
+    this._bowWait = Math.max(0, (this._bowWait || 0) - dt);
+    if (speed < 1.1 || !r.cells.size || r.aground) { this._bowH = null; return; }
+    const ux = r.vel.x / speed, uz = r.vel.y / speed;
+    // The middle of the raft, and from it out to its edge the way it is going.
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const c of r.cells.values()) { x0 = Math.min(x0, c.cx); x1 = Math.max(x1, c.cx); z0 = Math.min(z0, c.cz); z1 = Math.max(z1, c.cz); }
+    const mid = r.group.localToWorld((this._bowV ||= new THREE.Vector3()).set((x0 + x1), 0, (z0 + z1)));   // (cells are 2 m: the middle is the sum)
+    const half = Math.max(x1 - x0 + 1, z1 - z0 + 1);
+    let reach = 0.5;
+    while (reach < half + 1 && r.solidAtWorld(mid.x + ux * reach, mid.z + uz * reach)) reach += 0.25;
+    const bx = mid.x + ux * (reach + 0.2), bz = mid.z + uz * (reach + 0.2);
+    const h = waveHeight(bx, bz, this.time) - r.deckY(mid.x + ux * (reach - 0.3), mid.z + uz * (reach - 0.3));
+    const rising = this._bowH == null ? 0 : (h - this._bowH) / Math.max(dt, 1e-3);
+    this._bowH = h;
+    if (this._bowWait === 0 && h > -0.32 && rising > 0.35) {
+      // Across the bow, not all in one place.
+      const side = (Math.random() - 0.5) * half;
+      splash(new THREE.Vector3(bx - uz * side, 0, bz + ux * side), 0.35 + 0.25 * Math.min(1, speed / 2.4) + 0.2 * Math.min(1, rising));
+      this._bowWait = 0.6 + Math.random() * 0.5;
+    }
+  }
+
   /**
    * Paused, playing together: you stand still — hunger and thirst wait, and
    * nothing hunts you — but the world is everyone's, and goes on. The host's
@@ -352,6 +403,7 @@ class Game {
    */
   worldTick(dt) {
     const pl = this.player;
+    this.weatherTick(dt);
     this.sky.update(dt, pl.pos);
     this.rafts.update(dt, this.time, this.sky.night);
     this.ocean.setHulls(this.rafts.list, this.time);
@@ -1165,6 +1217,11 @@ class Game {
   fellTree(plant, away, onDown = null) {
     const fell = this.terrain.topple(plant, away, f => {
       onDown?.(f);
+      // Down into the sea: along where its crown came down, a long splash.
+      for (const t of [0.45, 0.75]) {
+        const at = new THREE.Vector3(plant.x + away.x * f.H * t, 0, plant.z + away.z * f.H * t);
+        if (waveHeight(at.x, at.z, this.time) - landHeight(at.x, at.z) > 0.4) splash(at, 1.2 + 0.6 * Math.min(1, f.H / 25), { quiet: t > 0.5 });
+      }
       sound.crash(new THREE.Vector3(plant.x + away.x * f.H * 0.45, plant.y + 1, plant.z + away.z * f.H * 0.45), Math.min(1, f.H / 45));
       // Felt underfoot, if you are near.
       const d = Math.hypot(plant.x + away.x * f.H * 0.5 - this.player.pos.x, plant.z + away.z * f.H * 0.5 - this.player.pos.z);
@@ -2007,6 +2064,18 @@ class Game {
     this.raft.paddle(p.pos, dir, 1);
     this.together.world.paddled(p.pos, dir);
     this.useAnim('paddle');
+    // The blade goes in over the nearer side, as the stroke comes down.
+    const side = new THREE.Vector3(-dir.z, 0, dir.x);
+    let best = null;
+    for (const k of [1, -1]) {
+      let d = 0.3;
+      while (d < 10 && this.raft.solidAtWorld(p.pos.x + side.x * k * d, p.pos.z + side.z * k * d)) d += 0.2;
+      if (!best || d < best.d) best = { d, k };
+    }
+    if (best && best.d < 10) {
+      const at = p.pos.clone().addScaledVector(side, best.k * (best.d + 0.35)).addScaledVector(dir, 0.3 * sign);
+      splash(at, 0.3, { delay: 0.22 });
+    }
   }
 
   // ── the others ─────────────────────────────────────────────────────────────
@@ -2585,9 +2654,11 @@ class Game {
     if (wantBuild !== this.build.active) this.build.toggle(wantBuild);
 
     // World
+    this.weatherTick(dt);
     this.sky.update(dt, this.player.pos);
     this.rafts.update(dt, this.time, this.sky.night);
     this.ocean.setHulls(this.rafts.list, this.time);
+    this.bowSpray(dt);
     // The flotsam, the fish and the whale keep near you out at sea; ashore,
     // they wait offshore, where you left the water.
     if (!this.player.onLand) {
@@ -2632,6 +2703,10 @@ class Game {
     // The dinosaurs are solid: you go round one, and one coming through shoves you aside.
     if (this.player.onLand || this.player.state === 'swim') this.wildlife.keepOff(this.player.pos);
     if (!panelOpen && input.pressed('KeyV')) this.cycleView();
+    if (!panelOpen && input.pressed('KeyP')) {
+      sound.setMuted(!sound.isMuted());
+      this.hud.log(sound.isMuted() ? 'Sound off. P to turn it back on.' : 'Sound on.');
+    }
     this.view.update(dt, this.time);
     this.ocean.update(this.time, this.camera.position);
 

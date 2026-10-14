@@ -23,6 +23,7 @@
 
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
+import { splash } from './splash.js';
 
 const AIR_SPEED = 22;          // m/s off the hand — a decent javelin throw
 // What an arm manages against water. Set against the fish rather than the
@@ -126,6 +127,9 @@ export class ThrownSpears {
     s.age += dt;
     this._prevTip.copy(s.pos).addScaledVector(s.axis, TIP);
     const wet = s.pos.y < waveHeight(s.pos.x, s.pos.z, time);
+    // Going in: a slim splash, for a slim thing going in point first.
+    if (wet && s.dry) splash(s.pos, 0.4);
+    s.dry = !wet;
     if (wet) {
       // Drag acts along the flight, so it slows the spear without bending it.
       // Buoyancy would bend it — so it is faded in only as the spear slows. A

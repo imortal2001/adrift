@@ -11,6 +11,7 @@ import * as THREE from 'three';
 export const CLOUDS = {
   uCloudShift: { value: new THREE.Vector2(0, 0) },   // how far the wind has carried the deck, in deck units
   uCloudCover: { value: 0.4 },                       // 0 clear .. 1 overcast
+  uCloudDark:  { value: 0 },                         // a squall's: thick, grey-bottomed rain cloud
 };
 
 // The deck is a plane one unit up: a direction d meets it at d.xz / d.y. One
@@ -26,7 +27,7 @@ export function driftClouds(wind, dt) {
 
 export const CLOUD_GLSL = /* glsl */`
 uniform vec2 uCloudShift;
-uniform float uCloudCover;
+uniform float uCloudCover, uCloudDark;
 float cHash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float cNoise(vec2 p){
   vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -68,13 +69,17 @@ vec4 cloudsAlong(vec3 d, vec3 sunDir, vec3 sunCol, vec3 top, vec3 hor, float nig
   // In the shadow of the cloud between here and the sun: denser toward it.
   vec2 toSun = normalize(sunDir.xz + 1e-4) * (0.09 + 0.12 * (1.0 - abs(sunDir.y)));
   float shade = oct > 3 ? cloudDensity(p + toSun, oct - 2) : dens;
-  float lit = clamp(1.05 - shade * 0.75 - dens * 0.2, 0.2, 1.0);
+  float lit = clamp(1.05 - shade * 0.75 - dens * 0.2, 0.2, 1.0) * (1.0 - 0.75 * uCloudDark);
   float day = 1.0 - night;
   vec3 ambient = mix(hor, top, 0.35) * (0.82 + 0.25 * day) + vec3(0.05, 0.055, 0.06) * day;
   float sd = max(dot(d, sunDir), 0.0);
   // (Not in the water: there the rim, bent by the ripples, drew outlines.)
   float rim = oct > 3 ? pow(sd, 10.0) * (1.0 - dens) * 2.2 + pow(sd, 3.0) * 0.25 : pow(sd, 3.0) * 0.15;
-  vec3 col = ambient * (1.0 - dens * 0.32) + sunCol * (lit * (0.55 + 0.35 * day) + rim);
+  vec3 col = ambient * (1.0 - dens * (0.32 + 0.3 * uCloudDark)) * (1.0 - 0.35 * uCloudDark) + sunCol * (lit * (0.55 + 0.35 * day) + rim * (1.0 - uCloudDark));
+  // A squall's: its thin edges the grey of the overcast lid they lie on,
+  // its thick bellies darker — no bright rims. (Lit as a fair-weather cloud
+  // is, they were dark lumps outlined in white.)
+  col = mix(col, mix(hor, top, 0.35) * 0.95 * (1.0 - 0.5 * dens), uCloudDark * 0.9);
   // Into the haze toward the horizon.
   float haze = 1.0 - smoothstep(0.0, 0.3, d.y);
   col = mix(col, hor * (1.0 + 0.2 * day), haze * 0.55);

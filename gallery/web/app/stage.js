@@ -106,6 +106,7 @@ export class Stage {
   }
 
   clear() {
+    this.asset?.leave?.();
     if (this.asset?.object) this.root.remove(this.asset.object);
     this.asset = null;
   }
