@@ -4,6 +4,7 @@
 // floating debris ride the swell you actually see.
 
 import * as THREE from 'three';
+import { CLOUDS, CLOUD_GLSL } from './clouds.js';
 
 // Up to this many rafts keep the sea off their decks (see setHulls).
 const HULLS = 4;
@@ -14,6 +15,7 @@ hullTexture.magFilter = hullTexture.minFilter = THREE.NearestFilter;
 hullTexture.needsUpdate = true;
 
 const TAU = Math.PI * 2;
+const _vel = new THREE.Vector3();
 
 // dir is normalised at build time. len = crest-to-crest metres, speed = m/s-ish.
 const WAVES = [
@@ -161,11 +163,25 @@ uniform vec3 uSunDir, uSunColor, uSkyTop, uSkyHorizon, uDeep, uShallow, uFog, uU
 uniform mat4 uHullInv[${HULLS}];
 uniform int uHullN;
 uniform sampler2D uHullMap;
+uniform vec4 uHullBox[${HULLS}];   // the raft's squares' extent in its own frame, metres: min x, min z, max x, max z
+uniform vec3 uHullVel[${HULLS}];   // its way through the water in its own frame: x, z, and speed
 varying vec3 vWorld;
 varying float vHeight;
 varying float vDepth;
 ${WAVE_GLSL}
 ${SHORE_GLSL}
+${CLOUD_GLSL}
+// Is raft i's square c (in its own grid) there?
+bool hullAt(int i, vec2 c){
+  c += 32.0;
+  if (c.x < 0.0 || c.y < 0.0 || c.x > 63.0 || c.y > 63.0) return false;
+  return texture2D(uHullMap, (c + 0.5) / vec2(64.0, ${(64 * HULLS).toFixed(1)}) + vec2(0.0, float(i) * 64.0 / ${(64 * HULLS).toFixed(1)})).r > 0.5;
+}
+// Froth: clumps of bubbles at a few sizes. (Turned at each size: a single
+// value noise cut sharp showed its grid — little squares of foam.)
+float froth(vec2 p){
+  return smoothstep(0.38, 0.56, cFbm(p * 2.6, 3));
+}
 void main(){
   // (Per fragment, not the vertex's: the beach line is finer than the mesh.)
   float depth = seaDepth(vWorld.xz);
@@ -186,13 +202,55 @@ void main(){
   // than the deck is not drawn: the deck shows. (Below that, it is: between
   // the canes of a cane deck the sea still shows. Each raft's squares are a
   // 64×64 block of uHullMap.)
+  //
+  // And where the sea meets a raft, it froths: a ring of foam round the hull,
+  // worked up as the swell slaps the logs and more as the raft makes way; and
+  // under way, a wake — churned water straight behind it and the two arms of
+  // a V spreading back from it, fading as it goes on.
+  float raftFoam = 0.0;
   for (int i = 0; i < ${HULLS}; i++) {
     if (i >= uHullN) break;
     vec3 l = (uHullInv[i] * vec4(vWorld, 1.0)).xyz;
-    if (l.y < -0.01) continue;
-    vec2 c = floor(l.xz / ${RAFT_CELL.toFixed(1)} + 0.5) + 32.0;
-    if (c.x < 0.0 || c.y < 0.0 || c.x > 63.0 || c.y > 63.0) continue;
-    if (texture2D(uHullMap, (c + 0.5) / vec2(64.0, ${(64 * HULLS).toFixed(1)}) + vec2(0.0, float(i) * 64.0 / ${(64 * HULLS).toFixed(1)})).r > 0.5) discard;
+    vec4 box = uHullBox[i];
+    vec3 mv = uHullVel[i];
+    float sk = smoothstep(0.05, 2.0, mv.z);
+    vec2 fp = vWorld.xz * 0.9 + vec2(uTime * 0.11, -uTime * 0.07);
+    if (l.x > box.x - 2.5 && l.x < box.z + 2.5 && l.z > box.y - 2.5 && l.z < box.w + 2.5) {
+      // How far out from the nearest square of hull.
+      vec2 c = floor(l.xz / ${RAFT_CELL.toFixed(1)} + 0.5);
+      float out_ = 9.0;
+      for (int a = -1; a <= 1; a++) for (int b = -1; b <= 1; b++) {
+        vec2 cc = c + vec2(float(a), float(b));
+        if (hullAt(i, cc)) out_ = min(out_, length(max(abs(l.xz - cc * ${RAFT_CELL.toFixed(1)}) - ${(RAFT_CELL / 2).toFixed(1)}, 0.0)));
+      }
+      if (out_ == 0.0 && l.y > -0.01) discard;
+      // (Higher up the hull the water is, the more it breaks on it.)
+      float wash = smoothstep(-0.5, -0.12, l.y);
+      // (Hugging the hull: a hand or two wide, a little more where the swell
+      // rides up it or the raft is making way. Under the deck — between the
+      // canes — the same, or the sea under it showed as a flat square.)
+      float reach = 0.12 + 0.3 * cNoise(fp * 1.4) + 0.3 * wash + 0.5 * sk;
+      float ring = 1.0 - smoothstep(0.0, reach, out_);
+      raftFoam = max(raftFoam, ring * (0.3 + 0.4 * wash + 0.4 * sk) * froth(fp * 2.2));
+    }
+    if (mv.z > 0.05) {
+      vec2 u = mv.xy / mv.z, across = vec2(-u.y, u.x);
+      vec2 mid = (box.xy + box.zw) * 0.5, half_ = (box.zw - box.xy) * 0.5;
+      float len = abs(u.x) * half_.x + abs(u.y) * half_.y, wid = abs(u.y) * half_.x + abs(u.x) * half_.y;
+      vec2 rel = l.xz - mid;
+      float back = -dot(rel, u) - len, side = abs(dot(rel, across));
+      // (A raft at a walking pace leaves a modest wake: churned water about
+      // its own width for a few lengths, and two faint lines. Drawn as a
+      // ship's, it was a white fan twenty metres across.)
+      if (back > -1.0 && back < 30.0) {
+        float b = max(back, 0.0);
+        float start = smoothstep(-1.0, 0.6, back);
+        float trail = (1.0 - smoothstep(wid * 0.3, wid * 0.65 + b * 0.04, side)) * exp(-b / (0.8 + 1.6 * sk));
+        float arm = exp(-pow((side - wid * 0.8 - b * 0.36) / (0.12 + b * 0.02), 2.0)) * exp(-b / (2.0 + 3.0 * sk));
+        float churn = mix(0.35, 1.0, froth(fp * 2.2 + vec2(b * 0.3, 0.0)));
+        raftFoam = max(raftFoam, (trail * 0.45 + arm * 0.22) * sk * start * churn);
+      }
+    }
   }
   float k = calm(depth);
   vec3 N = waveNormal(vWorld.xz, uTime);
@@ -260,6 +318,11 @@ void main(){
 
   vec3 R = reflect(-V, N);
   vec3 sky = mix(uSkyHorizon, uSkyTop, pow(clamp(R.y, 0.0, 1.0), 0.55));
+  // The clouds in it, broken up by the ripples as the sky is — and fainter:
+  // the ripples smear them. (Drawn as crisp as in the sky, each was a ring of
+  // bright squiggles on the water.)
+  vec4 cl = cloudsAlong(R, uSunDir, uSunColor, uSkyTop, uSkyHorizon, uNight, 3);
+  sky = mix(sky, cl.rgb, cl.a * 0.6);
 
   float crest = clamp(vHeight / max(${WAVE_AMPLITUDE.toFixed(3)} * k, 0.05) * 0.5 + 0.5, 0.0, 1.0);
   vec3 body = mix(uDeep, uShallow, crest * crest);
@@ -290,6 +353,7 @@ void main(){
   float edge = 1.0 - smoothstep(${EDGE.toFixed(3)}, ${EDGE.toFixed(3)} + 0.05 + 0.1 * lap, water);
   float broken = 0.55 + 0.45 * sin(vWorld.x * 0.83 + uTime * 0.35) * sin(vWorld.z * 1.07 - uTime * 0.27);
   foam = max(foam, edge * broken * (0.3 + 0.35 * lap));
+  foam = max(foam, raftFoam * 0.85);
   col = mix(col, vec3(0.86, 0.94, 0.98) * (1.0 - uNight * 0.75), foam);
 
   float f = 1.0 - exp(-pow(dist * uFogDensity, 2.2));
@@ -365,6 +429,9 @@ export class Ocean {
       uHullInv:     { value: Array.from({ length: HULLS }, () => new THREE.Matrix4()) },
       uHullN:       { value: 0 },
       uHullMap:     { value: hullTexture },
+      uHullBox:     { value: Array.from({ length: HULLS }, () => new THREE.Vector4()) },
+      uHullVel:     { value: Array.from({ length: HULLS }, () => new THREE.Vector3()) },
+      ...CLOUDS,
       uTurquoise:   { value: new THREE.Color(0x3f9e9c) },
     };
 
@@ -390,12 +457,20 @@ export class Ocean {
       if (this._hullKeys[n] !== key) {
         this._hullKeys[n] = key;
         hullData.fill(0, n * 4096, (n + 1) * 4096);
+        let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
         for (const c of r.cells.values()) {
           const x = c.cx + 32, z = c.cz + 32;
           if (x >= 0 && x < 64 && z >= 0 && z < 64) hullData[n * 4096 + z * 64 + x] = 255;
+          x0 = Math.min(x0, c.cx); x1 = Math.max(x1, c.cx); z0 = Math.min(z0, c.cz); z1 = Math.max(z1, c.cz);
         }
+        const h = RAFT_CELL / 2;
+        u.uHullBox.value[n].set(x0 * RAFT_CELL - h, z0 * RAFT_CELL - h, x1 * RAFT_CELL + h, z1 * RAFT_CELL + h);
         dirty = true;
       }
+      // Its way through the water, turned into its own frame (for the wake).
+      const v = _vel.set(r.vel?.x || 0, 0, r.vel?.y || 0), speed = v.length();
+      if (speed > 1e-4) v.transformDirection(u.uHullInv.value[n]).multiplyScalar(speed);
+      u.uHullVel.value[n].set(v.x, v.z, speed);
       n++;
     }
     if (dirty) hullTexture.needsUpdate = true;

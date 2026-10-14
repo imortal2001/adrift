@@ -55,7 +55,7 @@ export const CATEGORIES = [
   { id: 'equipment',  name: 'Equipment',          blurb: 'Tools, weapons and fishing gear: what you hold, and what you throw.' },
   { id: 'vegetation', name: 'Trees & vegetation', blurb: 'What grows on land.' },
   { id: 'terrain',    name: 'Land & terrain',     blurb: 'Real 64 m chunks of the world, cut from where each kind of ground is, plus the rocks.' },
-  { id: 'water',      name: 'Water',              blurb: 'The sea, from above and below, and where it meets the land.' },
+  { id: 'water',      name: 'Water',              blurb: 'The sea, from above and below, where it meets the land, and the sky over it.' },
   { id: 'reef',       name: 'Corals & reefs',     blurb: 'What grows on the sea bed, and a colony as the game lays it out.' },
   { id: 'objects',    name: 'Other world objects', blurb: 'Flotsam, the raft and everything built on it, and anything not yet registered.' },
 ];
@@ -1063,6 +1063,22 @@ export async function loadRegistry() {
         // stays in the bright top few metres rather than twenty down.
         frame: below ? { center: V(0, -0.8, 0), size: V(4, 0.6, 4) } : { center: V(0, 0, 0), size: V(14, 3, 14) },
         view: below ? { yaw: 0.6, pitch: -0.8 } : { yaw: 0.6, pitch: 0.22 },
+      };
+    },
+  });
+
+  add({
+    id: 'clouds', name: 'Clouds', category: 'water', group: 'Sky',
+    kind: 'shader', backdrop: 'world', source: 'src/clouds.js · CLOUD_GLSL (drawn by the sky dome, and again in the sea)',
+    facts: [['Kind', 'trade-wind cumulus, one deck about a kilometre up'], ['Moves', 'with the wind the sail takes; cover changes day to day'],
+            ['Tip', 'try dawn and dusk: they are lit from underneath in the sun\'s colour']],
+    variants: [{ id: 'up', label: 'Overhead' }, { id: 'sea', label: 'Over the sea' }],
+    async build(variant) {
+      const up = variant === 'up';
+      return {
+        object: null, ownsWater: true, ground: false, keepHeight: true,
+        frame: up ? { center: V(0, 9, 0), size: V(4, 4, 4) } : { center: V(0, 2.5, 0), size: V(10, 3, 10) },
+        view: up ? { yaw: 0.6, pitch: -0.9 } : { yaw: 0.6, pitch: -0.05 },
       };
     },
   });

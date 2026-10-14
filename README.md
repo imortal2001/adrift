@@ -232,8 +232,9 @@ pause screen starts over.
 
 | File | Responsibility |
 |---|---|
-| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an open-ocean cobalt, not the navy-to-black it was under the raft. `setHulls()` keeps the swell from drawing through a raft's deck. |
+| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an open-ocean cobalt, not the navy-to-black it was under the raft. `setHulls()` keeps the swell from drawing through a raft's deck, and gives the shader what it needs for the foam round a raft's hull and the wake behind it under way. The clouds are in the water too. |
 | `src/sky.js` | Sun, moon, sky dome, stars and Milky Way, twilight, and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
+| `src/clouds.js` | Trade-wind cumulus: one deck of scattered clouds about a kilometre up, one GLSL function shared by the sky dome and the ocean's reflection. They drift with the wind the sail takes (`driftClouds`), cover changes from day to day, and they are lit from underneath in the sun's colour at dawn and dusk and faintly by the moon at night. |
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
 | `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
@@ -1946,6 +1947,15 @@ the raft's own frame.
 Walls and railings canonicalise to a shared boundary, so a wall between two
 cells exists once. Salvaging a foundation flood-fills to refuse any cut that
 would split the raft in two.
+
+**Where the sea meets the raft.** `setHulls()` also gives the shader each
+raft's extent and its way through the water in its own frame. Within a couple
+of metres of the hull, the water finds its distance to the nearest square of
+deck and froths: a band a hand or two wide, wider where the swell rides up the
+logs and when the raft is moving. Under way there is a wake: churned water about
+the raft's width for a few lengths behind it, and two faint lines spreading at
+the Kelvin angle. It is sized for a raft at walking pace — drawn like a ship's
+wake, it was a white fan twenty metres across.
 
 **Lit from the deck.** What is under a roof is planking in the sun, so the raft's
 pieces are lit from below by it as well (`DECK_BOUNCE` in `sky.js`, about a

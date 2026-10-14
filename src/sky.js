@@ -3,6 +3,7 @@
 // fog both read from, so dusk changes the whole world at once.
 
 import * as THREE from 'three';
+import { CLOUDS, CLOUD_GLSL } from './clouds.js';
 
 /**
  * The light thrown back up off a sunlit deck, as irradiance: what lights the
@@ -27,6 +28,7 @@ const frag = /* glsl */`
 uniform vec3 uTop, uHorizon, uSunColor, uSunDir, uWaterColor, uMoonDir;
 uniform float uNight, uUnderwater, uTime;
 varying vec3 vDir;
+${CLOUD_GLSL}
 
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float hash3(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
@@ -136,6 +138,13 @@ void main(){
     col = mix(col, vec3(0.92, 0.93, 0.88) * (1.0 - seas) * (0.85 + 0.15 * sqrt(max(0.0, 1.0 - r * r))) * 1.6, body * mvis);
     col += vec3(0.55, 0.62, 0.75) * (pow(max(md, 0.0), 900.0) * 0.5 + pow(max(md, 0.0), 40.0) * 0.06) * mvis;
   }
+
+  // The clouds, in front of all of it: the sun, the moon and the stars go
+  // behind them. At night they are lit by the moon, if it is up.
+  vec3 lightDir = uNight > 0.5 && uMoonDir.y > 0.0 ? uMoonDir : uSunDir;
+  vec3 lightCol = mix(uSunColor, vec3(0.16, 0.18, 0.24) * smoothstep(0.0, 0.3, uMoonDir.y), smoothstep(0.5, 0.9, uNight));
+  vec4 cl = cloudsAlong(d, lightDir, lightCol, uTop, uHorizon, uNight, 5);
+  col = mix(col, cl.rgb, cl.a);
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -196,6 +205,7 @@ export class Sky {
       uMoonDir:   { value: new THREE.Vector3(0, -1, 0) },
       uUnderwater:{ value: 0 },
       uWaterColor:{ value: new THREE.Color(0x11536b) },
+      ...CLOUDS,
     };
     this.dome = new THREE.Mesh(
       new THREE.SphereGeometry(1, 40, 24),
@@ -274,6 +284,9 @@ export class Sky {
     // The moon opposite it — full, rising as the sun sets.
     this.moonDir.copy(this.sunDir).negate();
     this.night = p.night;
+    // Some days fair, some days more cloud: it changes slowly, through the day.
+    const days = this.day + f;
+    CLOUDS.uCloudCover.value = 0.4 + 0.13 * Math.sin(days * 2.3) + 0.06 * Math.sin(days * 7.9 + 1.0);
     this.uniforms.uTime.value += dt;
     this.uniforms.uMoonDir.value.copy(this.moonDir);
 

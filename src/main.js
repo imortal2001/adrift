@@ -6,6 +6,7 @@ import { Ocean, waveHeight, setSeabed } from './ocean.js';
 import { Sky, DAY_SECONDS } from './sky.js';
 import { Rafts, windAt } from './raft.js';
 import { setFloraWind } from './flora.js';
+import { driftClouds } from './clouds.js';
 import { DebrisField, CURRENT } from './debris.js';
 import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
@@ -2637,9 +2638,10 @@ class Game {
     const eye = this.eye.position;
     const dir = this.player.forward(this.tmpDir);
     // Stream terrain around whoever is looking at it, then run the ecosystem.
-    // The plants bend to the wind the sail takes.
+    // The plants bend to the wind the sail takes, and the clouds go with it.
     const wind = windAt(this.time, this._wind ||= { x: 0, z: 0, strength: 0 });
     setFloraWind(wind.x, wind.z, wind.strength);
+    driftClouds(wind, dt);
     this.terrain.update(dt, this.player.pos, this.time, this.sky.night);
     this.caves.update(dt, this.player.pos);
     this.wildlife.setPlayerPos(this.player.pos);

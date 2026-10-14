@@ -15,7 +15,9 @@ import { Sky } from '/src/sky.js';
 import { Ocean, waveHeight } from '/src/ocean.js';
 import { Underwater, CAUSTICS, applyCaustics } from '/src/underwater.js';
 import { setReefTime } from '/src/reef.js';
+import { driftClouds } from '/src/clouds.js';
 
+const GALLERY_WIND = { x: 0.6, z: 0.8, strength: 0.75 };
 export const DEPTH = 10;         // how far down the underwater backdrop puts things
 
 export class Stage {
@@ -193,6 +195,7 @@ export class Stage {
       return;
     }
     this.sky.update(dt, this.bounds.center);
+    driftClouds(GALLERY_WIND, dt);       // a steady trade wind: the game's swings round with the day
     this.haze();
     this.ocean.update(time, camera.position);
     const eye = camera.position;
