@@ -138,7 +138,10 @@ NoAI tag.
   quarter or half);
 - tags each vertex with the fin it belongs to, for the swim shader;
 - adds a normal map, made from the colour textures' own detail and a fine
-  grain — the original has none.
+  grain — the original has none;
+- adds a mouth: the original paints only a thin arc on the belly, with no
+  opening or jaw, so a slightly open crescent mouth with a row of teeth on
+  each jaw is modelled where the arc is.
 
 The colours, markings and eyes are the author's, unchanged.
 

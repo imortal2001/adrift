@@ -273,7 +273,7 @@ pause screen starts over.
 | `tools/build_coconut.py` | Converts a third-party photoscanned coconut (CC BY 4.0, see CREDITS.md) for the game: a smooth 3,072-triangle shell fitted to the 199,500-triangle scan, pores up, ~17 cm, with the scan's colour and relief baked onto it at 1024² (23 MB down to 270 KB). Held in hand, and afloat as flotsam at 2.4 times the size. |
 | `tools/build_player.py` | Converts the Ready Player Me woman and man (CC BY-NC-SA 4.0, see CREDITS.md) into the player's body: pose made the rest pose, facing the game's forward in metres, bone names cleaned, dressed for the Stone Age by repainting (the man's atlas by the bones that move each part), textures shrunk. |
 | `tools/build_sealife.py` | Converts the six third-party reef and pond animals (sea turtle, tortoise, pond turtle, crab, octopus, stingray — see CREDITS.md; the stingray is CC BY-NC) for the game: decimated to a few thousand triangles (the pond turtle's 25-piece photoscan joined and welded first), textures 1024² JPEG, plain lit materials, in the game's frame at their real sizes; the crab kept as 13 parts pivoting at their joints, the octopus and stingray keeping their rigs. |
-| `tools/build_shark.py` | Converts a third-party blacktip reef shark (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, one mesh and one texture atlas, fin tags for the swim shader, a normal map. |
+| `tools/build_shark.py` | Converts a third-party blacktip reef shark (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, one mesh and one texture atlas, fin tags for the swim shader, a normal map, and the mouth and teeth the original lacks. |
 | `tools/simulate_fight.mjs` | Plays the rod's fight thousands of times per species with five kinds of player, for tuning `fight.js` by numbers rather than feel. |
 | `tools/build_tools.py` | Puts the four third-party tool models (hammer, spear, rod, axe) in the frame the hand holds them by, colours the spear, and shrinks their textures (`--only NAME` for one). |
 | `tools/make_starters.py` | Generates a correctly set up starter `.blend` per species. |
@@ -1030,7 +1030,12 @@ textured model of the real species ("Blacktip Reef Shark" by Lais.Marques,
 CC BY 4.0 — see CREDITS.md) — slim, the short rounded snout, the author's
 black tips, pale flank band and slit-pupilled eyes — converted by
 `tools/build_shark.py` into one mesh with one texture atlas, given a normal
-map, and swum by the same shader as everything else. The procedural blacktip
+map and a mouth, and swum by the same shader as everything else. The
+original only paints a thin arc on the belly where the mouth is, with no
+opening or jaw: side-on, or from more than an arm's length, the shark had no
+mouth at all. The build models one there: the crescent under the snout,
+a little open as a cruising shark's is, dark inside, with narrow teeth along
+each jaw standing just proud so the edge reads from the side. The procedural blacktip
 in `reef_fish.glb` is its fallback. The great white is the same kind of
 import ("Shark" by AndrejKrebs, CC BY 4.0), kept in its own slate-and-white
 colours and teeth, converted by `tools/build_great_white.py`. So is the
