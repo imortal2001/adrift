@@ -48,6 +48,8 @@ import { DebrisField } from '/src/debris.js';
 import { Raft } from '/src/raft.js';
 import { Splashes, splash } from '/src/splash.js';
 import { Weather, WEATHER } from '/src/weather.js';
+import { flierMesh, PTEROSAUR, SEABIRD, FORESTBIRD } from '/src/fliers.js';
+import { DRAGONFLY, BUTTERFLY, fireflyVert, fireflyFrag } from '/src/insects.js';
 import { PlayerBody } from '/src/body.js';
 
 // ── categories ───────────────────────────────────────────────────────────────
@@ -494,6 +496,60 @@ export async function loadRegistry() {
     build: shelled('pond_turtle', REEF_ANIMALS.pond_turtle, Object.assign((v) => ({
       walk: v === 'walk' ? 1 : 0, swim: v === 'swim' ? 1 : 0,
     }), { backdrop: v => (v === 'swim' ? 'underwater' : 'world') })),
+  });
+
+  // ── in the air (src/fliers.js, src/insects.js) ──
+  const flier = (id, name, group, spec, facts, { beat, stroke, glide = null, size, lift, colour = null, transparent = false, variants = null }) => add({
+    id, name, category: 'animals', group, kind: 'built in code', backdrop: 'world',
+    source: group === 'Air' ? 'src/fliers.js · wingedBody() · Fliers' : 'src/insects.js · wingedBody() · Insects',
+    facts, variants,
+    async build(variant) {
+      const f = flierMesh(spec, { colour, transparent, roughness: transparent ? 0.5 : 0.75 });
+      const holder = new THREE.Group();
+      holder.add(f.mesh);
+      holder.position.y = lift;
+      const gliding = variant === 'glide';
+      return { object: holder, ground: false, keepHeight: true, frame: { center: V(0, lift, 0), size: V(size, size * 0.4, size) }, view: { yaw: 0.9, pitch: 0.35 },
+               update: (dt, time) => f.flap(time * Math.PI * 2 * (gliding ? glide ?? 0 : beat), gliding ? 0.04 : stroke) };
+    },
+  });
+  flier('pterosaur', 'Pterosaur', 'Air', PTEROSAUR, [['Size', 'six metres across the wings, Pteranodon-like'],
+    ['Where', 'soaring over the sea and the coast, 25-60 m up, in slow circles'],
+    ['Behaviour', 'seldom flaps — a soarer, like an albatross; now and then comes down to skim the sea for a fish'], ['Caught with', 'nothing']],
+    { beat: 1.1, stroke: 0.55, glide: 0.1, size: 6.4, lift: 3, variants: [{ id: 'flap', label: 'Flapping' }, { id: 'glide', label: 'Soaring' }] });
+  flier('seabird', 'Seabird (tern)', 'Air', SEABIRD, [['Size', 'a metre across the wings'],
+    ['Where', 'a loose flock working the water over the reef'],
+    ['Behaviour', 'quick wingbeats; one folds and plunges in after a fish now and then; harsh two-note calls'], ['Caught with', 'nothing']],
+    { beat: 3.2, stroke: 0.7, size: 1.0, lift: 1.2 });
+  flier('forestbird', 'Forest bird', 'Air', FORESTBIRD, [['Size', 'a hand long'],
+    ['Where', 'ashore, under the canopy'],
+    ['Behaviour', 'short bounding flights from tree to tree; heard more than seen: birdsong by day'], ['Caught with', 'nothing']],
+    { beat: 13, stroke: 0.9, size: 0.3, lift: 1.2 });
+  flier('dragonfly', 'Dragonfly', 'Insects', DRAGONFLY, [['Size', 'ten centimetres across the wings'],
+    ['Where', 'over the fresh water near you, by day'],
+    ['Behaviour', 'hovers, darts a few metres, stops dead; two pairs of glass wings']],
+    { beat: 27, stroke: 0.3, size: 0.12, lift: 0.8, transparent: true });
+  flier('butterfly', 'Butterfly', 'Insects', BUTTERFLY, [['Size', 'seven centimetres across'],
+    ['Where', 'over open, sunny ground ashore, by day'],
+    ['Behaviour', 'the jinking, bobbing flight of big wings beating slowly'], ['Colours', 'orange, yellow, blue, white, red']],
+    { beat: 7, stroke: 1.1, size: 0.1, lift: 0.6, colour: 0xe08a2a, transparent: true });
+  add({
+    id: 'firefly', name: 'Fireflies', category: 'animals', group: 'Insects', kind: 'built in code', backdrop: 'world',
+    source: 'src/insects.js · fireflyVert/fireflyFrag · Insects', facts: [['Where', 'ashore at night, in the grass and at the forest edge'],
+      ['Behaviour', 'drifting points of yellow-green light, each blinking on its own beat'], ['Tip', 'set the time to night']],
+    async build() {
+      const N = 40, pos = new Float32Array(N * 3), glow = new Float32Array(N), beat = [], off = [];
+      for (let i = 0; i < N; i++) { pos.set([(Math.random() - 0.5) * 4, 0.3 + Math.random() * 2, (Math.random() - 0.5) * 4], i * 3); beat.push(2 + Math.random() * 3); off.push(Math.random() * 5); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('aGlow', new THREE.BufferAttribute(glow, 1));
+      const u = { uViewH: { value: innerHeight * devicePixelRatio } };
+      const pts = new THREE.Points(g, new THREE.ShaderMaterial({ uniforms: u, vertexShader: fireflyVert, fragmentShader: fireflyFrag,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      pts.frustumCulled = false;
+      return { object: pts, ground: true, keepHeight: true, frame: { center: V(0, 1.2, 0), size: V(4, 2.4, 4) },
+               update: (dt, time) => { for (let i = 0; i < N; i++) { const ph = ((time + off[i]) % beat[i]) / beat[i]; glow[i] = ph < 0.25 ? Math.sin(ph / 0.25 * Math.PI) : 0; } g.attributes.aGlow.needsUpdate = true; } };
+    },
   });
 
   add({

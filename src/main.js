@@ -9,6 +9,8 @@ import { setFloraWind } from './flora.js';
 import { driftClouds } from './clouds.js';
 import { Weather, WEATHER } from './weather.js';
 import { Splashes, splash } from './splash.js';
+import { Fliers } from './fliers.js';
+import { Insects } from './insects.js';
 import { DebrisField, CURRENT } from './debris.js';
 import { Hook } from './hook.js';
 import { FishSchools } from './fish.js';
@@ -222,6 +224,9 @@ class Game {
     // The squalls, and the spray of whatever goes into the sea.
     this.weather = new Weather(this.scene);
     this.splashes = new Splashes(this.scene);
+    // What is in the air: pterosaurs and seabirds over the sea, birds in the trees; the insects ashore.
+    this.fliers = new Fliers(this.scene);
+    this.insects = new Insects(this.scene);
     // A fish in hand is the species it is: a still, hand-sized copy — a big
     // one scaled down, or a tuna held at arm's length would fill the view.
     this.viewmodel.fishBody = key => {
@@ -2726,6 +2731,11 @@ class Game {
     this.fish.update(dt, this.time, eye);      // the others it shies from too: sharedworld.js
     this.reef.update(dt, this.time, eye, this.player.pos);
     this.whale.update(dt, this.time);
+    {
+      const day = 1 - this.sky.night, ashore = !!this.player.onLand, rain = WEATHER.rain;
+      this.fliers.update(dt, this.time, this.player.pos, { day, ashore, rain });
+      this.insects.update(dt, this.time, this.player.pos, { day, night: this.sky.night, ashore, rain, viewH: this.renderer.domElement.height });
+    }
     this.spears.update(dt, this.time);
     this.hook.update(dt, eye.clone().addScaledVector(dir, 0.5), this.time, this.debris,
                      it => this.gather(it));

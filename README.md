@@ -253,6 +253,8 @@ pause screen starts over.
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
 | `src/whale.js` | One humpback, passing by: a few minutes' company, then gone a while; cruises, surfaces to blow, sounds flukes-up. Not catchable. |
+| `src/fliers.js` | What is in the air: pterosaurs soaring over the sea and the coast, a flock of terns over the reef, small birds flitting through the trees ashore. One instanced mesh per kind, the wings beaten in the vertex shader (`wingedBody`, `wingMaterial`). |
+| `src/insects.js` | The small life ashore: dragonflies over fresh water, butterflies over open sunny ground, fireflies at night; cicadas and crickets heard. |
 | `src/reeflife.js` | The animals that move, other than fish and dinosaurs: sea turtles, stingrays, a manta, octopus and crabs on the reef, tortoises on land and pond turtles in the lakes — each with its own way of moving and of reacting to you; crab and octopus as catches. |
 | `src/reefmodels.js` | Their glTF bodies, when the models are here: the octopus's arm chains curled in code, the manta's clip, and the tortoise's and pond turtle's limbs found in the mesh and moved in the vertex shader. |
 | `src/reef.js` | What lives on the sea bed — massive, brain, table, staghorn, plate, finger and leather corals, sea fans, tube and barrel sponges, anemones, seagrass, macroalgae, kelp, urchins, starfish, giant clams — and its stone: boulders, outcrops, limestone slabs, cobbles and coral rubble; the roles each plays in a colony; the surge that bends the soft ones. |
@@ -1764,6 +1766,41 @@ flippers, level with its middle, were under the sand.
 Without the files, the sea's animals are the code-built ones they replace
 (a few meshes each, their wings and arms re-shaped on the CPU every frame; the
 crabs three instanced meshes), and there are no tortoises or pond turtles.
+
+### In the air, and in the grass
+
+There was nothing over the sea or in the grass: no wings at all. Now
+(`src/fliers.js`, `src/insects.js`, all built in code):
+
+- **Pterosaurs** (4), Pteranodon-like, six metres across the wings, soar
+  over the sea and the coast in slow circles 25-60 m up, the circles
+  drifting. They seldom flap — they were soarers, like an albatross (Witton
+  2013) — only a bout of slow, deep beats to climb. Every minute or so one
+  comes down to skim the sea, beak dipped in for a fish, and climbs away.
+- **Terns** (a flock of 10), a metre across, work the water over the reef:
+  quick wingbeats, the flock wandering and turning back from the land; now
+  and then one folds its wings and plunges in after a fish with a splash, and
+  beats its way back up. Heard as harsh, two-note calls.
+- **Small birds** (7) ashore under the canopy, unseen in the leaves until
+  one flies: short bounding flights from tree to tree, a burst of beats and
+  the wings shut, as a finch flies. Heard more than seen: birdsong by day.
+- **Dragonflies** over fresh water near you by day: hovering, darting a few
+  metres and stopping dead, two pairs of glass wings each with its dark spot.
+- **Butterflies** over open, sunny ground by day — orange, yellow, blue,
+  white, red — on the jinking, bobbing flight of big wings beating slowly.
+- **Fireflies** at night ashore, in the grass and at the forest edge: points
+  of yellow-green light with a glow round them, each blinking on its own beat.
+- **And heard:** cicadas buzzing by day in the trees, crickets chirping by
+  night, ashore — and faintly from the shore out at sea, fainter the further
+  out; hushed in a squall's rain.
+
+Each kind of flier is one instanced mesh: a body, head and tail, and wings
+whose every vertex knows how far out along the wing it is, so the vertex
+shader beats them (each instance its own phase and stroke, the outer wing a
+little further, as a wing flexes at the wrist) and folds them for a dive.
+Undersides are lit a little of their own: a membrane lets the light through
+and a bird's belly catches it off the sea, so a wing overhead is not a black
+cut-out. All are in the gallery, under *Living animals: Air* and *Insects*.
 
 ### The whale
 

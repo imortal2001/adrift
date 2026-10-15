@@ -359,3 +359,71 @@ export function dinoCall(kind, at, mood = 'call') {
     }
   }
 }
+
+// ── birds and insects ────────────────────────────────────────────────────────
+/** A tern's call from `at`: a harsh, grating two-note "kee-arr", falling. */
+export function tern(at) {
+  if (!ready()) return;
+  const out = place(at, 8, 220), t = ctx.currentTime;
+  for (const [d, f0, f1, len] of [[0, 3300, 2900, 0.12], [0.13, 2700, 1900, 0.28]]) {
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(vary(f0, 0.05), t + d); o.frequency.exponentialRampToValueAtTime(f1, t + d + len);
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2600; f.Q.value = 1.5;
+    const g = ctx.createGain(); shape(g.gain, t + d, [[0.015, 0.22], [len * 0.7, 0.16], [len, 0.0001]]);
+    o.connect(f).connect(g).connect(out); o.start(t + d); o.stop(t + d + len + 0.05);
+  }
+}
+
+/** A small bird singing in the canopy at `at`: a run of quick, bright notes, rising or falling, sometimes a trill. */
+export function birdsong(at) {
+  if (!ready()) return;
+  const out = place(at, 6, 120), t = ctx.currentTime;
+  const n = 3 + (Math.random() * 6 | 0), base = vary(3200, 0.25), dir = Math.random() < 0.5 ? 1 : -1;
+  const trill = Math.random() < 0.35;
+  for (let i = 0; i < n; i++) {
+    const s = t + i * (trill ? 0.045 : vary(0.13, 0.25)), f0 = base * (1 + dir * i * 0.06), len = trill ? 0.035 : vary(0.08, 0.3);
+    tone(out, s, { f0, f1: f0 * vary(trill ? 1.05 : 1.25, 0.1), glide: len, env: [[0.006, 0.12], [len, 0.0001]] });
+  }
+}
+
+// Insects: two loops, eased to the levels given each frame. By day cicadas —
+// a band of noise high up, pulsing in the buzz of their tymbals and swelling
+// slowly; by night crickets — a pure tone, chirped.
+let bugs = null;
+export function insects(cicada, cricket) {
+  if (!ready()) return;
+  if (!bugs) {
+    if (cicada < 0.01 && cricket < 0.01) return;
+    bugs = {};
+    // Cicadas.
+    const src = ctx.createBufferSource(); src.buffer = noise; src.loop = true;
+    const band = ctx.createBiquadFilter(); band.type = 'bandpass'; band.frequency.value = 5600; band.Q.value = 6;
+    const pulse = ctx.createGain(); pulse.gain.value = 0.5;
+    const buzz = ctx.createOscillator(); buzz.frequency.value = 95; const bz = ctx.createGain(); bz.gain.value = 0.5;
+    buzz.connect(bz).connect(pulse.gain);
+    // (Each wobble on a gain of its own, about a level: on the output's gain
+    // it would swamp the level set below.)
+    const swellG = ctx.createGain(); swellG.gain.value = 0.65;
+    const swell = ctx.createOscillator(); swell.frequency.value = 0.09; const sw = ctx.createGain(); sw.gain.value = 0.35;
+    swell.connect(sw).connect(swellG.gain);
+    bugs.cicada = ctx.createGain(); bugs.cicada.gain.value = 0;
+    src.connect(band).connect(pulse).connect(swellG).connect(bugs.cicada).connect(master);
+    src.start(); buzz.start(); swell.start();
+    // Crickets: a tone at 4.6 kHz, gated into chirps of a few pulses.
+    const tone4 = ctx.createOscillator(); tone4.frequency.value = 4600;
+    const gate = ctx.createGain(); gate.gain.value = 0.5;      // 0..1 with the pulses' ±0.5
+    const pulses = ctx.createOscillator(); pulses.type = 'square'; pulses.frequency.value = 28;
+    const pg = ctx.createGain(); pg.gain.value = 0.5;
+    const chirps = ctx.createOscillator(); chirps.type = 'square'; chirps.frequency.value = 1.6;
+    const cg = ctx.createGain(); cg.gain.value = 0.5;
+    const both = ctx.createGain(); both.gain.value = 0.5;
+    pulses.connect(pg).connect(gate.gain);
+    chirps.connect(cg).connect(both.gain);
+    bugs.cricket = ctx.createGain(); bugs.cricket.gain.value = 0;
+    tone4.connect(gate).connect(both).connect(bugs.cricket).connect(master);
+    tone4.start(); pulses.start(); chirps.start();
+  }
+  const t = ctx.currentTime;
+  bugs.cicada.gain.setTargetAtTime(Math.min(1, cicada) * 0.05, t, 1.5);
+  bugs.cricket.gain.setTargetAtTime(Math.min(1, cricket) * 0.035, t, 1.5);
+}
