@@ -283,7 +283,7 @@ pause screen starts over.
 | `tools/export_models.py` | Blender-side exporter: settings, manifest upkeep and pre-flight checks. |
 | `src/underwater.js` | Light, colour and marine snow falling off with depth; the red taken out of the light on the sea bed; caustics; sun shafts. |
 | `src/hook.js` | The throwable hook — ballistic flight, attach, reel in. Thrown up a beach or short into the shallows it comes down on the ground and is pulled back over it, and what it hooks there is dragged up the sand (debris.js), not under it. |
-| `src/player.js` | Deck / air / swim states, and hunger, thirst and breath. |
+| `src/player.js` | Deck / air / swim states, and hunger, thirst and breath. The raft is a roof from under it: floating up beneath the deck you stay a hand below its floats (you came up with your head through the planks, and breathed there), so you swim out from under it to the air, or climb aboard; and swimming into its side at the surface you meet the side — dive to go under. |
 | `src/items.js` | All game data: items, recipes, buildables, debris yields, and what each item does in hand. |
 | `src/hotbar.js` | The five slots: registration, selection, and auto-assignment. |
 | `src/viewmodel.js` | What is in your hand: drawn as a second pass over the frame, with bob, sway, swap and a click animation per action. |
