@@ -30,12 +30,17 @@ export const CHUNK = 64;
 // ── cave mouths (caves.js) ───────────────────────────────────────────────────
 // The heightfield has no holes, so where a cave's tube comes out through the
 // cliff face the ground is not drawn: the terrain's shader throws away what is
-// inside the mouth — an elliptical capsule from the mouth a few metres in,
-// above the tube's floor. caves.js fills these in each frame, nearest first.
+// inside the mouth — the tube's own arch over its floor, a little wider and
+// higher than the passage and inside the rock round it, in straight runs from
+// the lip a few metres in. caves.js fills these in each frame, nearest first.
+// (It was a round capsule: wider than the rock round the passage at the
+// shoulders of the arch, so the hillside beside the mouth was holed through
+// to the sky there; and round at the end, so it began a metre in, and the
+// slope came up inside the mouth in a wedge of grass.)
 export const CAVE_CUT = {
-  uCutA: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },   // mouth end: centre, half-width
-  uCutB: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },   // inner end: centre, half-height
-  uCutF: { value: Array.from({ length: 8 }, () => new THREE.Vector2()) },   // the floor at each end
+  uCutA: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },   // mouth end: the floor's middle, and the half-width
+  uCutB: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },   // inner end: the same
+  uCutH: { value: Array.from({ length: 8 }, () => new THREE.Vector2()) },   // the height of the arch at each end
   uCutN: { value: 0 },
 };
 // Round the nearest caves, the far land is not drawn at all (buildFar): the
@@ -54,16 +59,20 @@ function applyCaveCut(material) {
       .replace('#include <common>', `#include <common>
         uniform vec4 uCutA[8];
         uniform vec4 uCutB[8];
-        uniform vec2 uCutF[8];
+        uniform vec2 uCutH[8];
         uniform int uCutN;`)
       .replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
         for (int i = 0; i < 8; i++) {
           if (i >= uCutN) break;
-          vec3 a = uCutA[i].xyz, ab = uCutB[i].xyz - a;
-          float t = clamp(dot(vDetailPos - a, ab) / dot(ab, ab), 0.0, 1.0);
-          vec3 o = vDetailPos - (a + ab * t);
-          vec2 e = vec2(length(o.xz) / uCutA[i].w, o.y / uCutB[i].w);
-          if (dot(e, e) < 1.0 && vDetailPos.y > mix(uCutF[i].x, uCutF[i].y, t) + 0.25) discard;
+          vec2 a = uCutA[i].xz, ab = uCutB[i].xz - a;
+          float t = dot(vDetailPos.xz - a, ab) / dot(ab, ab);
+          // (Square at the lip; a little past the inner end, to close the
+          // joint with the next run on the outside of a bend.)
+          if (t < 0.0 || t > 1.15) continue;
+          float k = min(t, 1.0);
+          float up = vDetailPos.y - mix(uCutA[i].y, uCutB[i].y, k);
+          vec2 e = vec2(length(vDetailPos.xz - (a + ab * t)) / mix(uCutA[i].w, uCutB[i].w, k), up / mix(uCutH[i].x, uCutH[i].y, k));
+          if (up > 0.25 && dot(e, e) < 1.0) discard;
         }`);
   };
   const key = material.customProgramCacheKey?.bind(material);

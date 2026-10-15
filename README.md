@@ -446,14 +446,21 @@ nothing lines up in rows:
     foot, when it falls, a stack) — so they stand only where the coast juts
     out and the cliff behind is as high as they are. Swim or sail under; their
     legs are solid to you and to the raft.
-  - **Rock shelves** (11), ledges out from the lips of the cliffs, to walk
+  - **Rock shelves** (18), ledges out from the lips of the cliffs, to walk
     out onto or under.
 
   Each is its own mesh; the heightfield is left as it is. A cave is a tube of
   rock set into the hill with the ground above it untouched; where it comes
   out through the cliff face, the terrain's shader throws that bit of the
   ground away (`CAVE_CUT`, the nearest mouths) so the mouth opens, and the
-  tube's outer skin is what shows round the cut. The mouth is set in from
+  tube's outer skin is what shows round the cut. What is cut is the tube's
+  own arch over its floor, 0.4 m clear of its walls and roof — inside the
+  rock round it, so nothing is cut that the rock does not cover — square at
+  the lip. (It was a round capsule: wider than the rock at the shoulders of
+  the arch, so the hillside beside a mouth was holed through to the sky,
+  ten square metres of it at a sea cave; and round at the end, so it began a
+  metre in, and a sloping face came up inside the mouth in a wedge of
+  grass.) The mouth is set in from
   the foot to where the rock stands over the way in within a few metres —
   started at the foot of a 50° slope, the tube stood out of it for five
   metres, a dome of rock on the grass. Inside, its floor and walls
