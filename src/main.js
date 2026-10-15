@@ -704,7 +704,9 @@ class Game {
     if (item.tool) n = 1;
     let made = 0;
     while (made < n && this.inv.pay(r.cost)) { this.inv.add(r.out[0], r.out[1]); made++; }
-    if (!made) { this.hud.log('Not enough materials.', 'bad'); return; }
+    // (What is short, and what you have of it — as the build bar says it: "not
+    // enough materials" left you to work out which.)
+    if (!made) { this.hud.log(this.inv.shortText(r.cost), 'bad'); return; }
     const total = made * r.out[1];
     this.hud.log(`Crafted ${item.name}${total > 1 ? ` ×${total}` : ''}` +
                  (made < n ? ` — the materials ran out after ${made}.` : '.'), 'good');

@@ -359,7 +359,7 @@ export class HUD {
         const slot = hotbar.slots.indexOf(id);
         return `<div class="card${slot === hotbar.selected ? ' sel' : ''}" data-item="${id}">
           <div class="t">${it.name}<em>${it.tool ? 'tool' : '×' + n}</em></div>
-          <div class="c">${slot === -1 ? 'not in a slot' : `slot ${slot + 1}`}</div>
+          <div class="c">${slot !== -1 ? `slot ${slot + 1}` : it.pack ? 'works from your pack' : 'not in a slot'}</div>
           <div class="d">${it.hint || usedIn(id)}</div></div>`;
       }).join('');
     }
