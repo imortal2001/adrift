@@ -629,7 +629,13 @@ there. **Crags** crown the steep slopes, the escarpment rims and the high
 drier crests; **sea stacks** stand close off the cliffed headlands, never a
 sandy shore; and the lone pillars that stood on the plains are **buttes** in
 front of the escarpments now, since hoodoos need a dry, frosty badland, not a
-wet forested plain.
+wet forested plain. No loose boulder sits on a face much over 50° — nothing
+stays there; it is bare rock and crags. Every rock is bedded into the ground
+all round, not set level by its middle: a boulder lies on the slope and a
+crag's beds dip with it (most of the way; a spire stands straight), and then
+it goes down until the whole of its underside is in the ground — set by its
+middle, crags on the mountainsides hung twenty metres out over the slope
+below, and the sea stacks a couple of metres over the bed.
 
 Detail falls off with distance: ground cover and ferns within ~100 m (fading out
 rather than stopping), full trees within ~100 m and a cheap build of each out

@@ -1567,6 +1567,30 @@ export class Terrain {
           } else if (sp.material === 'rock') {
             pitch = (r1 - 0.5) * 0.4; roll = (r2 - 0.5) * 0.4;
             y -= 0.3 * sc;
+            // Bedded in the ground all round, not set level by its middle: on
+            // a mountainside that left a crag hanging twenty metres out over
+            // the slope below it, and boulders stuck to the face by one edge.
+            // A boulder at rest lies on the slope, and a crag's beds dip with
+            // it — mostly (`bed`); a spire stands up straight. Then it goes
+            // down until the whole of its underside is in the ground.
+            const geo = speciesGeometry(sp, v, lod), under = rockBase(geo);
+            const R = Math.max(1, under.reach * sc * 0.6);
+            const gx = (heightAt(x + R, z) - heightAt(x - R, z)) / (2 * R), gz = (heightAt(x, z + R) - heightAt(x, z - R)) / (2 * R);
+            const grade = Math.hypot(gx, gz);
+            if (sp.bed && grade > 1e-4) {
+              const t = Math.tan(Math.atan(grade) * sp.bed) / grade;
+              lean = { x: -gx * t, z: -gz * t };
+            }
+            const o = this._dummy;
+            o.position.set(0, 0, 0);
+            o.rotation.set(pitch, yaw, roll, 'YXZ');
+            if (lean) o.quaternion.premultiply(_q.setFromUnitVectors(_up, _lean.set(lean.x, 1, lean.z).normalize()));
+            o.scale.setScalar(sc);
+            o.updateMatrix();
+            for (const b of under) {
+              _logAt.copy(b).applyMatrix4(o.matrix);
+              y = Math.min(y, heightAt(x + _logAt.x, z + _logAt.z) - _logAt.y - 0.08);
+            }
           } else {
             pitch = (r1 - 0.5) * 0.06; roll = (r2 - 0.5) * 0.06;
             y -= 0.15;
@@ -2999,8 +3023,34 @@ const BIT_COLOURS = {
 };
 const _bitColour = new THREE.Color(), _bitAt = new THREE.Vector3();
 
+/**
+ * The underside of a rock, for bedding it in the ground: points from the
+ * lowest fifth of it — the outermost in each of sixteen directions round it,
+ * which is where it would show daylight under it, and a scatter from inside.
+ * `reach`, how far out from its middle it goes.
+ */
+function rockBase(geo) {
+  if (geo.userData.under) return geo.userData.under;
+  if (!geo.boundingBox) geo.computeBoundingBox();
+  const bb = geo.boundingBox, cut = bb.min.y + (bb.max.y - bb.min.y) * 0.2;
+  const p = geo.attributes.position, rim = new Array(16).fill(null), low = [];
+  let reach = 0;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), z = p.getZ(i), r = Math.hypot(x, z);
+    reach = Math.max(reach, r);
+    if (p.getY(i) >= cut) continue;
+    const b = new THREE.Vector3(x, p.getY(i), z), s = Math.floor((Math.atan2(z, x) / (2 * Math.PI) + 0.5) * 16) % 16;
+    if (!rim[s] || r > Math.hypot(rim[s].x, rim[s].z)) rim[s] = b;
+    low.push(b);
+  }
+  const step = Math.max(1, Math.floor(low.length / 16));
+  const under = rim.filter(Boolean).concat(low.filter((_, k) => k % step === 0));
+  under.reach = reach;
+  return (geo.userData.under = under);
+}
+
 // An instance matrix that puts something out of sight: a felled plant.
-const HIDDEN = new THREE.Matrix4().makeTranslation(0, -400, 0).multiply(new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4));
+const HIDDEN =new THREE.Matrix4().makeTranslation(0, -400, 0).multiply(new THREE.Matrix4().makeScale(1e-4, 1e-4, 1e-4));
 
 /**
  * The faces of a cut `hl` up a trunk (in the geometry's own units): its

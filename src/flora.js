@@ -2201,6 +2201,8 @@ export function drapeGeometry(strands) {
 // the cheap `lod` build is used). Harvestable species carry a `yield`; those
 // too big to take by hand carry `chop`, the strokes of an axe it takes (and
 // `falls` if it comes down when it goes, rather than being chopped up where it lies).
+// A rock is bedded into the ground all round, and leans with the slope by
+// `bed` (0 upright .. 1 square to it).
 //
 // `site` is what the terrain knows about the spot:
 //   h        height above the sea            slope   0 flat .. 1 sheer
@@ -2318,16 +2320,18 @@ export const SPECIES = [
     rings: 1, scale: [0.8, 1.3], reach: 2, regrow: 150, yield: { wood: 1 }, conform: 1,
     where: s => s.forest * 0.06 * (s.h > 3 ? 1 : 0) },
   { name: 'boulder', group: 'Rocks', habitat: 'steep ground and the foot of it, the mountains and the mountain streams, the beaches under the cliffs; next to none on the wet, flat lowlands, whose rivers carry sand', label: 'Boulder', layer: 'rock', make: boulder, variants: 4, material: 'rock',
-    rings: 3, farFrom: 2, scale: [0.6, 3.2], solid: true,
+    rings: 3, farFrom: 2, scale: [0.6, 3.2], solid: true, bed: 0.8,
     // Bedrock hides under soil below ~30°, and shows fast above it; river
     // stones only where the stream is steep enough to move them (the bed
     // goes from gravel to sand abruptly, on the way down to the plain); no
     // loose boulders out on the lowlands, with no ice to have carried them.
+    // Nor on a face much over 50°: nothing loose stays there — it is down
+    // at the foot, and the face is bare rock and crags (outcrop, below).
     where: s => (smooth01(0.18, 0.5, s.slope) * 0.55 + s.mountain * 0.18 + s.mesa * s.slope * 0.3 +
                  s.beach * s.cliff * 0.25 + band(s.edge, 0.5, 1.5, 8, 18) * smooth01(30, 70, s.h) * 0.25 +
-                 s.plain * (1 - s.wet) * 0.01 + 0.004) * (s.h > 0.5 ? 1 : 0) },
+                 s.plain * (1 - s.wet) * 0.01 + 0.004) * (s.h > 0.5 ? 1 : 0) * smooth01(0.5, 0.36, s.slope) },
   { name: 'outcrop', group: 'Rocks', habitat: 'crags on the steep slopes, the escarpment rims and the mountains; tors on the high, drier crests', label: 'Rock outcrop', layer: 'landmark', make: outcrop, variants: 3, material: 'rock',
-    rings: 6, farFrom: 2, scale: [1.2, 2.8], solid: true,
+    rings: 6, farFrom: 2, scale: [1.2, 2.8], solid: true, bed: 0.8,
     where: s => (s.mountain * 0.6 + smooth01(0.2, 0.5, s.slope) * 0.9 + s.mesa * 0.5 + s.plain * (1 - s.wet) * smooth01(20, 60, s.h) * 0.25) *
                 (s.h > 6 ? 1 : 0) * (s.edge > 15 ? 1 : 0) },
   { name: 'spire', group: 'Rocks', habitat: 'sea stacks off the cliff coasts, and buttes standing out from the escarpments — landmarks you can see from afar', label: 'Rock spire', layer: 'landmark', make: spire, variants: 3, material: 'rock',
