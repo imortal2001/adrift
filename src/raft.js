@@ -398,11 +398,15 @@ const BUILD = {
   roof(t, M) {
     const g = new THREE.Group();
     const x = t.cx * CELL, z = t.cz * CELL;
+    // (Every other square's a hair higher: next to each other, the slabs
+    // overlap by their overhang, and two faces in one plane flicker.)
     g.add(mesh(geo('roofslab', () => new THREE.BoxGeometry(CELL + 0.1, 0.13, CELL + 0.1)),
-               M('roof'), x, ROOF_Y, z));
-    const postG = geo('rpost', () => new THREE.BoxGeometry(0.12, ROOF_Y, 0.12));
-    for (const [dx, dz] of [[-0.92, -0.92], [0.92, -0.92], [0.92, 0.92], [-0.92, 0.92]]) {
-      g.add(mesh(postG, M('plank'), x + dx, ROOF_Y / 2, z + dz));
+               M('roof'), x, ROOF_Y + ((t.cx + t.cz) & 1) * 0.006, z));
+    // What holds it up is the raft's frame (rebuildFrame): one post at each
+    // corner, shared. Only the build preview, alone, shows its own four.
+    if (M('plank') !== mats().plank) {
+      const postG = geo('rpost', () => new THREE.BoxGeometry(0.12, ROOF_Y, 0.12));
+      for (const [dx, dz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) g.add(mesh(postG, M('plank'), x + dx, ROOF_Y / 2, z + dz));
     }
     return g;
   },
@@ -928,8 +932,43 @@ export class Raft {
     return true;
   }
 
+  /**
+   * The raft's frame: a post at each corner of the grid that a wall ends at
+   * or a roof stands on — one, shared, however many pieces meet there. Each
+   * roof brought its own four, so a cabin of four squares stood on sixteen,
+   * in pairs along its walls and a clump of four in the middle; and each wall
+   * stopped short of the corner, so where two met the corner was a notch.
+   * Built afresh whenever the raft changes (rebuildIndex).
+   */
+  rebuildFrame() {
+    const f = this.frame ||= Object.assign(new THREE.Group(), { name: 'frame' });
+    if (f.parent !== this.group) this.group.add(f);
+    f.clear();
+    const corners = new Map();     // corner (i, j), at ((i - ½)·CELL, (j - ½)·CELL): { walls, roof }
+    const at = (i, j) => { const k = key(i, j); let c = corners.get(k); if (!c) corners.set(k, c = { i, j, walls: 0, roof: false }); return c; };
+    for (const e of this.edges.values()) {
+      if (e.type !== 'wall') continue;
+      const ends = e.es === 1 ? [[e.ex + 1, e.ez], [e.ex + 1, e.ez + 1]] : [[e.ex, e.ez + 1], [e.ex + 1, e.ez + 1]];
+      for (const [i, j] of ends) at(i, j).walls++;
+    }
+    for (const t of this.tops.values()) {
+      for (const [i, j] of [[t.cx, t.cz], [t.cx + 1, t.cz], [t.cx, t.cz + 1], [t.cx + 1, t.cz + 1]]) at(i, j).roof = true;
+    }
+    this.posts = [];
+    const M = mats();
+    for (const c of corners.values()) {
+      const h = c.roof ? ROOF_Y : WALL_H, w = c.walls ? 0.16 : 0.12;
+      const x = (c.i - 0.5) * CELL, z = (c.j - 0.5) * CELL;
+      const m = mesh(geo(`fpost:${w}:${h}`, () => new THREE.BoxGeometry(w, h, w)), M.plank, x, h / 2, z);
+      f.add(m);
+      // (One standing free, under a roof, is in the way; one in a wall, the wall is.)
+      if (!c.walls) this.posts.push({ x, z, r: w / 2 });
+    }
+  }
+
   /** Meshes the player can look at, and the wall/railing collision boxes. */
   rebuildIndex() {
+    this.rebuildFrame();
     this.pickables.length = 0;
     this.group.traverse(m => { if (m.isMesh && m.userData.piece) this.pickables.push(m); });
 
@@ -951,6 +990,7 @@ export class Raft {
             r = o.type === 'campfire' ? 0.62 : o.type === 'sail' ? 0.18 : o.type === 'statue' ? 0.3 : 0.58;
       this.blockers.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r });
     }
+    for (const p of this.posts) this.blockers.push({ minX: p.x - p.r, maxX: p.x + p.r, minZ: p.z - p.r, maxZ: p.z + p.r });
   }
 
   /** Would the raft stay in one piece without this cell? */

@@ -1257,6 +1257,8 @@ export async function loadRegistry() {
           obj = ({ edge: raft.edges, top: raft.tops, object: raft.objs })[b.kind].values().next().value?.obj;
         }
         if (!obj) return { object: null, missing: 'could not place ' + b.id };
+        // A wall or a roof with the posts at its corners: the raft's frame holds it up (raft.js rebuildFrame).
+        if (b.kind === 'edge' || b.kind === 'top') { const both = new THREE.Group(); obj.removeFromParent(); both.add(obj, raft.frame); obj = both; }
         if (b.id === 'campfire' && variant !== 'unlit') {
           const rec = raft.objs.values().next().value;
           rec.lit = true; rec.fuel = Infinity;          // never burns down on show

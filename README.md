@@ -2116,6 +2116,18 @@ Walls and railings canonicalise to a shared boundary, so a wall between two
 cells exists once. Salvaging a foundation flood-fills to refuse any cut that
 would split the raft in two.
 
+**One frame.** What holds the roofs up and the walls together is the raft's
+own frame (`rebuildFrame`), built afresh whenever a piece goes on or comes off:
+a post at each corner of the grid that a wall ends at or a roof stands on —
+one, however many pieces meet there, full height in a wall's corner, and
+solid to walk into when it stands free under a roof. Each roof brought its
+own four posts, so a cabin of four squares stood on sixteen, in pairs along
+its walls and a clump of four in the middle, and each wall stopped short of
+the corner, so where two met the corner was a notch. (The build preview of a
+roof, alone, still shows its own four.) Next to each other, every other roof
+is a few millimetres higher, so where their overhangs overlap two faces do
+not share a plane and flicker.
+
 **Where the sea meets the raft.** `setHulls()` also gives the shader each
 raft's extent and its way through the water in its own frame. Within a couple
 of metres of the hull, the water finds its distance to the nearest square of
