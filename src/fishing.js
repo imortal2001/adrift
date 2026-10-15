@@ -534,6 +534,11 @@ export class Fishing {
     this.fishPos.set(this.tip.x + hx * dist, 0, this.tip.z + hz * dist);
     const sea = waveHeight(this.fishPos.x, this.fishPos.z, time);
     this.fishPos.y = f.jump >= 0 ? sea + Math.sin(Math.PI * f.jump) * 0.55 : sea - f.depth;
+    // Never deeper than the water is: hooked off a beach, it sounded as deep
+    // as it would out on the reef — through the sand, half a metre down.
+    // (In the last of the shallows it thrashes at the top.)
+    const bed = heightAt(this.fishPos.x, this.fishPos.z) + 0.15 + (this.catch?.length ?? 0.3) * 0.12;
+    if (this.fishPos.y < bed) this.fishPos.y = Math.min(bed, sea - 0.05);
 
     // The float skitters along the surface above it, dragged under by a hard pull.
     this.pos.set(this.fishPos.x, sea - 0.04 - 0.2 * Math.max(0, f.tension - 0.6), this.fishPos.z);

@@ -282,13 +282,13 @@ pause screen starts over.
 | `tools/convert_glb.py` | Round-trips a third-party `.glb` through Blender to fix deprecated materials. |
 | `tools/export_models.py` | Blender-side exporter: settings, manifest upkeep and pre-flight checks. |
 | `src/underwater.js` | Light, colour and marine snow falling off with depth; the red taken out of the light on the sea bed; caustics; sun shafts. |
-| `src/hook.js` | The throwable hook — ballistic flight, attach, reel in. |
+| `src/hook.js` | The throwable hook — ballistic flight, attach, reel in. Thrown up a beach or short into the shallows it comes down on the ground and is pulled back over it, and what it hooks there is dragged up the sand (debris.js), not under it. |
 | `src/player.js` | Deck / air / swim states, and hunger, thirst and breath. |
 | `src/items.js` | All game data: items, recipes, buildables, debris yields, and what each item does in hand. |
 | `src/hotbar.js` | The five slots: registration, selection, and auto-assignment. |
 | `src/viewmodel.js` | What is in your hand: drawn as a second pass over the frame, with bob, sway, swap and a click animation per action. |
 | `src/spear.js` | Thrown spears: flight, sticking into ground, sea bed and deck, floating in water, and pulling them back out. |
-| `src/fishing.js` | The rod: the swing meter and cast, the float, nibbles and the bite, drawing the fight, and what bites where. The float landing, a nibble, the bite, a run and a leap are splashes (splash.js) that ride the swell; it was one flat ring mesh, which sank into the face of a wave. |
+| `src/fishing.js` | The rod: the swing meter and cast, the float, nibbles and the bite, drawing the fight, and what bites where. A hooked fish is never deeper than the water: off a beach it sounded as deep as on the reef, through the sand. The float landing, a nibble, the bite, a run and a leap are splashes (splash.js) that ride the swell; it was one flat ring mesh, which sank into the face of a wave. |
 | `src/fight.js` | The fight once a fish is hooked — tension, line and stamina, and how each species fights. Pure maths, no imports, so it can be simulated on its own. |
 | `src/hud.js`, `src/input.js` | DOM HUD (including the dev admin panel); held-vs-tapped keys, mouse look with and without pointer lock. |
 | `src/textures.js` | Every texture is painted into a canvas at load time — no image assets. |

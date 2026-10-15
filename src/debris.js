@@ -382,6 +382,9 @@ export class DebrisField {
 
       it.yaw += it.spin * dt;
       it.y = waveHeight(it.x, it.z, time) + it.buoy;
+      // Reeled in up a beach, it is dragged over the sand — not through it,
+      // under the beach at the sea's height, hook and all.
+      if (it.held) it.y = Math.max(it.y, heightAt(it.x, it.z) + 0.08);
 
       const o = it.obj;
       o.position.set(it.x, it.y, it.z);
