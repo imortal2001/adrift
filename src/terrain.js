@@ -1570,6 +1570,17 @@ export class Terrain {
           } else {
             pitch = (r1 - 0.5) * 0.06; roll = (r2 - 0.5) * 0.06;
             y -= 0.15;
+            // A trunk on a slope reaches the ground on its low side too: set by
+            // its middle, the downhill edge of a big one on a steep slope stood
+            // a third of a metre over it, roots and all.
+            if (trunk) {
+              const geo = speciesGeometry(sp, v, lod);
+              if (!geo.boundingBox) geo.computeBoundingBox();
+              const R = trunk * sc * 0.45, deep = -geo.boundingBox.min.y * sc;
+              let low = Infinity;
+              for (let a = 0; a < 8; a++) low = Math.min(low, heightAt(x + Math.cos(a * 0.785) * R, z + Math.sin(a * 0.785) * R));
+              y = Math.min(y, low + deep - 0.05);
+            }
           }
           const key = `${sp.name}|${v}|${lod}`;
           let list = place.get(key);

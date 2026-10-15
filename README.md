@@ -511,7 +511,11 @@ stalks it never drew, daylight under it). And what lies on or spreads over
 the ground leans with it (`conform` on a species: fallen branches all the way,
 the ferns, thickets and low cover part way) — set level on a slope, fallen
 branches hung a metre off it at their downhill ends; a fallen log is set
-down onto the lowest of the ground along it, not by its middle. Bark is
+down onto the lowest of the ground along it, not by its middle. A standing
+trunk reaches the ground on its low side as well: set by its middle, a big
+redwood or araucaria on a steep slope stood with its downhill edge, roots
+and all, up to a third of a metre in the air — so each is let down until
+its roots meet the lowest of the ground round its base. Bark is
 painted too, one kind per kind of trunk, each a relief for the light and the
 normal map: the redwood's deep fibrous furrows, the araucaria's grey flaking
 plates ringed by old branch scars, the palm's leaf-scar rings, the tree
