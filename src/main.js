@@ -2880,8 +2880,17 @@ class Game {
     if (this.player.cave && day < 0.25 && !this.torch.lit && !this.saidDark) {
       this.saidDark = true;
       const striker = this.inv.has('striker') || this.inv.has('torch');
-      this.hud.log('Past the first few metres it is black. A torch would light the way in — Wood and Palm fibre, crafting (C)' +
-                   (striker ? '. ' : ' — and back by the mouth, in the light, is flint: struck on scrap, it lights a torch anywhere. ') +
+      // (With a torch already in the pack, say so — not to go and make one:
+      // put away for a moment, to eat, it was "a torch would light the way in,
+      // crafting (C)".)
+      const slot = this.hotbar.slots.indexOf('torch');
+      const yours = !this.inv.has('torch') ? null
+        : this.torch.embers > 0 ? `Your torch is smouldering in your pack — take it out again${slot >= 0 ? ` (${slot + 1})` : ''} and it will catch. `
+        : `You have a torch${slot >= 0 ? ` (${slot + 1})` : ' — put it in a slot (I)'}: light it ` +
+          (this.inv.has('striker') ? 'with a click — the striker is in your pack. ' : 'at a burning campfire, or with a fire striker. ');
+      this.hud.log('Past the first few metres it is black. ' + (yours ||
+                   'A torch would light the way in — Wood and Palm fibre, crafting (C)' +
+                   (striker ? '. ' : ' — and back by the mouth, in the light, is flint: struck on scrap, it lights a torch anywhere. ')) +
                    'Nothing that hunts you out there can follow you in here.', '', 9000);
     }
 

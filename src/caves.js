@@ -767,8 +767,20 @@ export class Caves {
     }
     // The springs: still, dark water in the chamber.
     // (Clear, the wet rock of its dish showing through; glassy, so a torch shows in it as a smear of light.)
+    // (Thinning out to nothing where the dish comes up to meet it, as the
+    // water does: one flat opacity to the rim, it was a disc of green lying on
+    // the floor with a hard round edge — a mat, not a pool.)
+    const N = 64, fade = new Uint8Array(N * N * 4);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const u = Math.hypot((x + 0.5) / N - 0.5, (y + 0.5) / N - 0.5) * 2;        // 0 at the middle, 1 at the disc's rim
+      const deep = 0.45 * (1 - smooth(0.55, 1, u * 0.97)) - 0.06;              // the water over the dish there (caveGeometry)
+      fade.fill(Math.round(255 * smooth(0, 0.14, deep)), (y * N + x) * 4, (y * N + x) * 4 + 4);
+    }
+    const alphaMap = new THREE.DataTexture(fade, N, N, THREE.RGBAFormat);
+    alphaMap.magFilter = alphaMap.minFilter = THREE.LinearFilter;
+    alphaMap.needsUpdate = true;
     this.water = inTheDark(new THREE.MeshStandardMaterial({ color: 0x2c4a4c, roughness: 0.14, metalness: 0.1, transparent: true,
-                                                          opacity: 0.62, depthWrite: false }), daylight(99));
+                                                          opacity: 0.62, depthWrite: false, alphaMap }), daylight(99));
     for (const c of CAVES) {
       if (!c.spring) continue;
       const w = new THREE.Mesh(new THREE.CircleGeometry(c.spring.r * 0.97, 28).rotateX(-Math.PI / 2), this.water);

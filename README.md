@@ -421,7 +421,9 @@ nothing lines up in rows:
     than the passage, where the seep that made the cave has sapped the cliff
     foot back — then a tunnel three metres wide that doglegs and winds
     twenty-odd metres back into the hill, to a chamber with a **spring pool** in
-    it to drink from (**E**). The floor is sand, with blocks fallen from the
+    it to drink from (**E**) — its water thinning out to nothing where the dish
+    of its bed comes up to meet it, not a flat disc with a hard edge lying on
+    the floor like a mat. The floor is sand, with blocks fallen from the
     roof heaped against the walls: a cave in sandstone widens by its roof
     coming down, and grows no stalactites — those are limestone's. Round the
     dogleg it is black: the daylight — sun, moon and sky — falls away with how
@@ -429,7 +431,10 @@ nothing lines up in rows:
     gentler than the inverse square — `TORCH_LIGHT` and `TORCH_DECAY` in
     `main.js` — so the wall beside you is plain and the tunnel ahead dim for a
     dozen metres, rather than the ground at your feet burnt white and the
-    trees three steps off black, as it was at night in the forest.) Low on the
+    trees three steps off black, as it was at night in the forest. And when
+    it is dark and your torch is not lit, what it says is what you have: a
+    torch smouldering in the pack, to take out again; one to light; or none,
+    and how to make one.) Low on the
     walls, deep in, is **flint** (**E** chips it out; it comes back in a
     while) — and one face of it a few metres in from the mouth, still in the
     daylight, so that someone who came without a torch can make a fire
