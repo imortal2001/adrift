@@ -236,7 +236,7 @@ pause screen starts over.
 | `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an open-ocean cobalt, not the navy-to-black it was under the raft. The sea state follows the wind and the squalls (`seaStateAt`), with the wind's ripples on top. `setHulls()` keeps the swell from drawing through a raft's deck, froths the water round a raft's hull, and records where the rafts have been for wakes that stay where they were made and curve where a raft turned. The clouds are in the water too. |
 | `src/sky.js` | Sun, moon, sky dome, stars and Milky Way, twilight, and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
 | `src/clouds.js` | Trade-wind cumulus: one deck of scattered clouds about a kilometre up, one GLSL function shared by the sky dome and the ocean's reflection. They drift with the wind the sail takes (`driftClouds`), cover changes from day to day, and they are lit from underneath in the sun's colour at dawn and dusk and faintly by the moon at night. In a squall they close into a grey overcast with darker rain cloud on it. |
-| `src/weather.js` | Squalls: fair trade-wind weather broken every quarter of an hour of play or so by a minute or two of rain. `weatherAt(time)` runs on the shared sea clock, so everyone on a raft is rained on at once. The sky goes grey and dim and the haze thickens (sky.js), the wind gusts on the sail (raft.js `windAt`), the sea goes grey with more whitecaps and is pocked by the drops (ocean.js), and a collector fills in about a minute instead of on dew. `Weather` draws the rain as streaks round the camera — not under the roof you stand under — and plays it. |
+| `src/weather.js` | Squalls: fair trade-wind weather broken every quarter of an hour of play or so by a minute or two of rain. `weatherAt(time)` runs on the shared sea clock, so everyone on a raft is rained on at once. The sky goes grey and dim and the haze thickens (sky.js), the wind gusts on the sail (raft.js `windAt`), the sea goes grey with more whitecaps and is pocked by the drops (ocean.js) — and so are the rivers, lakes and pools (terrain.js) — and a collector fills in about a minute instead of on dew. `Weather` draws the rain as streaks round the camera — not under the roof you stand under — and plays it. |
 | `src/splash.js` | Whatever goes into the sea: you off the side, a spear, the fishing float, a paddle stroke, the raft's bow meeting a crest, a felled tree, the whale surfacing or its flukes going under. `splash(at, size)` from anywhere: a crown of drops (and from a big one, the jet that rises after), white water and rings drawn by the ocean shader on the swell itself, and a plop or a slap you hear. |
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
@@ -367,7 +367,16 @@ nothing lines up in rows:
   or three over it into the next, the steps one to two channel widths apart
   (step-pool and cascade reaches, Montgomery & Buffington 1997). The pools are
   sunk into the valley floor, so the banks you walk along keep the smooth
-  fall of the valley.
+  fall of the valley. Each cross-section of the channel is cut square across
+  the stream, at the level of the river where it is square across from: the
+  rivers wander up to 50° off the line out from the middle of the land, and
+  cut by distance from the middle instead, a bank beside a stepped reach took
+  the level of a pool or two further down — a metre and more under the water
+  next to it, which stood over the ground there in a slab — and every pool
+  ended slantwise across the stream in a sawtooth. (Not at a fall, whose
+  cliff runs round the land.) At the mouth the water goes down to the sea by
+  each point's own distance from the coast, as the banks do, so where the
+  coast crosses the mouth slantwise neither edge stands over the beach.
 - **Waterfalls and lakes** (`placeWater` in `terrain.js`, drawn by
   `src/waterfall.js`) — where each river comes off the range fastest, it goes
   over a lip and drops, sheer, up to 22 m: a notch cut through the rock across
@@ -378,7 +387,8 @@ nothing lines up in rows:
   water tearing loose and tumbling down in front. The pool churns — two
   layers of foam turning against each other, a trail of it carried off
   downstream — droplets are flung up out of the impact, and spray boils off
-  it all and drifts away. Above each fall the river is
+  it all and drifts away. Its white water holds its light in the shade of the
+  gorge by day, but dims at night and under a squall's cloud. Above each fall the river is
   flattened into a **lake held back by the rock of the lip**, spilling over it
   (the code calls it a tarn; a true tarn is a glacier's, and there were
   none), the stream coming down into it over a cascade of short steps, not

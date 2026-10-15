@@ -13,6 +13,7 @@ import { applyCaustics } from './underwater.js';
 import { applyGroundDetail } from './detail.js';
 import { SPECIES, LAYERS, speciesGeometry, speciesMaterial, floraMaterials, drapeGeometry, setFloraTime } from './flora.js';
 import { Waterfall, lakeGeometry } from './waterfall.js';
+import { WEATHER } from './weather.js';
 
 export const WORLD = {
   cx: 660, cz: -480,     // continent centre; nearest shoreline is ~80m from the
@@ -541,7 +542,20 @@ function carveRivers(x, z, h, m, out) {
     db = Math.atan2(Math.sin(db), Math.cos(db));
     const s = r * riverTurn(rv, r);
     const d = Math.abs(db) * r / Math.sqrt(1 + s * s);
-    const at = riverAt(rv, Math.min(Math.max(r, rv.r0), rv.r1 - 0.01));
+    // The river as it is square across from here, not at the same distance
+    // from the middle of the land: where it runs slantwise to that — up to
+    // 50° — the stretch beside you at your own distance is a pool or two
+    // further down a stepped reach, and the bank on that side was cut to
+    // its level: a metre and more under the water beside it, which stood
+    // over the ground there in a slab, and every pool's end ran slantwise
+    // across the stream in a sawtooth. (Not at a fall, whose cliff runs
+    // round the land and faces out from its middle: there, as it was.)
+    let rf = r + db * r * s / (1 + s * s);
+    if (rv.fallK >= 0) {
+      const rl = rv.r0 + (rv.fallK + 0.46) * RIVER_STEP;
+      rf += (r - rf) * smooth(rl - 34, rl - 22, r) * smooth(rl + 48, rl + 36, r);
+    }
+    const at = riverAt(rv, Math.min(Math.max(rf, rv.r0), rv.r1 - 0.01));
     if (!at) continue;
     const half = at.width * 0.5 * at.open;
     let W = at.level;
@@ -937,13 +951,8 @@ export function riverGeometry(rv, keep = null) {
   // Into the sea at the mouth: the river runs a little above the sea to the
   // last, and carried on at that level its square end lay out on top of the
   // waves. Over the last few metres of beach it slopes down under the sea's
-  // surface, and stops a little way out.
-  const toSea = p => {
-    const m = coastDistance(p.x, p.z);
-    if (m < -3) return null;
-    if (m < 8) p.level += (-0.3 - p.level) * smooth(8, 2, m);
-    return p;
-  };
+  // surface (atLip, below), and stops a little way out.
+  const toSea = p => (coastDistance(p.x, p.z) < -3 ? null : p);
   const pts = riverCourse(rv, 2).map(p => ((keep && !keep(p.x, p.z)) || inLake(p) || midFall(p) ? null : toSea(p)));
   if (pts.filter(Boolean).length < 2) return null;
   const pos = [], uv = [], idx = [], depth = [];
@@ -963,6 +972,11 @@ export function riverGeometry(rv, keep = null) {
       const past = (x - f.x) * f.dx + (z - f.z) * f.dz + 0.2;
       if (past > 0) { x -= f.dx * past; z -= f.dz * past; }
     }
+    // Down to the sea by its own distance from the coast, as the banks are
+    // (carveRivers): by the middle's, where the coast crossed the mouth
+    // slantwise, one edge of the water stood a metre over the beach beside it.
+    const m = coastDistance(x, z);
+    if (m < 8 && y > -0.3) y += (-0.3 - y) * smooth(8, 2, m);
     pos.push(x, y, z);
     // How deep it is over the bed here: the shader fades the water out to
     // nothing where this runs to zero, so its edge is drawn where it meets
@@ -1200,6 +1214,8 @@ export class Terrain {
     setFloraTime(time);
     this.rivers.flow.offset.y = -time * 0.22;
     this.rivers.stillFlow.offset.set(time * 0.012, -time * 0.017);
+    this.rivers.rain.value = WEATHER.rain;
+    this.rivers.clock.value = time % 1000;
     for (const w of this.rivers.falls) w.update(dt, time, focus, night);
     const pi = Math.round(focus.x / CHUNK), pj = Math.round(focus.z / CHUNK);
     this.far.focus.value.set(pi * CHUNK, pj * CHUNK);
@@ -1892,20 +1908,47 @@ export class Terrain {
     // its colours (shared with the ocean, which the sky keeps up to date),
     // stronger toward grazing angles as water is.
     const sky = { top: { value: new THREE.Color(0x2f7fb5) }, horizon: { value: new THREE.Color(0xbfd9e8) } };
+    // And the rain on it (weather.js), as on the sea: a squall went over and
+    // the sea was pocked all over by the drops, and the rivers, the lakes and
+    // the pool under the falls lay there as glassy as on a still day.
+    const rain = { value: 0 }, clock = { value: 0 };
     mat.onBeforeCompile = shader => {
       shader.uniforms.uRiverSkyTop = sky.top;
       shader.uniforms.uRiverSkyHorizon = sky.horizon;
+      shader.uniforms.uRiverRain = rain;
+      shader.uniforms.uRiverTime = clock;
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
           attribute float aDepth;
-          varying float vDepth;`)
+          varying float vDepth;
+          varying vec3 vRiverWorld;`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
-          vDepth = aDepth;`);
+          vDepth = aDepth;
+          vRiverWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', `#include <common>
           uniform vec3 uRiverSkyTop;
           uniform vec3 uRiverSkyHorizon;
-          varying float vDepth;`)
+          uniform float uRiverRain, uRiverTime;
+          varying float vDepth;
+          varying vec3 vRiverWorld;
+          float riverHash(vec2 c){ return fract(sin(dot(c, vec2(127.1, 311.7))) * 43758.5453); }
+          // Each drop a ring spreading and fading, once a cycle in each cell
+          // of a fine grid, at a time of its own; as many cells as it is
+          // raining hard. (The sea's, ocean.js.)
+          float riverRain(vec2 p, float rain){
+            float acc = 0.0;
+            for (int l = 0; l < 2; l++) {
+              vec2 q = p * (l == 0 ? 2.2 : 3.1) + float(l) * 17.3;
+              vec2 c = floor(q), f = fract(q) - 0.5;
+              float h = riverHash(c);
+              if (h > rain) continue;
+              vec2 at = (vec2(riverHash(c + 3.1), riverHash(c + 7.7)) - 0.5) * 0.5;
+              float t = fract(uRiverTime * (1.1 + h * 0.6) + h * 13.0);
+              acc += exp(-pow((length(f - at) - t * 0.3) / 0.03, 2.0)) * (1.0 - t) * (1.0 - t);
+            }
+            return acc;
+          }`)
         // Clear in the shallows, the bed showing through it tinted, and
         // darkening to green-brown as it deepens (fresh water carries tannin
         // and silt); gone at the very edge, so it meets the bank in a soft
@@ -1921,8 +1964,14 @@ export class Terrain {
             vec3 v = normalize(vViewPosition);
             float fres = pow(1.0 - clamp(dot(normal, v), 0.0, 1.0), 4.0);
             vec3 skyc = mix(uRiverSkyTop, uRiverSkyHorizon, 0.55);
-            outgoingLight = mix(outgoingLight, skyc, 0.08 + fres * 0.6);
+            // (Beaten by the rain it mirrors the sky less, and goes grey.)
+            outgoingLight = mix(outgoingLight, skyc, (0.08 + fres * 0.6) * (1.0 - 0.35 * uRiverRain));
             diffuseColor.a = mix(diffuseColor.a, 1.0, fres * 0.8);
+            if (uRiverRain > 0.01) {
+              float near = 1.0 - smoothstep(4.0, 22.0, length(vViewPosition));
+              outgoingLight += mix(uRiverSkyHorizon, vec3(0.7), 0.3) * riverRain(vRiverWorld.xz, uRiverRain * 0.6) * 0.2 * near;
+              outgoingLight = mix(outgoingLight, uRiverSkyHorizon * 0.6, uRiverRain * 0.12 * (1.0 - near));
+            }
           }
           #include <opaque_fragment>`);
     };
@@ -1960,7 +2009,7 @@ export class Terrain {
       this.scene.add(w.group);
       return w;
     });
-    return { flow, stillFlow, meshes, material: mat, still, falls, sky };
+    return { flow, stillFlow, meshes, material: mat, still, falls, sky, rain, clock };
   }
 
   /**

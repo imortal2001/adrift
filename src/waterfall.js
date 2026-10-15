@@ -17,6 +17,7 @@
 
 import * as THREE from 'three';
 import { lakeShore, landAt } from './terrain.js';
+import { WEATHER } from './weather.js';
 
 const TUCK = 2.2;          // m a lake's surface runs past its shore, under the bank
 
@@ -359,10 +360,12 @@ export class Waterfall {
   update(dt, time, focus, night = 0) {
     const f = this.f;
     // White water keeps its light in the shade by day — not in the dark: the
-    // glow that holds it up goes, and the spray and clumps dim with it.
-    if (this.night !== night) {
-      this.night = night;
-      const day = 1 - 0.92 * night;
+    // glow that holds it up goes, and the spray and clumps dim with it. Nor
+    // under a squall's cloud (weather.js), where it shone as if in the sun.
+    const light = (1 - 0.92 * night) * (1 - 0.5 * WEATHER.gloom);
+    if (Math.abs(this.light - light) > 0.004 || this.light === undefined) {
+      this.light = light;
+      const day = light;
       for (const s of this.sheets) s.mat.emissiveIntensity = day;
       for (const { m } of this.foams) m.material.emissiveIntensity = day;
       this.spray.material.opacity = SPRAY_OPACITY * (1 - 0.8 * night);
