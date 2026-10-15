@@ -291,7 +291,9 @@ export function buildCampfire(x, z, M, bark) {
   flame.position.y = 0.08;
   const quad = new THREE.PlaneGeometry(0.9, 1.25).translate(0, 0.62, 0);
   const tongues = [];
-  for (const [seed, size] of [[0.0, 1.0], [0.37, 0.78]]) {
+  // (A cooking fire's, three-quarters of a metre at the most — not the
+  // metre and a third it was, a bonfire that swallowed the spit.)
+  for (const [seed, size] of [[0.0, 0.68], [0.37, 0.53]]) {
     const t = new THREE.Mesh(quad, flameMaterial(seed));
     t.frustumCulled = false;
     t.renderOrder = 2;

@@ -90,8 +90,16 @@ export const POSES = {
   fish:    { model: null,          pos: [0.24, -0.33, -0.60], rot: [0.15, 0.9, 0.25] },
 };
 
-/** What a fish's skin is multiplied by, cooked. Shared with main.js's spit. */
+/** The roast a fish's skin goes to, cooked. Shared with main.js's spit. */
 export const COOKED = new THREE.Color(0.62, 0.42, 0.27);
+/**
+ * A fish's colour `t` of the way cooked (0..1): toward that golden brown,
+ * whatever it was. (Its colour multiplied by it, a blue chromis came off the
+ * fire a darker blue — slate, not roast.)
+ */
+export function cookedTint(raw, t, out = new THREE.Color()) {
+  return out.copy(raw).lerp(COOKED, 0.78 * t).multiplyScalar(1 - 0.12 * t);
+}
 
 /** The pose an item is held in: its own, or the one all fish share. */
 const poseOf = id => POSES[id] || (fishOf(id) ? POSES.fish : null);
@@ -640,7 +648,7 @@ export class Viewmodel {
     if (key) {
       const mesh = this.fishBody?.(key);
       // Cooked, the same fish browned: its skin darkened toward roast.
-      if (mesh && ITEMS[id]?.cooked) mesh.material.color.multiply(COOKED);
+      if (mesh && ITEMS[id]?.cooked) cookedTint(mesh.material.color, 1, mesh.material.color);
       const obj = mesh ? this.standFish(mesh) : BODIES.fish();
       this.prepare(obj);
       this.bodies.set(id, obj);

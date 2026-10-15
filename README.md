@@ -1691,7 +1691,12 @@ the fire striker.
 
 **Cooking.** At a lit fire, `E` cooks the raw fish in hand — or, with none
 in hand, one from the pack: it is hung by the
-tail from a spit over the flames, three at a time, and browns as it cooks.
+tail from a spit over the flames, three at a time, and browns as it cooks —
+toward a golden roast, whatever its colour (its colour multiplied by roast, a
+blue chromis came off a darker blue). The spit's bar is a metre up, over a
+cooking fire's flames of three-quarters of a metre: the flames were a metre and
+a third and the bar at 0.78 m, and the fish hung in the middle of the fire,
+out of sight. A fish cooks on any raft's lit fire, not only the one you are on.
 After fourteen seconds it is done — `E` takes it off as a **cooked** fish of
 the same species ("Cooked red snapper"), into the fish slot. Cooked fish fills
 you up half again as much as raw (36 against 22) and, unlike raw, costs no

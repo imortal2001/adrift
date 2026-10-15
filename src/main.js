@@ -17,7 +17,7 @@ import { FishSchools } from './fish.js';
 import { Whale } from './whale.js';
 import { ReefLife } from './reeflife.js';
 import { Underwater } from './underwater.js';
-import { Viewmodel, THRUST_REACH, COOKED } from './viewmodel.js';
+import { Viewmodel, THRUST_REACH, cookedTint } from './viewmodel.js';
 import { CameraRig } from './camera.js';
 import { PlayerBody } from './body.js';
 import { Net, newCode, cleanCode, PUB } from './net.js';
@@ -45,7 +45,7 @@ const TAB = (() => { try { return sessionStorage.getItem('adrift.pid'); } catch 
 const SAVE_KEY = TAB ? `adrift.save.v2:${TAB}` : 'adrift.save.v2';
 const NAME_KEY = TAB ? `adrift.name:${TAB}` : 'adrift.name';
 const THROW_RELEASE = 0.27;         // s into the body's throw (body.js) that the spear leaves the hand
-const SPIT_Y = 0.77;                 // the spit's cross-stick, above the campfire (raft.js)
+const SPIT_Y = 1.0;                  // the spit's cross-stick, above the campfire (raft.js)
 
 
 // What the admin "give" buttons hand over. Enough to build without grinding,
@@ -1411,8 +1411,7 @@ class Game {
 
   /** A fish browns as it cooks. */
   brown(f) {
-    if (f.mesh) f.mesh.material.color.copy(f.mesh.userData.raw).lerp(
-      f.mesh.userData.raw.clone().multiply(COOKED), f.t / FIRE.cook);
+    if (f.mesh) cookedTint(f.mesh.userData.raw, f.t / FIRE.cook, f.mesh.material.color);
   }
 
   /** A spit's fish as someone else's raft has them: [[raw id, seconds cooked], …]. */
@@ -1549,22 +1548,26 @@ class Game {
     this.hud.refreshInventory(this.inv);
   }
 
-  /** Fish on a lit fire cook, and brown as they do; a fire that is out holds them. */
+  /**
+   * Fish on a lit fire cook, and brown as they do; a fire that is out holds
+   * them. On every raft — not only the one you are on: hung on the fire of one
+   * and gone over to another, they stopped cooking while the fire burned on.
+   */
   updateFires(dt) {
-    for (const o of this.raft.objs.values()) {
+    for (const r of this.rafts.list) for (const o of r.objs.values()) {
       if (o.type !== 'campfire' || !o.lit) continue;
       // Burning low: said once, while there is still time to feed it — to
       // anyone close enough to do something about it.
       if (o.fuel > FIRE.perWood) o.lowSaid = false;
       else if (!o.lowSaid && o.fuel < FIRE.perWood / 2) {
         o.lowSaid = true;
-        const at = this.raft.cellWorld(o.cx, o.cz);
+        const at = r.cellWorld(o.cx, o.cz);
         if (Math.hypot(at.x - this.player.pos.x, at.z - this.player.pos.z) < 60) {
           this.hud.log(`The campfire is burning low — under a minute left. ${this.inv.has('wood') ? 'Feed it wood: R at the fire.' : 'It needs wood.'}`, 'bad', 8000);
         }
       }
       // Done: said to whoever is by the fire — not to someone away up a hill.
-      const by = () => { const at = this.raft.cellWorld(o.cx, o.cz); return Math.hypot(at.x - this.player.pos.x, at.z - this.player.pos.z) < 40; };
+      const by = () => { const at = r.cellWorld(o.cx, o.cz); return Math.hypot(at.x - this.player.pos.x, at.z - this.player.pos.z) < 40; };
       for (const f of o.spitFish) {
         const was = f.t;
         f.t = Math.min(FIRE.cook, f.t + dt);
@@ -1572,7 +1575,10 @@ class Game {
         if (was < FIRE.cook && f.t >= FIRE.cook && by()) this.hud.log(`The ${f.name} is done — take it off the fire.`, 'good');
       }
     }
-    for (const o of this.raft.wentOut.splice(0)) {
+    for (const r of this.rafts.list) for (const o of r.wentOut.splice(0)) {
+      // (Another raft's, said only to someone near it.)
+      const at = r.cellWorld(o.cx, o.cz);
+      if (r !== this.raft && Math.hypot(at.x - this.player.pos.x, at.z - this.player.pos.z) > 60) continue;
       this.hud.log(o.spitFish.length ? 'The campfire has burned out, with fish still on it. It needs wood.'
                                      : 'The campfire has burned out. It needs wood, and lighting again.', 'bad');
     }

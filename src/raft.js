@@ -490,14 +490,16 @@ const BUILD = {
     const spit = new THREE.Group();
     spit.name = 'spit';
     spit.position.set(x, 0, z);
-    const upG = geo('spitUp', () => new THREE.CylinderGeometry(0.018, 0.022, 0.82, 6));
+    // (High enough that what hangs from it is over the flames, not in them:
+    // at 0.78 m the fish hung in the middle of the fire, and could not be seen.)
+    const upG = geo('spitUp', () => new THREE.CylinderGeometry(0.018, 0.022, 1.05, 6));
     for (const sx of [-0.5, 0.5]) {
-      const u = mesh(upG, M('log'), sx, 0.41, 0);
+      const u = mesh(upG, M('log'), sx, 0.525, 0);
       u.rotation.z = -sx * 0.08;
       spit.add(u);
     }
     const bar = mesh(geo('spitBar', () => new THREE.CylinderGeometry(0.012, 0.012, 1.1, 6).rotateZ(Math.PI / 2)),
-                     M('log'), 0, 0.78, 0);
+                     M('log'), 0, 1.01, 0);
     spit.add(bar);
     spit.visible = false;
     g.add(spit);

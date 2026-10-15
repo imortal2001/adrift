@@ -40,7 +40,7 @@ import { REEF_ANIMALS, turtleBody, rayBody, octopusBody, Crabs, OCTO_SHADES } fr
 import { octopusModel, rayModel, shelledModel, seaTurtleModel } from '/src/reefmodels.js';
 import { SPECIES as FLORA, speciesMesh, speciesGeometry, speciesMaterial, setFloraTime } from '/src/flora.js';
 import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE, CATCHES } from '/src/items.js';
-import { POSES, Viewmodel, FLAME, COOKED } from '/src/viewmodel.js';
+import { POSES, Viewmodel, FLAME, cookedTint } from '/src/viewmodel.js';
 import { CAVES, ARCH_LIST, SHELF_LIST, survey as surveyCaves, caveGeometry, archGeometry, shelfGeometry, caveMaterial } from '/src/caves.js';
 import { Fishing } from '/src/fishing.js';
 import { Hook } from '/src/hook.js';
@@ -605,7 +605,7 @@ export async function loadRegistry() {
           const mesh = sp && f.displayBody(key, Math.min(sp.big ? 0.36 : 0.40, sp.length[1]));
           if (mesh) {
             f.lively.delete(mesh);
-            if (how === 'cooked') mesh.material.color.multiply(COOKED);
+            if (how === 'cooked') cookedTint(mesh.material.color, 1, mesh.material.color);
             mesh.rotation.set(-Math.PI / 2, 0, 0);
             const box = new THREE.Box3().setFromObject(mesh);
             mesh.position.y = -box.min.y - 0.04;
