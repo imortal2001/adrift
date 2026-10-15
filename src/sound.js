@@ -260,3 +260,102 @@ export function blow(at) {
   hiss(out, t, { type: 'lowpass', freq: 260, q: 0.7, env: [[0.05, 0.8], [1.2, 0.0001]] });
   hiss(out, t + 1.7, { type: 'bandpass', freq: vary(600), to: 900, q: 0.8, env: [[0.3, 0.35], [0.8, 0.0001]] });
 }
+
+// ── the dinosaurs ────────────────────────────────────────────────────────────
+// No one has heard one, but the bones say a good deal: the big ones were low
+// — closed-mouth booms and rumbles like a crocodile's or an emu's, more felt
+// than heard, not the screams of the films — and a parasaur's hollow crest
+// is a resonating tube, a horn (Weishampel 1981; Riede et al. 2016).
+
+/** A low tone sliding down, with a slow throb in it: a rumble, a boom. */
+function rumble(out, t0, f0, f1, dur, level, throb = 5.5) {
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = f0 * 3; lp.Q.value = 0.8;
+  const g = ctx.createGain();
+  shape(g.gain, t0, [[dur * 0.25, level], [dur * 0.7, level * 0.6], [dur, 0.0001]]);
+  const lfo = ctx.createOscillator(), depth = ctx.createGain();
+  lfo.frequency.value = vary(throb, 0.2);
+  depth.gain.value = level * 0.3;
+  lfo.connect(depth).connect(g.gain);
+  o.connect(lp).connect(g).connect(out);
+  o.start(t0); o.stop(t0 + dur + 0.1);
+  lfo.start(t0); lfo.stop(t0 + dur + 0.1);
+}
+
+/** A horn: a reedy tone through the resonances of a long tube, and its octave below. */
+function horn(out, t0, f0, dur, level = 0.8) {
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(f0 * 1.04, t0);
+  o.frequency.linearRampToValueAtTime(f0, t0 + 0.15);
+  o.frequency.exponentialRampToValueAtTime(f0 * 0.9, t0 + dur);
+  const g = ctx.createGain();
+  shape(g.gain, t0, [[0.12, level], [dur * 0.75, level * 0.8], [dur, 0.0001]]);
+  for (const [mul, q, k] of [[4.5, 5, 1], [9, 6, 0.5], [1.5, 2, 0.6]]) {
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass'; f.frequency.value = f0 * mul; f.Q.value = q;
+    const kg = ctx.createGain(); kg.gain.value = k;
+    o.connect(f).connect(kg).connect(g);
+  }
+  g.connect(out);
+  o.start(t0); o.stop(t0 + dur + 0.1);
+  tone(out, t0, { f0: f0 / 2, f1: f0 * 0.45, glide: dur, env: [[0.2, level * 0.5], [dur, 0.0001]] });
+}
+
+/** A big animal's foot coming down at `at`: a thud you feel, more the heavier (`weight` 0..1). */
+export function footfall(at, weight = 1) {
+  if (!ready()) return;
+  const out = place(at, 6 + 14 * weight, 160 + 200 * weight), t = ctx.currentTime, k = 0.3 + 0.7 * weight;
+  tone(out, t, { f0: vary(48 - 14 * weight, 0.1), f1: 26, glide: 0.18, env: [[0.008, 0.9 * k], [0.32, 0.0001]] });
+  hiss(out, t, { type: 'lowpass', freq: 240 - 80 * weight, q: 0.7, env: [[0.006, 0.6 * k], [0.18, 0.0001]] });
+  // (And the litter of the forest floor under it.)
+  hiss(out, t + 0.01, { freq: vary(1800), q: 0.8, env: [[0.01, 0.12 * k], [0.12, 0.0001]] });
+}
+
+/**
+ * A dinosaur's call, from `at` (its head): `mood` 'call' going about, 'alarm'
+ * as it takes fright, 'hunt' as it goes after something.
+ */
+export function dinoCall(kind, at, mood = 'call') {
+  if (!ready()) return;
+  const t = ctx.currentTime;
+  if (kind === 'sauropod') {
+    // A long, low rumble, sliding down: more felt than heard, and heard far.
+    const out = place(at, 40, 900), d = mood === 'alarm' ? 1.4 : vary(2.6, 0.2);
+    rumble(out, t, vary(42, 0.1), 30, d, 1.0, 3.5);
+    hiss(out, t, { type: 'lowpass', freq: 180, q: 0.8, env: [[0.4, 0.25], [d, 0.0001]] });
+  } else if (kind === 'parasaur') {
+    // The crest's call, a horn; in alarm, short and higher, three times.
+    const out = place(at, 30, 900);
+    if (mood === 'alarm') for (let i = 0; i < 3; i++) horn(out, t + i * 0.55, vary(118, 0.05), 0.45);
+    else horn(out, t, vary(80, 0.06), vary(1.9, 0.2));
+  } else if (kind === 'stegosaur') {
+    // A huff through the nose, and a grunt; in alarm, two grunts.
+    const out = place(at, 10, 260);
+    hiss(out, t, { freq: vary(900), q: 1.2, env: [[0.04, 0.35], [0.3, 0.0001]] });
+    for (let i = 0; i < (mood === 'alarm' ? 2 : 1); i++) {
+      tone(out, t + 0.25 + i * 0.4, { type: 'sawtooth', f0: vary(78), f1: 58, glide: 0.3, env: [[0.03, 0.45], [0.35, 0.0001]] });
+      hiss(out, t + 0.25 + i * 0.4, { type: 'lowpass', freq: 320, q: 0.7, env: [[0.03, 0.4], [0.3, 0.0001]] });
+    }
+  } else if (kind === 'tyrannosaur') {
+    // A closed-mouth boom, very low; going after something, a growl in it.
+    const out = place(at, 45, 900), d = mood === 'hunt' ? 3.2 : vary(2.4, 0.15);
+    rumble(out, t, vary(34, 0.08), 23, d, 1.2, 7);
+    if (mood === 'hunt') hiss(out, t + 0.3, { freq: 220, q: 2, env: [[0.5, 0.4], [d, 0.0001]] });
+  } else if (kind === 'raptor') {
+    // Bird-like: a sharp bark or two going about; a long hiss and a run of
+    // clicking barks on the hunt.
+    const out = place(at, 6, 220);
+    const barks = mood === 'hunt' ? 3 : 1 + (Math.random() < 0.5 ? 1 : 0);
+    if (mood === 'hunt') hiss(out, t, { type: 'highpass', freq: 3200, q: 0.6, env: [[0.05, 0.35], [0.7, 0.0001]] });
+    for (let i = 0; i < barks; i++) {
+      const b = t + (mood === 'hunt' ? 0.5 : 0) + i * vary(0.16, 0.2);
+      tone(out, b, { type: 'square', f0: vary(720), f1: 430, glide: 0.08, env: [[0.006, 0.18], [0.11, 0.0001]] });
+      hiss(out, b, { freq: vary(1500), q: 2, env: [[0.005, 0.2], [0.09, 0.0001]] });
+    }
+  }
+}

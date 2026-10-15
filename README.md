@@ -264,7 +264,7 @@ pause screen starts over.
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
 | `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks; the terrain says per vertex where its flat ground is rock. |
 | `src/dinopose.js` | How the dinosaurs move on top of their clips, put right from the palaeontology: gaits (no running T. rex or stegosaur), mouths shut, heads down to graze and feed, level tails, the sauropod's neck. |
-| `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
+| `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation; their calls and footfalls (`VOICE`, sound.js). |
 | `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
 | `tools/build_fish.py` | Builds all fifteen sea-life bodies in Blender — each species' own face, textured skin (via `tools/fish_textures.py`), fins with rays, gills, eyes, every vertex tagged with its part for the swim shader — and exports them as one `.glb`. |
 | `gallery/` | The asset gallery: a separate app and server that shows every asset in a 3D viewer. It is always silent, whatever the game's sound is set to. See its README. |
@@ -1967,6 +1967,28 @@ and size (Velociraptor was turkey-sized), a hadrosaur walking on all fours
 and the birdlike resting crouch (the rigs' leg bones do not sit at the joints,
 so they cannot be folded by IK). Speeds for the hunters stay below the
 literature's — a raptor could do ~10 m/s — so that you can still get away.
+
+**And heard.** They were silent: a forty-tonne sauropod walked past without
+a sound. No one has heard a dinosaur, but the bones say the big ones were
+low — closed-mouth booms and rumbles, as a crocodile's or an emu's, more felt
+than heard (Riede et al. 2016), not the screams of the films — and a
+parasaur's hollow crest is a resonating tube, a horn (Weishampel 1981). So
+(`src/sound.js`, `dinoCall`, made on the spot like every other sound):
+
+| | Heard as |
+|---|---|
+| Sauropod | a long, low rumble sliding down, with a slow throb in it, heard half a kilometre off |
+| Parasaur | the crest's call: a reedy horn through a long tube's resonances; in alarm, three short higher honks |
+| Stegosaur | a huff through the nose and a grunt; two grunts in alarm |
+| Tyrannosaur | a very low closed-mouth boom; going after something, longer, with a growl in it |
+| Raptor | a sharp, bird-like bark or two; on the hunt, a long hiss and a run of clicking barks |
+
+Each calls now and then going about, on its own clock (a minute or two
+apart: a herd of fourteen at one call a half-minute each was a honk every
+two seconds); a herd animal that takes fright calls in alarm, a hunter that
+goes after something calls as it does. And within 60 m the big ones'
+footfalls are heard — a thud you feel, the heavier the deeper — each as a
+foot is planted on the ground (`plantFeet`'s step), not on a timer.
 
 Three ideas do most of the work:
 
