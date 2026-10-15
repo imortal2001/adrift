@@ -439,7 +439,7 @@ nothing lines up in rows:
     the arch of the mouth, and at the back is a shingle beach to climb out
     on, flint in the walls. The sea inside is as dark as the rock — and it
     puts a torch out.
-  - **Sea arches** (4), off the headlands: one foot in the cliff, one out in
+  - **Sea arches** (5), off the headlands: one foot in the cliff, one out in
     the sea, the way under them along the shore. That is how a sea arch
     comes to be — the waves working into a headland from both sides cut a
     cave through it, and what is left over the cave is the arch (its seaward
@@ -735,6 +735,28 @@ The sea bed comes out of the same `heightAt(x, z)` as the land — there is one
 surface, and the waterline is just where it crosses zero. Out from the beach it
 shelves to a sand floor at about 18m, patch reefs stand up to 8m off that, and
 past the shelf edge it drops into a basin at 42m.
+
+The beach goes on down under the water as it came down to it: a sand
+shoreface of about 4° for the first twenty metres — knee deep ten metres
+out, waist deep fifteen, the swell dying away over it and the water
+turquoise — steepening to the shelf by about 65 m out (a shoreface is
+concave, gentlest at the shore: Dean 1991). It is shaped by how far out from
+the shore a point *really* is: `coastDistance` is the radial measure, and
+where the coast runs slantwise to the line out from the middle it reads from
+0.8 to twice the true distance, so shaped by that the beaches shelved at 3° in
+one bay and 30° in the next — at the landing beach, two metres deep four metres
+out, and navy a few strides off the sand. Nothing on the shelf has moved: by
+the raft the measure is the radial one again. The reef heads and the
+limestone slabs start past the shallows, where they cannot come up out of
+the sea, and nothing that grows on the bed is so tall there that it stands
+up out of the water (kelp seven metres tall in five of water did). The sand
+under the last of the water is the colour of wet sand only in the last hand's
+depth — by knee deep it is aqua — and up the beach the sand is wet only where
+the wash reaches, not in a dry hollow further up. Walking out, you lose your
+feet past 0.55 m and swim; swimming in, you find them again a hand's depth
+shallower (player.js) — at the same depth, one against the still sea and one
+against the swell, every wave over that gentle shelf had you swimming, then
+wading, then swimming, a splash and a word each time, for metres.
 
 It is built from what a reef is made of rather than from noise alone (real
 reef zonation — [IHO benthic habitat classes](https://iho.int/mtg_docs/com_wg/HGMIO/HGMIO_Website/Benthic%20Habitat%20Objects%20and%20Attributes.pdf),

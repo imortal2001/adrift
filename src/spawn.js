@@ -27,10 +27,11 @@ function isBeach(x, z) {
   if (h < 0.35 || h > 2.6 || slopeAt(x, z) > 0.12) return false;
   const c = coastDistance(x, z);
   if (c < 1 || c > 30) return false;
-  // Open water within a stone's throw — not a pond, not a river bank.
+  // Open water within a stone's throw — not a pond, not a river bank. (Past
+  // the shallows: the beach shelves gently under the sea, ~2.5 m deep 25 m out.)
   for (let i = 0; i < 8; i++) {
     const a = i / 8 * Math.PI * 2;
-    if (heightAt(x + Math.cos(a) * 28, z + Math.sin(a) * 28) < -2.5) return true;
+    if (heightAt(x + Math.cos(a) * 40, z + Math.sin(a) * 40) < -2.5) return true;
   }
   return false;
 }

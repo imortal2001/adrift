@@ -340,9 +340,13 @@ export class Player {
     }
 
     // Find your feet as soon as the seabed comes up to meet you — or the
-    // shingle at the back of a sea cave.
+    // shingle at the back of a sea cave. (A hand's depth shallower than you
+    // lose them, walking out: they were the same depth, one against the
+    // still sea and one against the swell, and over a gently shelving beach
+    // every wave had you swimming, then wading, then swimming, a splash and a
+    // word each time, for metres.)
     const shore = this.floorHere();
-    if (shore > waveHeight(this.pos.x, this.pos.z, time) - 0.55) {
+    if (shore > waveHeight(this.pos.x, this.pos.z, time) - 0.55 && shore > WADE + 0.12) {
       this.pos.y = shore;
       this.vy = 0;
       this.vel.set(0, 0, 0);

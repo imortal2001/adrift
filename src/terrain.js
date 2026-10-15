@@ -174,14 +174,32 @@ const ABYSS = 292;                // by here you are over open basin
 const REEF_HEIGHT = 8.0;          // how far the tallest coral heads stand proud
 
 /**
+ * How far out from the shore this really is, near it. coastDistance is the
+ * radial measure, and where the coast runs slantwise to the line out from the
+ * middle it reads anything from 0.8 to twice the true distance: so a beach
+ * shaped by it shelved at 3° in one bay and 30° in the next — at the landing
+ * beach, two metres deep four metres out. Back to the radial measure by the
+ * shelf, which is sized against it. `out` = -coastDistance(x, z).
+ */
+function shoreOut(x, z, out) {
+  if (out > 90) return out;
+  const e = 2, m = -out;
+  const g = Math.max(0.5, Math.hypot(coastDistance(x + e, z) - m, coastDistance(x, z + e) - m) / e);
+  const d = out / g;
+  return d + (out - d) * smooth(60, 90, out);
+}
+
+/**
  * Where coral grows, 0..1. Reef needs light and something to hold onto, so it
  * covers the shelf in colonies and stops at the drop-off. Exported because the
  * props and the fish both want to know where the reef is without re-deriving it.
+ * (Not in the shallows off the beach: past where the shoreface drops to the
+ * shelf — grown up in two metres of water, a head stood out of the sea.)
  *
  * @param out  metres out to sea from the coast (= -coastDistance)
  */
 export function reefMask(x, z, out) {
-  const band = smooth(8, 34, out) * smooth(SHELF_EDGE + 20, SHELF_EDGE - 50, out);
+  const band = smooth(26, 50, shoreOut(x, z, out)) * smooth(SHELF_EDGE + 20, SHELF_EDGE - 50, out);
   if (band < 0.001) return 0;
   // Colony size and spacing. The first cut used a much lower frequency, which
   // gave colonies 150m across with gaps to match — so whether diving off the
@@ -222,11 +240,18 @@ function cells(x, z) {
 
 /** Sea floor height. `out` is metres out to sea, so it is >= 0 here. */
 function seabedAt(x, z, out) {
-  // Beach shelves into the shallows, flattens onto the shelf, then drops away.
-  let h = SHELF_FLOOR * smooth(0, 46, out);
+  // The beach goes on down under the water as it came down to it: a sand
+  // shoreface of ~4° for the first twenty metres — waist deep fifteen out, the
+  // swell dying away over it and the water turquoise — then steepening to the
+  // shelf, reached by ~65 m out (Dean 1991: a shoreface is concave, gentlest
+  // at the shore). It dropped to the shelf in 46 m before, at 30° at its
+  // steepest, and the sea was navy a few strides off the sand. Then the
+  // shelf, and past its edge the basin.
+  const d = shoreOut(x, z, out), face = Math.min(1, d * 0.07 / -SHELF_FLOOR);
+  let h = SHELF_FLOOR * (face + (1 - face) * smooth(18, 65, d));
   h += (BASIN - h) * smooth(SHELF_EDGE, ABYSS, out);
   let rock = 0, crack = 0;
-  const shore = smooth(0, 8, out);
+  const shore = smooth(0, 8, d);
 
   // Patch reefs — bommies. Ridged noise lays out where they stand, with
   // saddles between rather than the lumps plain fbm gives; a reef head is
@@ -266,7 +291,7 @@ function seabedAt(x, z, out) {
   // between the colonies, cracked into slabs that each sit at their own
   // height and tilt, the cracks between them silted to the sand.
   const pave = smooth(0.56, 0.68, fbm(x * 0.0085 + 77, z * 0.0085 + 19, 3)) *
-               (1 - reef) * smooth(14, 34, out) * smooth(SHELF_EDGE + 30, SHELF_EDGE - 10, out);
+               (1 - reef) * smooth(30, 48, d) * smooth(SHELF_EDGE + 30, SHELF_EDGE - 10, out);
   if (pave > 0.001) {
     const c = cells(x / 5.5, z / 5.5);
     const edge = (c.d2 - c.d1) * 5.5;                       // metres to the crack
@@ -281,15 +306,15 @@ function seabedAt(x, z, out) {
   // Sand: dunes, and ripples — crests along the shore, a few metres apart,
   // as the swell combs them, wandering and broken. Not on the rock.
   const sand = 1 - rock;
-  h += smooth(4, 44, out) * (fbm(x * 0.012, z * 0.012, 3) - 0.5) * 3.2;  // sand dunes
+  h += smooth(16, 50, d) * (fbm(x * 0.012, z * 0.012, 3) - 0.5) * 3.2;  // sand dunes (not in the shallows: bars out of the water)
   // (Five metres apart: any closer and the coarser rings of ground, 2 m and
   // 4 m to a vertex, alias them into moiré.)
   const rip = Math.sin(out * 1.25 + (fbm(x * 0.05, z * 0.05, 2) - 0.5) * 9);
-  h += sand * smooth(3, 10, out) * rip * rip * rip * 0.24 * fbm(x * 0.03 + 9, z * 0.03, 2);
+  h += sand * smooth(3, 10, d) * rip * rip * rip * 0.24 * fbm(x * 0.03 + 9, z * 0.03, 2);
   // (Both fade in off the beach: at the water's edge the sea bed is the sand
   // the beach ran down into, not half a metre under it — the shore was a
   // little ledge where the ripples and a coral head came up to it.)
-  h += (fbm(x * 0.13, z * 0.13, 2) - 0.5) * 0.36 * smooth(0, 4, out);      // ripples
+  h += (fbm(x * 0.13, z * 0.13, 2) - 0.5) * 0.36 * smooth(0, 4, d);        // ripples
 
   _bed.rock = rock;
   _bed.crack = crack;
@@ -1108,6 +1133,9 @@ function groundColour(h, slope, wet, jitter, L, forest, out) {
     }
     out.lerp(C.crack, L.crack * 0.75);
     out.lerp(C.rock, L.cliff * smooth(-2, -12, h) * 0.6);
+    // Wet only where the wash reaches: a dry hollow up the beach, under 0.4 m
+    // but out of reach of the sea, was a dark round stain on the sand.
+    if (h > 0) out.lerp(C.sand, smooth(2, 7, L.m) * smooth(0, 0.12, h) * (1 - L.bank));
     return out.multiplyScalar(0.88 + jitter * 0.24);
   }
   // Under the cliffs the beach is cobbles and shingle, worn from the cliff; sand is for the bays.
@@ -2160,7 +2188,12 @@ export class Terrain {
     const d = this._dummy;
     const place = (f, x, z, y, size, on = null, lean = null) => {
       const sp = REEF[f], bd = bounds[f];
-      const sc = THREE.MathUtils.lerp(sp.scale[0], sp.scale[1], size);
+      // All of it under the sea: kelp seven metres tall in the shallows off a
+      // beach stood two metres up out of the water. (Smaller there, then, or
+      // somewhere else.)
+      const under = (-0.35 - y) / Math.max(0.1, bd.top);
+      if (under < sp.scale[0] * 0.6) return null;
+      const sc = Math.min(under, THREE.MathUtils.lerp(sp.scale[0], sp.scale[1], size));
       const r = bd.rad * sc;
       const give = sp.soft >= 0.5 || sp.solid === false ? 0.5 : 0.22;
       const k = sp.lean ?? 0.8;

@@ -510,8 +510,11 @@ void main(){
   // last hand's depth, the colour of wet sand.
   float lit = (0.5 + 0.5 * max(uSunDir.y, 0.0)) * (1.0 - uNight * 0.8);
   // (The sand bright under the last of the water — at 0.6 of it, a band of
-  // muddy brown lay along every beach.)
-  vec3 overSand = mix(uSand * 0.9, uTurquoise, smoothstep(0.05, 1.4, depth)) * lit;
+  // muddy brown lay along every beach. And only the last of it: clear water
+  // is aqua over sand by knee deep, and over a beach that shelves as gently
+  // as the sand does — 4°, terrain.js — a metre and a half of it was twenty
+  // metres of brown.)
+  vec3 overSand = mix(uSand * 0.9, uTurquoise, smoothstep(0.02, 0.7, depth)) * lit;
   float shoal = 1.0 - smoothstep(0.4, 4.5, depth);
   body = mix(body, overSand, shoal * 0.85);
 
