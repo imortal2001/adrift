@@ -1743,7 +1743,12 @@ class Game {
   respawn(died = true) {
     this.died = died;
     // Playing together, the others hear of it.
-    if (died && this.net.connected) this.net.event({ k: 'died' });
+    // Playing together, what it was too — the others were told only that you
+    // blacked out, by a tyrannosaur or the sea or thirst alike.
+    if (died && this.net.connected) {
+      const bitten = this.lastHurt && this.time - this.lastHurt.at < 15 ? this.lastHurt.label : null;
+      this.net.event({ k: 'died', by: bitten || this.player.lastCause || null });
+    }
     const mine = this.myStatue();
     if (mine?.o) {
       // Aboard, beside it — wherever that raft has got to.
@@ -2222,7 +2227,10 @@ class Game {
       return true;
     }
     if (e.k === 'died') {
-      this.hud.log(`${r.name} blacks out — and comes round again, where they wake.`, 'bad');
+      const by = typeof e.by === 'string' ? e.by.slice(0, 24) : null;
+      const how = by === 'drowned' ? 'drowns' : by === 'thirst' ? 'collapses of thirst' : by === 'hunger' ? 'collapses from hunger'
+                : by ? `is brought down by a ${by.toLowerCase()}` : 'blacks out';
+      this.hud.log(`${r.name} ${how} — and comes round again, where they wake.`, 'bad');
       return true;
     }
     if (e.k === 'give') {
@@ -3027,6 +3035,7 @@ class Game {
       this.lastBite = this.time;
       const worst = bites.reduce((a, b) => (b.damage > a.damage ? b : a));
       this.player.health = Math.max(0, this.player.health - worst.damage);
+      this.lastHurt = { label: worst.label, at: this.time };      // what it was, if this is the end of you
       this.hud.log(`The ${worst.label.toLowerCase()} tears into you.`, 'bad');
     }
 

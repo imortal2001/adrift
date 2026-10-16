@@ -1511,7 +1511,9 @@ rod cast and the hook set; a drink. (The others saw you stand still while
 wood came aboard, or put a hand to your mouth to strike a spark.) A torch is
 held up, the flame on top — the man held it out level like a spear — and a
 paddle stroke is made from the edge of the deck, over the side: from the
-middle of a big one it went down through the planks.
+middle of a big one it went down through the planks. And when one of you
+dies the others are told what it was — "Ben drowns", "is brought down by a
+tyrannosaur", "collapses of thirst" — not only that you blacked out.
 
 How: a small relay (`server/` — a Cloudflare Worker, one Durable Object per
 room) keeps the players of a room connected and passes their messages on;

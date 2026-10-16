@@ -446,6 +446,9 @@ export class Player {
 
     if (this.health <= 0) {
       this.deaths++;
+      // What it was, for the others to be told (main.js respawn): not a bite —
+      // the game knows those itself.
+      this.lastCause = this.breath <= 0 ? 'drowned' : this.thirst <= 0 ? 'thirst' : this.hunger <= 0 ? 'hunger' : null;
       this.health = 55;
       this.hunger = Math.max(this.hunger, 40);
       this.thirst = Math.max(this.thirst, 40);
