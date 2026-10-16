@@ -20,6 +20,7 @@ import { archLegsNear } from './caves.js';
 import { statueBody } from './statue.js';
 import { mergeGeometries } from '../vendor/jsm/utils/BufferGeometryUtils.js';
 import { DECK_BOUNCE } from './sky.js';
+import { WEATHER, windAt } from './weather.js';
 
 export const CELL = 2;
 export const DECK_Y = 0;        // walkable surface, in raft-local space
@@ -38,19 +39,8 @@ const _legs = [];
 const DRAUGHT = 0.55;           // how far under the water it reaches: shallower than this is aground
 const SAIL_PUSH = 0.62;         // m/s² a raised sail gives the four-cell raft, in a fresh wind
 
-/**
- * The wind at sea-clock `time`: which way it blows (a unit vector, world x
- * and z) and how hard (0..1). It swings round slowly over the day and
- * freshens and falls away — the same on every machine, since it runs on the
- * shared sea clock.
- */
-export function windAt(time, out = { x: 0, z: 0, strength: 0 }) {
-  const a = 0.9 + Math.sin(time / 310) * 0.8 + Math.sin(time / 97 + 1.3) * 0.18;
-  out.x = Math.sin(a);
-  out.z = Math.cos(a);
-  out.strength = 0.72 + 0.28 * Math.sin(time / 143 + 0.4);
-  return out;
-}
+// The wind is the weather's (weather.js windAt); here for those who ask the raft.
+export { windAt };
 const UP = new THREE.Vector3(0, 1, 0);
 /** A square's type as saved: a foundation of some kind, or the plank one. */
 const cellType = t => (BUILDABLE_BY_ID[t]?.kind === 'cell' ? t : 'foundation');
@@ -408,11 +398,15 @@ const BUILD = {
   roof(t, M) {
     const g = new THREE.Group();
     const x = t.cx * CELL, z = t.cz * CELL;
+    // (Every other square's a hair higher: next to each other, the slabs
+    // overlap by their overhang, and two faces in one plane flicker.)
     g.add(mesh(geo('roofslab', () => new THREE.BoxGeometry(CELL + 0.1, 0.13, CELL + 0.1)),
-               M('roof'), x, ROOF_Y, z));
-    const postG = geo('rpost', () => new THREE.BoxGeometry(0.12, ROOF_Y, 0.12));
-    for (const [dx, dz] of [[-0.92, -0.92], [0.92, -0.92], [0.92, 0.92], [-0.92, 0.92]]) {
-      g.add(mesh(postG, M('plank'), x + dx, ROOF_Y / 2, z + dz));
+               M('roof'), x, ROOF_Y + ((t.cx + t.cz) & 1) * 0.006, z));
+    // What holds it up is the raft's frame (rebuildFrame): one post at each
+    // corner, shared. Only the build preview, alone, shows its own four.
+    if (M('plank') !== mats().plank) {
+      const postG = geo('rpost', () => new THREE.BoxGeometry(0.12, ROOF_Y, 0.12));
+      for (const [dx, dz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) g.add(mesh(postG, M('plank'), x + dx, ROOF_Y / 2, z + dz));
     }
     return g;
   },
@@ -496,14 +490,16 @@ const BUILD = {
     const spit = new THREE.Group();
     spit.name = 'spit';
     spit.position.set(x, 0, z);
-    const upG = geo('spitUp', () => new THREE.CylinderGeometry(0.018, 0.022, 0.82, 6));
+    // (High enough that what hangs from it is over the flames, not in them:
+    // at 0.78 m the fish hung in the middle of the fire, and could not be seen.)
+    const upG = geo('spitUp', () => new THREE.CylinderGeometry(0.018, 0.022, 1.05, 6));
     for (const sx of [-0.5, 0.5]) {
-      const u = mesh(upG, M('log'), sx, 0.41, 0);
+      const u = mesh(upG, M('log'), sx, 0.525, 0);
       u.rotation.z = -sx * 0.08;
       spit.add(u);
     }
     const bar = mesh(geo('spitBar', () => new THREE.CylinderGeometry(0.012, 0.012, 1.1, 6).rotateZ(Math.PI / 2)),
-                     M('log'), 0, 0.78, 0);
+                     M('log'), 0, 1.01, 0);
     spit.add(bar);
     spit.visible = false;
     g.add(spit);
@@ -768,25 +764,46 @@ export class Raft {
   update(dt, time, night = 1) {
     mats().glow.opacity = 0.12 + 0.66 * night;
     this.sail(dt, time);
-    // Heave from the mean height under the hull, so a bigger raft rides flatter.
-    let ex = CELL, ez = CELL;
-    for (const c of this.cells.values()) {
-      ex = Math.max(ex, Math.abs(c.cx * CELL) + 1);
-      ez = Math.max(ez, Math.abs(c.cz * CELL) + 1);
-    }
+    // Riding the swell. The plane that best fits the sea under the whole
+    // hull — sampled at every square's corners and middle — is the one it
+    // lies on: a small raft takes every wave, a big one only the long ones,
+    // because short waves average out across it. (It heaved on six samples
+    // and tilted to the wave's slope at its middle, damped: the sea came up
+    // through a corner of the deck one frame in sixteen, by as much as a
+    // quarter of a metre, a flat sheet of water slicing across the planks.)
+    // (What short chop still comes up past the deck the sea does not draw
+    // there: Ocean.setHulls.)
     const w = this._w ||= { x: 0, z: 0 };
-    let h = 0;
-    for (const [a, b] of [[-ex, -ez], [ex, -ez], [-ex, ez], [ex, ez]]) {
-      this.toWorld(a, b, w);
-      h += waveHeight(w.x, w.z, time);
+    const pts = this._pts ||= [];
+    pts.length = 0;
+    let n = 0, sx = 0, sz = 0, sxx = 0, szz = 0, sxz = 0, sh = 0, sxh = 0, szh = 0;
+    const sample = (lx, lz) => {
+      this.toWorld(lx, lz, w);
+      const h = waveHeight(w.x, w.z, time);
+      pts.push(lx, lz, h);
+      n++; sx += lx; sz += lz; sxx += lx * lx; szz += lz * lz; sxz += lx * lz;
+      sh += h; sxh += lx * h; szh += lz * h;
+    };
+    const q = CELL * 0.48;
+    if (!this.cells.size) sample(0, 0);
+    for (const c of this.cells.values()) {
+      const x = c.cx * CELL, z = c.cz * CELL;
+      sample(x, z); sample(x - q, z - q); sample(x + q, z - q); sample(x - q, z + q); sample(x + q, z + q);
     }
-    h = (h + waveHeight(this.x, this.z, time) * 2) / 6;
-    this.group.position.set(this.x, h + 0.32, this.z);
-
-    // Tilt with the swell, damped as the raft grows — on top of its heading.
-    const damp = this.tilt * THREE.MathUtils.clamp(9 / (6 + this.cells.size), 0.22, 1);
-    waveNormal(this.x, this.z, time, this._n);
-    this.up.set(this._n.x * damp, 1, this._n.z * damp).normalize();
+    // Least squares for h = a + b·x + c·z (local x, z).
+    const mx = sx / n, mz = sz / n, mh = sh / n;
+    const cxx = sxx / n - mx * mx, czz = szz / n - mz * mz, cxz = sxz / n - mx * mz;
+    const cxh = sxh / n - mx * mh, czh = szh / n - mz * mh;
+    const det = cxx * czz - cxz * cxz;
+    let gb = 0, gc = 0;
+    if (det > 1e-6) { gb = (cxh * czz - czh * cxz) / det; gc = (czh * cxx - cxh * cxz) / det; }
+    else if (cxx > 1e-6) gb = cxh / cxx;
+    else if (czz > 1e-6) gc = czh / czz;
+    const ga = mh - gb * mx - gc * mz;
+    this.group.position.set(this.x, ga + 0.32, this.z);
+    // The deck's normal in its own frame, turned by its heading into the world's.
+    const ch = Math.cos(this.heading), shd = Math.sin(this.heading);
+    this.up.set(-gb * ch - gc * shd, 1, gb * shd - gc * ch).normalize();
     this._yaw.setFromAxisAngle(UP, this.heading);
     this.group.quaternion.setFromUnitVectors(UP, this.up).multiply(this._yaw);
     this.group.updateMatrixWorld();
@@ -814,7 +831,9 @@ export class Raft {
         const spit = o.obj.getObjectByName('spit');
         if (spit) spit.visible = o.spitFish.length > 0;
       } else if (o.type === 'collector') {
-        o.water = Math.min(o.capacity, o.water + dt * o.rate);
+        // Dew, slowly; in a squall's rain, near ten times as fast — a downpour
+        // fills one in a minute or so.
+        o.water = Math.min(o.capacity, o.water + dt * o.rate * (1 + 8 * WEATHER.rain));
         this.refreshCollector(o);
       } else if (o.type === 'sail') {
         // Turned to the wind, its belly downwind; set, or rolled up under the yard.
@@ -915,8 +934,43 @@ export class Raft {
     return true;
   }
 
+  /**
+   * The raft's frame: a post at each corner of the grid that a wall ends at
+   * or a roof stands on — one, shared, however many pieces meet there. Each
+   * roof brought its own four, so a cabin of four squares stood on sixteen,
+   * in pairs along its walls and a clump of four in the middle; and each wall
+   * stopped short of the corner, so where two met the corner was a notch.
+   * Built afresh whenever the raft changes (rebuildIndex).
+   */
+  rebuildFrame() {
+    const f = this.frame ||= Object.assign(new THREE.Group(), { name: 'frame' });
+    if (f.parent !== this.group) this.group.add(f);
+    f.clear();
+    const corners = new Map();     // corner (i, j), at ((i - ½)·CELL, (j - ½)·CELL): { walls, roof }
+    const at = (i, j) => { const k = key(i, j); let c = corners.get(k); if (!c) corners.set(k, c = { i, j, walls: 0, roof: false }); return c; };
+    for (const e of this.edges.values()) {
+      if (e.type !== 'wall') continue;
+      const ends = e.es === 1 ? [[e.ex + 1, e.ez], [e.ex + 1, e.ez + 1]] : [[e.ex, e.ez + 1], [e.ex + 1, e.ez + 1]];
+      for (const [i, j] of ends) at(i, j).walls++;
+    }
+    for (const t of this.tops.values()) {
+      for (const [i, j] of [[t.cx, t.cz], [t.cx + 1, t.cz], [t.cx, t.cz + 1], [t.cx + 1, t.cz + 1]]) at(i, j).roof = true;
+    }
+    this.posts = [];
+    const M = mats();
+    for (const c of corners.values()) {
+      const h = c.roof ? ROOF_Y : WALL_H, w = c.walls ? 0.16 : 0.12;
+      const x = (c.i - 0.5) * CELL, z = (c.j - 0.5) * CELL;
+      const m = mesh(geo(`fpost:${w}:${h}`, () => new THREE.BoxGeometry(w, h, w)), M.plank, x, h / 2, z);
+      f.add(m);
+      // (One standing free, under a roof, is in the way; one in a wall, the wall is.)
+      if (!c.walls) this.posts.push({ x, z, r: w / 2 });
+    }
+  }
+
   /** Meshes the player can look at, and the wall/railing collision boxes. */
   rebuildIndex() {
+    this.rebuildFrame();
     this.pickables.length = 0;
     this.group.traverse(m => { if (m.isMesh && m.userData.piece) this.pickables.push(m); });
 
@@ -938,6 +992,7 @@ export class Raft {
             r = o.type === 'campfire' ? 0.62 : o.type === 'sail' ? 0.18 : o.type === 'statue' ? 0.3 : 0.58;
       this.blockers.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r });
     }
+    for (const p of this.posts) this.blockers.push({ minX: p.x - p.r, maxX: p.x + p.r, minZ: p.z - p.r, maxZ: p.z + p.r });
   }
 
   /** Would the raft stay in one piece without this cell? */

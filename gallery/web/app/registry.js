@@ -40,12 +40,16 @@ import { REEF_ANIMALS, turtleBody, rayBody, octopusBody, Crabs, OCTO_SHADES } fr
 import { octopusModel, rayModel, shelledModel, seaTurtleModel } from '/src/reefmodels.js';
 import { SPECIES as FLORA, speciesMesh, speciesGeometry, speciesMaterial, setFloraTime } from '/src/flora.js';
 import { ITEMS, DEBRIS_KINDS, BUILDABLES, FIRE, CATCHES } from '/src/items.js';
-import { POSES, Viewmodel, FLAME, COOKED } from '/src/viewmodel.js';
+import { POSES, Viewmodel, FLAME, cookedTint } from '/src/viewmodel.js';
 import { CAVES, ARCH_LIST, SHELF_LIST, survey as surveyCaves, caveGeometry, archGeometry, shelfGeometry, caveMaterial } from '/src/caves.js';
 import { Fishing } from '/src/fishing.js';
 import { Hook } from '/src/hook.js';
 import { DebrisField } from '/src/debris.js';
 import { Raft } from '/src/raft.js';
+import { Splashes, splash } from '/src/splash.js';
+import { Weather, WEATHER } from '/src/weather.js';
+import { flierMesh, PTEROSAUR, SEABIRD, FORESTBIRD } from '/src/fliers.js';
+import { DRAGONFLY, BUTTERFLY, fireflyVert, fireflyFrag } from '/src/insects.js';
 import { PlayerBody } from '/src/body.js';
 
 // ── categories ───────────────────────────────────────────────────────────────
@@ -55,7 +59,7 @@ export const CATEGORIES = [
   { id: 'equipment',  name: 'Equipment',          blurb: 'Tools, weapons and fishing gear: what you hold, and what you throw.' },
   { id: 'vegetation', name: 'Trees & vegetation', blurb: 'What grows on land.' },
   { id: 'terrain',    name: 'Land & terrain',     blurb: 'Real 64 m chunks of the world, cut from where each kind of ground is, plus the rocks.' },
-  { id: 'water',      name: 'Water',              blurb: 'The sea, from above and below, and where it meets the land.' },
+  { id: 'water',      name: 'Water',              blurb: 'The sea, from above and below, where it meets the land, and the sky over it.' },
   { id: 'reef',       name: 'Corals & reefs',     blurb: 'What grows on the sea bed, and a colony as the game lays it out.' },
   { id: 'objects',    name: 'Other world objects', blurb: 'Flotsam, the raft and everything built on it, and anything not yet registered.' },
 ];
@@ -357,28 +361,48 @@ export async function loadRegistry() {
     async build(variant) {
       const entry = variant === 'code' ? null : await reefModel('sea_turtle');
       const t = entry ? seaTurtleModel(entry, 1.1) : turtleBody(), fast = variant === 'flee';
-      return { object: t, keepHeight: true, frame: { center: V(0, 0.05, 0.1), size: V(1.4, 0.4, 1.5) },
+      // Swimming, clear of the sand: it is centred on its own middle, as it
+      // swims in the game. (Stood on the floor at y = 0, its flat flippers,
+      // level with its middle, were under the sand — a turtle with no flippers.)
+      t.position.y = 0.45;
+      return { object: t, keepHeight: true, frame: { center: V(0, 0.45, 0.1), size: V(1.4, 0.4, 1.5) },
                update: (dt, time) => t.userData.animate(time, fast ? 0.7 : 0.28, 1) };
     },
   });
   add({
     id: 'reef-ray', name: 'Stingray', category: 'animals', group: 'Reef animals',
-    ...modelled('stingray', 'stingray.glb'), backdrop: 'underwater',
-    source: (manifest.has('stingray') ? 'assets/models/stingray.glb (CC BY-NC — see CREDITS.md) · tools/build_sealife.py · rayModel(); fallback ' : '') + 'src/reeflife.js · rayBody() · ReefLife.ray()',
-    facts: reefFacts('ray', [['Size', 'a metre across the wings, and a whip of a tail'],
+    kind: 'built in code', backdrop: 'underwater',
+    source: 'src/reeflife.js · rayBody() · rayTexture() · ReefLife.ray()',
+    facts: reefFacts('ray', [['Size', 'a metre across the disc, and a whip of a tail twice as long'],
+      ['Looks', 'a rounded diamond, sand-coloured and mottled on top, pale beneath; eyes and spiracles on top; a spine on the tail'],
       ['Behaviour', 'lies on the sand; lifts off and flies low on rippling wings; off at a rush if you come within 3.5 m'],
-      ['Moves by', manifest.has('stingray') ? 'its own swim clip, run as slow or as fast as it is going' : 'its disc re-shaped every frame'],
+      ['Moves by', 'its disc re-shaped every frame, a wave down each wing; its tail a chain that whips'],
       ['Caught with', 'nothing — it is left alone']]),
-    variants: [{ id: 'glide', label: 'Gliding' }, { id: 'flee', label: 'Fleeing' }, { id: 'rest', label: 'Resting' },
-               { id: 'code', label: 'Built in code' }],
+    variants: [{ id: 'glide', label: 'Gliding' }, { id: 'flee', label: 'Fleeing' }, { id: 'rest', label: 'Resting' }],
     async build(variant) {
-      const entry = variant === 'code' ? null : await reefModel('stingray');
-      const r = entry ? rayModel(entry, 1.1) : rayBody();
-      const [beat, amp] = { glide: [0.5, 0.06], flee: [1.4, 0.12], rest: [0.5, 0.004], code: [0.5, 0.06] }[variant || 'glide'];
+      const r = rayBody();
+      const [beat, amp] = { glide: [0.5, 0.06], flee: [1.4, 0.12], rest: [0.5, 0.004] }[variant || 'glide'];
       r.userData.animate(0, beat, amp);
-      return { object: r, keepHeight: true,
-               frame: entry ? { center: V(0, 0.15, 0), size: V(1.3, 0.5, 1.6) } : { center: V(0, 0.05, -0.2), size: V(1.3, 0.4, 1.9) },
+      r.position.y = variant === 'rest' ? 0.03 : 0.35;
+      return { object: r, keepHeight: true, frame: { center: V(0, r.position.y + 0.05, -0.45), size: V(1.2, 0.3, 2.0) },
                update: (dt, time) => r.userData.animate(time, beat, amp) };
+    },
+  });
+  if (manifest.has('stingray')) add({
+    id: 'reef-manta', name: 'Manta ray', category: 'animals', group: 'Reef animals',
+    ...modelled('stingray', 'stingray.glb'), backdrop: 'underwater',
+    source: 'assets/models/stingray.glb (a manta ray, CC BY-NC — see CREDITS.md) · tools/build_sealife.py · rayModel() · ReefLife.manta()',
+    facts: reefFacts('manta', [['Size', 'about 3.5 m from wingtip to wingtip'],
+      ['Behaviour', 'cruises in open water off the reef on slow, deep wingbeats, banking round in long turns; swim right at it and it turns aside, unhurried'],
+      ['Moves by', 'its own swim clip, run at a manta\'s slow beat'],
+      ['Caught with', 'nothing — it is left alone']]),
+    async build() {
+      const entry = await reefModel('stingray');
+      const r = rayModel(entry, REEF_ANIMALS.manta.length);
+      r.position.y = 1.2;
+      // (The model stands about 0.9 m above its origin.)
+      return { object: r, keepHeight: true, frame: { center: V(0, 2.1, 0), size: V(3.6, 1.9, 4.5) },
+               update: (dt, time) => r.userData.animate(time, 0.22, 0.08) };
     },
   });
   add({
@@ -419,7 +443,7 @@ export async function loadRegistry() {
       const g = new THREE.Group(), crabs = new Crabs(g, 1);
       const entry = variant === 'code' ? null : await reefModel('crab');
       if (entry) crabs.useModel(entry.scene);
-      const colour = variant === 'beach' ? 0xd9c79c : entry ? 0xffffff : 0xc24a2c;
+      const colour = variant === 'beach' ? 0xe6d6b4 : entry ? 0xffffff : 0xc24a2c;
       const k = { pos: V(0, 0, 0), heading: 0, size: 1.1, colour: new THREE.Color(colour), gait: 0, moving: 1, claws: 0.4 };
       return { object: g, keepHeight: true, backdrop: variant === 'beach' ? 'world' : 'underwater',
                frame: { center: V(0, 0.05, 0.01), size: V(0.42, 0.14, 0.3) },
@@ -472,6 +496,60 @@ export async function loadRegistry() {
     build: shelled('pond_turtle', REEF_ANIMALS.pond_turtle, Object.assign((v) => ({
       walk: v === 'walk' ? 1 : 0, swim: v === 'swim' ? 1 : 0,
     }), { backdrop: v => (v === 'swim' ? 'underwater' : 'world') })),
+  });
+
+  // ── in the air (src/fliers.js, src/insects.js) ──
+  const flier = (id, name, group, spec, facts, { beat, stroke, glide = null, size, lift, colour = null, transparent = false, variants = null }) => add({
+    id, name, category: 'animals', group, kind: 'built in code', backdrop: 'world',
+    source: group === 'Air' ? 'src/fliers.js · wingedBody() · Fliers' : 'src/insects.js · wingedBody() · Insects',
+    facts, variants,
+    async build(variant) {
+      const f = flierMesh(spec, { colour, transparent, roughness: transparent ? 0.5 : 0.75 });
+      const holder = new THREE.Group();
+      holder.add(f.mesh);
+      holder.position.y = lift;
+      const gliding = variant === 'glide';
+      return { object: holder, ground: false, keepHeight: true, frame: { center: V(0, lift, 0), size: V(size, size * 0.4, size) }, view: { yaw: 0.9, pitch: 0.35 },
+               update: (dt, time) => f.flap(time * Math.PI * 2 * (gliding ? glide ?? 0 : beat), gliding ? 0.04 : stroke) };
+    },
+  });
+  flier('pterosaur', 'Pterosaur', 'Air', PTEROSAUR, [['Size', 'six metres across the wings, Pteranodon-like'],
+    ['Where', 'soaring over the sea and the coast, 25-60 m up, in slow circles'],
+    ['Behaviour', 'seldom flaps — a soarer, like an albatross; now and then comes down to skim the sea for a fish'], ['Caught with', 'nothing']],
+    { beat: 1.1, stroke: 0.55, glide: 0.1, size: 6.4, lift: 3, variants: [{ id: 'flap', label: 'Flapping' }, { id: 'glide', label: 'Soaring' }] });
+  flier('seabird', 'Seabird (tern)', 'Air', SEABIRD, [['Size', 'a metre across the wings'],
+    ['Where', 'a loose flock working the water over the reef'],
+    ['Behaviour', 'quick wingbeats; one folds and plunges in after a fish now and then; harsh two-note calls'], ['Caught with', 'nothing']],
+    { beat: 3.2, stroke: 0.7, size: 1.0, lift: 1.2 });
+  flier('forestbird', 'Forest bird', 'Air', FORESTBIRD, [['Size', 'a hand long'],
+    ['Where', 'ashore, under the canopy'],
+    ['Behaviour', 'short bounding flights from tree to tree; heard more than seen: birdsong by day'], ['Caught with', 'nothing']],
+    { beat: 13, stroke: 0.9, size: 0.3, lift: 1.2 });
+  flier('dragonfly', 'Dragonfly', 'Insects', DRAGONFLY, [['Size', 'ten centimetres across the wings'],
+    ['Where', 'over the fresh water near you, by day'],
+    ['Behaviour', 'hovers, darts a few metres, stops dead; two pairs of glass wings']],
+    { beat: 27, stroke: 0.3, size: 0.12, lift: 0.8, transparent: true });
+  flier('butterfly', 'Butterfly', 'Insects', BUTTERFLY, [['Size', 'seven centimetres across'],
+    ['Where', 'over open, sunny ground ashore, by day'],
+    ['Behaviour', 'the jinking, bobbing flight of big wings beating slowly'], ['Colours', 'orange, yellow, blue, white, red']],
+    { beat: 7, stroke: 1.1, size: 0.1, lift: 0.6, colour: 0xe08a2a, transparent: true });
+  add({
+    id: 'firefly', name: 'Fireflies', category: 'animals', group: 'Insects', kind: 'built in code', backdrop: 'world',
+    source: 'src/insects.js · fireflyVert/fireflyFrag · Insects', facts: [['Where', 'ashore at night, in the grass and at the forest edge'],
+      ['Behaviour', 'drifting points of yellow-green light, each blinking on its own beat'], ['Tip', 'set the time to night']],
+    async build() {
+      const N = 40, pos = new Float32Array(N * 3), glow = new Float32Array(N), beat = [], off = [];
+      for (let i = 0; i < N; i++) { pos.set([(Math.random() - 0.5) * 4, 0.3 + Math.random() * 2, (Math.random() - 0.5) * 4], i * 3); beat.push(2 + Math.random() * 3); off.push(Math.random() * 5); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      g.setAttribute('aGlow', new THREE.BufferAttribute(glow, 1));
+      const u = { uViewH: { value: innerHeight * devicePixelRatio } };
+      const pts = new THREE.Points(g, new THREE.ShaderMaterial({ uniforms: u, vertexShader: fireflyVert, fragmentShader: fireflyFrag,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      pts.frustumCulled = false;
+      return { object: pts, ground: true, keepHeight: true, frame: { center: V(0, 1.2, 0), size: V(4, 2.4, 4) },
+               update: (dt, time) => { for (let i = 0; i < N; i++) { const ph = ((time + off[i]) % beat[i]) / beat[i]; glow[i] = ph < 0.25 ? Math.sin(ph / 0.25 * Math.PI) : 0; } g.attributes.aGlow.needsUpdate = true; } };
+    },
   });
 
   add({
@@ -527,7 +605,7 @@ export async function loadRegistry() {
           const mesh = sp && f.displayBody(key, Math.min(sp.big ? 0.36 : 0.40, sp.length[1]));
           if (mesh) {
             f.lively.delete(mesh);
-            if (how === 'cooked') mesh.material.color.multiply(COOKED);
+            if (how === 'cooked') cookedTint(mesh.material.color, 1, mesh.material.color);
             mesh.rotation.set(-Math.PI / 2, 0, 0);
             const box = new THREE.Box3().setFromObject(mesh);
             mesh.position.y = -box.min.y - 0.04;
@@ -658,8 +736,9 @@ export async function loadRegistry() {
       kind: 'built in code', backdrop: 'world', source: 'src/terrain.js · addStump(), topple(), cutFaces()',
       variants: forms.length > 1 ? forms : null,
       facts: [['Cut', sp.cut === 'hollow' ? 'a stubble of open stems a hand high — a horsetail’s are hollow'
-                                           : 'at knee height or so, higher on a big trunk: the stump its own foot, clipped at the cut'],
-              ...(sp.heartwood ? [['The face', 'its own cross-section there, flutes and buttresses and all: the heartwood, a narrow band of sapwood, the bark; growth rings and a few checks']] : []),
+                                           : 'at waist height or so, higher on a big trunk: the stump its own foot, clipped at the cut'],
+              ...(sp.heartwood ? [['The face', 'its own cross-section there, flutes and buttresses and all: the heartwood, a narrow band of sapwood, the bark; growth rings and a few checks'],
+                                  ['As an axe leaves it', 'the notch on the side it fell to, sloping away down it; the flat back cut behind; between them the hinge that tore, its splinters standing']] : []),
               ['Falls', 'hinged on the stump’s far edge, away from the axe; lies a few seconds, and sinks from sight'],
               ['Stays', `the stump, until the tree grows back (${sp.regrow} s); you can stand on it`]],
       async build(variant) {
@@ -670,15 +749,16 @@ export async function loadRegistry() {
         const p = { sp, inst, index: 0, matrix: M, x: 0, y: 0, z: 0, key: `gallery-${sp.name}`, trunk: sp.trunkOf ? sp.trunkOf(v) : sp.trunk };
         const c = t.cutOf(p);
         const g = new THREE.Group();
-        // The stump, where it stood.
-        const below = new THREE.Plane(), above = new THREE.Plane();
+        // The stump, where it stood: notched on the side it went over to (-x).
+        const cut = t.stumpCut(p, c, Math.PI);
+        const below = cut.planes.map(() => new THREE.Plane()), above = new THREE.Plane();
         const stump = t.clippedCopy(p, below);
         // (Its bounds the stump's, not the whole tree's it is clipped from.)
         const gb = inst.geometry.boundingBox || (inst.geometry.computeBoundingBox(), inst.geometry.boundingBox);
         const rb = Math.max(c.rw, 0.3) * 1.6;
         stump.boundingBox = new THREE.Box3(V(Math.max(gb.min.x, -rb), gb.min.y, Math.max(gb.min.z, -rb)), V(Math.min(gb.max.x, rb), c.hl, Math.min(gb.max.z, rb)));
         g.add(stump);
-        if (c.top) g.add(t.cutFace(p, c.top));
+        if (cut.top) g.add(t.cutFace(p, cut.top));
         // The rest of it, over on its side from the hinge at the far edge of
         // the cut — away from where you look, so its cut end faces you.
         const down = new THREE.Group();
@@ -695,7 +775,7 @@ export async function loadRegistry() {
         // (Clipping is in the world's frame: kept with the pieces wherever the stage puts them.)
         const keep = () => {
           g.updateMatrixWorld(true);
-          below.set(new THREE.Vector3(0, -1, 0), c.hl).applyMatrix4(stump.matrixWorld);
+          below.forEach((b, i) => b.copy(cut.planes[i]).applyMatrix4(stump.matrixWorld));
           above.set(new THREE.Vector3(0, 1, 0), -c.hl).applyMatrix4(log.matrixWorld);
         };
         keep();
@@ -712,13 +792,16 @@ export async function loadRegistry() {
 
   // ── corals & rocks ──
   REEF.forEach((sp, i) => {
-    const rock = sp.name === 'rock';
+    const rock = REEF_ROCKS.has(sp.name);
     add({
       id: `reef-${sp.name}`, name: REEF_NAMES[sp.name] || cap(sp.name),
       category: rock ? 'terrain' : 'reef', group: rock ? 'Rocks' : REEF_GROUPS[sp.name] || 'Corals & sponges',
       kind: 'built in code', backdrop: 'underwater', source: `src/reef.js · REEF.${sp.name}`,
       facts: [['Grows', `sea bed ${sp.depth[1]} to ${sp.depth[0]} m`],
               ['Where', sp.reef[0] >= 0.3 ? 'on the coral colonies' : sp.reef[1] < 0.5 ? 'on open sand between colonies' : 'anywhere on the sea bed'],
+              ['Grows on', sp.hard[0] >= 0.25 ? 'rock — the reef\'s framework, bedrock ledges' : sp.hard[1] <= 0.6 ? 'sand' : 'rock or sand'],
+              ['In a colony', [sp.anchor && 'one of the big pieces it grows round', sp.weight && 'round the big pieces, and between',
+                               sp.perch && 'up on top of a rock', sp.carries && 'carries small things on top'].filter(Boolean).join('; ') || '—'],
               ['Size', `×${sp.scale[0]}–${sp.scale[1]} of this`],
               ['In the surge', sp.soft === 0 ? 'rigid' : sp.soft < 1 ? 'sways a little' : 'sways'],
               ['Blocks you', sp.soft < 0.5 ? 'yes' : 'no — bends round you']],
@@ -1062,6 +1145,67 @@ export async function loadRegistry() {
     },
   });
 
+  add({
+    id: 'clouds', name: 'Clouds', category: 'water', group: 'Sky',
+    kind: 'shader', backdrop: 'world', source: 'src/clouds.js · CLOUD_GLSL (drawn by the sky dome, and again in the sea)',
+    facts: [['Kind', 'trade-wind cumulus, one deck about a kilometre up'], ['Moves', 'with the wind the sail takes; cover changes day to day'],
+            ['Tip', 'try dawn and dusk: they are lit from underneath in the sun\'s colour']],
+    variants: [{ id: 'up', label: 'Overhead' }, { id: 'sea', label: 'Over the sea' }],
+    async build(variant) {
+      const up = variant === 'up';
+      return {
+        object: null, ownsWater: true, ground: false, keepHeight: true,
+        frame: up ? { center: V(0, 9, 0), size: V(4, 4, 4) } : { center: V(0, 2.5, 0), size: V(10, 3, 10) },
+        view: up ? { yaw: 0.6, pitch: -0.9 } : { yaw: 0.6, pitch: -0.05 },
+      };
+    },
+  });
+
+  add({
+    id: 'splash', name: 'Splash', category: 'water', group: 'Sea',
+    kind: 'shader', backdrop: 'world', source: 'src/splash.js · Splashes (spray) + ocean.js (white water and rings)',
+    facts: [['Made by', 'you going in, a spear, the float, a paddle, the bow in a sea, a falling tree, the whale'],
+            ['Parts', 'a crown of drops; from a big one, the jet; white water and rings on the swell; the sound'],
+            ['Tip', 'it goes off every couple of seconds — switch the size']],
+    variants: [{ id: 'paddle', label: 'A paddle' }, { id: 'you', label: 'You, going in' }, { id: 'tree', label: 'A tree' }],
+    async build(variant) {
+      const size = { paddle: 0.3, you: 1.0, tree: 1.8 }[variant] ?? 1;
+      const holder = new THREE.Group(), drops = new Splashes(holder);
+      let wait = 0.1;
+      return {
+        object: holder, ownsWater: true, ground: false, keepHeight: true,
+        frame: { center: V(0, 0.8, 0), size: V(3 + 2 * size, 2 + size, 3 + 2 * size) }, view: { yaw: 0.6, pitch: 0.18 },
+        update: (dt, time, camera, stage) => {
+          if ((wait -= dt) <= 0) { splash(V(0, 0, 0), size); wait = 1.6 + size; }
+          drops.update(dt, time, camera, null, stage.sky);
+        },
+      };
+    },
+  });
+
+  add({
+    id: 'squall', name: 'Squall', category: 'water', group: 'Sky',
+    kind: 'shader', backdrop: 'world', source: 'src/weather.js · Weather (rain) + sky, clouds and ocean in a squall',
+    facts: [['How often', 'every quarter of an hour of play or so, on average; a minute or two of rain'],
+            ['What it does', 'grey overcast, gusts on the sail, whitecaps, rain on the sea; a collector fills in a minute'],
+            ['Tip', 'try it at dusk']],
+    variants: [{ id: 'rain', label: 'Pouring' }, { id: 'coming', label: 'Coming on' }],
+    async build(variant) {
+      const holder = new THREE.Group(), weather = new Weather(holder);
+      const state = variant === 'coming' ? { rain: 0, gloom: 0.5 } : { rain: 0.95, gloom: 1 };
+      return {
+        object: holder, ownsWater: true, ground: false, keepHeight: true,
+        frame: { center: V(0, 2.5, 0), size: V(14, 4, 14) }, view: { yaw: 0.6, pitch: 0.02 },
+        update: (dt, time, camera) => {
+          WEATHER.override = state;
+          weather.update(dt, time, camera, { wind: { x: 0.6, z: 0.8, strength: 0.9 } });
+        },
+        // (Back to fair weather for whatever is shown next.)
+        leave: () => { WEATHER.override = null; WEATHER.rain = WEATHER.gloom = 0; },
+      };
+    },
+  });
+
   // ── other world objects: flotsam ──
   const debris = await flotsam();
   for (const [kind, info] of Object.entries(DEBRIS_KINDS)) {
@@ -1113,6 +1257,8 @@ export async function loadRegistry() {
           obj = ({ edge: raft.edges, top: raft.tops, object: raft.objs })[b.kind].values().next().value?.obj;
         }
         if (!obj) return { object: null, missing: 'could not place ' + b.id };
+        // A wall or a roof with the posts at its corners: the raft's frame holds it up (raft.js rebuildFrame).
+        if (b.kind === 'edge' || b.kind === 'top') { const both = new THREE.Group(); obj.removeFromParent(); both.add(obj, raft.frame); obj = both; }
         if (b.id === 'campfire' && variant !== 'unlit') {
           const rec = raft.objs.values().next().value;
           rec.lit = true; rec.fuel = Infinity;          // never burns down on show
@@ -1160,11 +1306,17 @@ export async function loadRegistry() {
   return list;
 }
 
-const REEF_NAMES = { brain: 'Brain coral', staghorn: 'Staghorn coral', fan: 'Sea fan',
-                     barrel: 'Barrel sponge', anemone: 'Anemone', grass: 'Seagrass', rock: 'Boulder (sea bed)',
-                     kelp: 'Kelp', urchin: 'Sea urchin', starfish: 'Starfish', clam: 'Giant clam' };
-const REEF_GROUPS = { grass: 'Underwater plants', kelp: 'Underwater plants',
+const REEF_NAMES = { brain: 'Brain coral', porites: 'Massive coral (Porites)', table: 'Table coral',
+                     staghorn: 'Staghorn coral', plate: 'Plate coral', finger: 'Finger coral', fan: 'Sea fan',
+                     barrel: 'Barrel sponge', tube: 'Tube sponge — purple', tubeYellow: 'Tube sponge — yellow',
+                     leather: 'Leather coral', anemone: 'Anemone', grass: 'Seagrass', algae: 'Macroalgae',
+                     rock: 'Boulder (sea bed)', outcrop: 'Rock outcrop', slab: 'Limestone slabs', stones: 'Cobbles',
+                     rubble: 'Coral rubble', kelp: 'Kelp', urchin: 'Sea urchin', starfish: 'Starfish', clam: 'Giant clam' };
+const REEF_GROUPS = { grass: 'Underwater plants', kelp: 'Underwater plants', algae: 'Underwater plants',
+                      tube: 'Corals & sponges', tubeYellow: 'Corals & sponges',
                       urchin: 'Reef animals', starfish: 'Reef animals', clam: 'Reef animals' };
+// The sea bed's own stone, filed with the rocks rather than the corals.
+const REEF_ROCKS = new Set(['rock', 'outcrop', 'slab', 'stones', 'rubble']);
 
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
@@ -1232,11 +1384,11 @@ async function terrainSamples() {
     pick('ridge', 'Mountain ridge', 'terrain', 'Land', 'the high spine of the continent',
          'cloud forest to the tops — araucarias, tree ferns, moss; bare rock and scree only where it is steep (no snow: the Cretaceous greenhouse)', chunkOf(...peak)),
     pick('shelf', 'Sea bed — sand shelf', 'terrain', 'Sea bed', 'the open sand between reef colonies, near the raft',
-         'sand at ~18 m, seagrass, the odd boulder', sandIJ),
+         'sand at ~18 m in ripples, seagrass meadows, bedrock ledges cracked into slabs, cobbles and the odd boulder', sandIJ),
     pick('dropoff', 'The drop-off', 'terrain', 'Sea bed', 'where the shelf ends and the basin begins, past the raft',
          'the slope down to deep silt, deeper than one breath', at(-200)),
     pick('colony', 'Reef colony', 'reef', 'Formations', 'the densest coral near the raft',
-         'coral heads with brain coral, staghorn, sea fans, sponges and anemones', reefIJ),
+         'patch reefs of limestone framework, crevices and spur-and-groove; massive, brain and table corals with staghorn thickets, plate, finger and leather corals, sea fans, tube and barrel sponges round them; rubble and seagrass between', reefIJ),
     pick('shallows', 'Shallows', 'water', 'Coast', 'the beach, seen as water',
          'the ocean over sand, from a metre deep to dry land', at(-10)),
   ];

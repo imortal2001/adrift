@@ -4,7 +4,7 @@
 // rides the waves with the deck.
 
 import * as THREE from 'three';
-import { BUILDABLES, BUILDABLE_BY_ID, ITEMS } from './items.js';
+import { BUILDABLES, BUILDABLE_BY_ID } from './items.js';
 import { ROOF_Y, DECK_Y } from './raft.js';
 import { heightAt } from './terrain.js';
 
@@ -157,11 +157,7 @@ export class BuildMode {
   }
 
   /** What is short for `cost`, and what you have of it: "Need 2 Plank (you have 0)". */
-  needText(cost) {
-    const short = Object.entries(cost).filter(([k, n]) => this.inv.count(k) < n)
-      .map(([k, n]) => `${n} ${ITEMS[k].name} (you have ${this.inv.count(k)})`);
-    return `Need ${short.join(' and ')}`;
-  }
+  needText(cost) { return this.inv.shortText(cost); }
 
   place() {
     if (!this.valid || !this.target) return null;

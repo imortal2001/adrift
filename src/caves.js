@@ -767,8 +767,20 @@ export class Caves {
     }
     // The springs: still, dark water in the chamber.
     // (Clear, the wet rock of its dish showing through; glassy, so a torch shows in it as a smear of light.)
+    // (Thinning out to nothing where the dish comes up to meet it, as the
+    // water does: one flat opacity to the rim, it was a disc of green lying on
+    // the floor with a hard round edge — a mat, not a pool.)
+    const N = 64, fade = new Uint8Array(N * N * 4);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const u = Math.hypot((x + 0.5) / N - 0.5, (y + 0.5) / N - 0.5) * 2;        // 0 at the middle, 1 at the disc's rim
+      const deep = 0.45 * (1 - smooth(0.55, 1, u * 0.97)) - 0.06;              // the water over the dish there (caveGeometry)
+      fade.fill(Math.round(255 * smooth(0, 0.14, deep)), (y * N + x) * 4, (y * N + x) * 4 + 4);
+    }
+    const alphaMap = new THREE.DataTexture(fade, N, N, THREE.RGBAFormat);
+    alphaMap.magFilter = alphaMap.minFilter = THREE.LinearFilter;
+    alphaMap.needsUpdate = true;
     this.water = inTheDark(new THREE.MeshStandardMaterial({ color: 0x2c4a4c, roughness: 0.14, metalness: 0.1, transparent: true,
-                                                          opacity: 0.62, depthWrite: false }), daylight(99));
+                                                          opacity: 0.62, depthWrite: false, alphaMap }), daylight(99));
     for (const c of CAVES) {
       if (!c.spring) continue;
       const w = new THREE.Mesh(new THREE.CircleGeometry(c.spring.r * 0.97, 28).rotateX(-Math.PI / 2), this.water);
@@ -805,12 +817,12 @@ export class Caves {
     for (const { c } of near) {
       const S = c.samples, half = Math.ceil(HOOD / CUTS_PER_CAVE);
       for (let k = 0; k < CUTS_PER_CAVE; k++) {
-        // (From a metre in: the capsule is round, and from the lip itself it
-        // would reach out in front of the alcove and hole the ground there.)
-        const a = S[Math.min(Math.max(1, k * half), S.length - 1)], b = S[Math.min((k + 1) * half, S.length - 1)];
-        CAVE_CUT.uCutA.value[n].set(a.x, a.y + a.h / 2, a.z, Math.max(a.w, b.w) + 0.4);
-        CAVE_CUT.uCutB.value[n].set(b.x, b.y + b.h / 2, b.z, Math.max(a.h, b.h) / 2 + 0.5);
-        CAVE_CUT.uCutF.value[n].set(a.y, b.y);
+        // The passage's arch, 0.4 m clear of its walls and roof — inside the
+        // rock round it (SKIN), so nothing is cut that it does not cover.
+        const a = S[Math.min(k * half, S.length - 1)], b = S[Math.min((k + 1) * half, S.length - 1)];
+        CAVE_CUT.uCutA.value[n].set(a.x, a.y, a.z, a.w + 0.4);
+        CAVE_CUT.uCutB.value[n].set(b.x, b.y, b.z, b.w + 0.4);
+        CAVE_CUT.uCutH.value[n].set(a.h + 0.4, b.h + 0.4);
         n++;
       }
     }

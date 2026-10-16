@@ -30,6 +30,14 @@ meshes with a colour texture each. What this does to it:
   texture's own detail plus a fine denticle grain, so the skin catches the
   light instead of reading as smooth — the same standard as the fish from
   tools/fish_textures.py.
+* **A mouth.** The source has none: only a thin grey arc painted on the white
+  of the belly, which side-on, or from more than an arm's length, is nothing
+  at all — a shark with no jaw. So it gets one where the arc is: the
+  crescent under the snout, ahead of the eyes, a little open as a cruising
+  shark's is, dark inside, with a row of narrow teeth along each jaw standing
+  just proud so the edge reads from the side. Laid on the head's underside
+  (found by casting onto the mesh), coloured by vertex colour over a white
+  patch of the texture, and tagged body so it swims with the head.
 """
 import json
 import os
@@ -106,6 +114,97 @@ def frame(geo):
     return np.stack([side, -fwd, up]), mid
 
 
+# The mouth, in the source's units once in the game's frame (x across, y
+# toward the tail, z up): found from the painted arc (UV u 0.555-0.685, v
+# ~0.94 of Body_baseColor) and the eyes. Its middle, its half width, how far
+# its corners sweep back, and how wide it gapes at the middle.
+MOUTH = dict(x=-0.05, y=-4.14, half=0.62, sweep=0.22, gape=0.13)
+MOUTH_UV = (0.3027, 0.61)             # a white texel of the belly, in the atlas
+DARK, GUM, TOOTH = (0.10, 0.05, 0.06), (0.42, 0.22, 0.24), (0.93, 0.91, 0.86)
+
+
+def underside(tri, x, y):
+    """The head's underside at (x, y): the lowest point of the body there, and
+    its outward normal. `tri` is the body's triangles, (T, 3, 3)."""
+    a, b, c = tri[:, 0], tri[:, 1], tri[:, 2]
+    v0, v1 = b[:, :2] - a[:, :2], c[:, :2] - a[:, :2]
+    p = np.array([x, y]) - a[:, :2]
+    den = v0[:, 0] * v1[:, 1] - v1[:, 0] * v0[:, 1]
+    ok = np.abs(den) > 1e-12
+    l1 = np.where(ok, (p[:, 0] * v1[:, 1] - v1[:, 0] * p[:, 1]) / np.where(ok, den, 1), -1)
+    l2 = np.where(ok, (v0[:, 0] * p[:, 1] - p[:, 0] * v0[:, 1]) / np.where(ok, den, 1), -1)
+    hit = ok & (l1 >= 0) & (l2 >= 0) & (l1 + l2 <= 1)
+    if not hit.any():
+        return None, None
+    z = a[:, 2] + l1 * (b[:, 2] - a[:, 2]) + l2 * (c[:, 2] - a[:, 2])
+    i = np.where(hit, z, np.inf).argmin()
+    n = np.cross(b[i] - a[i], c[i] - a[i])
+    n /= np.linalg.norm(n)
+    if n[2] > 0:
+        n = -n                                   # out of the underside: down
+    return np.array([x, y, z[i]]), n
+
+
+def mouth(bv, bp):
+    """The mouth's geometry: (verts, faces, colours), in the game's frame."""
+    tri = np.array([[bv[p[0]], bv[p[k]], bv[p[k + 1]]] for p in bp for k in range(1, len(p) - 1)])
+    m = MOUTH
+    N = 24
+    V, F, C = [], [], []
+    rows = []                                    # upper lip, the dark of it, lower lip
+    for i in range(N + 1):
+        s = -1 + 2 * i / N
+        x = m["x"] + s * m["half"]
+        y = m["y"] + m["sweep"] * s * s
+        g = m["gape"] * max(0.0, 1 - s * s) ** 0.6
+        row = []
+        for t in (0.0, 0.5, 1.0):
+            pt, n = underside(tri, x, y + g * t)
+            if pt is None:
+                break
+            # Just off the skin, so it shows over it; the middle a hair lower, the open of it.
+            row.append((pt + n * (0.006 + 0.004 * (t == 0.5)), n))
+        if len(row) == 3:
+            rows.append(row)
+    for j, row in enumerate(rows):
+        for k, (pt, _) in enumerate(row):
+            V.append(pt)
+            C.append(GUM if k != 1 else DARK)
+    W = 3
+    for j in range(len(rows) - 1):
+        for k in range(W - 1):
+            a, b = j * W + k, (j + 1) * W + k
+            F.append((a, b, b + 1, a + 1))
+    # Teeth: narrow triangles along each jaw, pointing into the gape and a
+    # little out of it, both faces drawn (two triangles back to back).
+    def teeth(k_from, k_to, count, size):
+        for q in range(count):
+            j = int(round((q + 0.5) / count * (len(rows) - 1)))
+            j = min(max(j, 1), len(rows) - 2)
+            root, n = rows[j][k_from]
+            tip_dir = rows[j][k_to][0] - root
+            gl = np.linalg.norm(tip_dir)
+            if gl < 1e-4:
+                continue
+            tip_dir /= gl
+            along = rows[j + 1][k_from][0] - rows[j - 1][k_from][0]
+            along /= np.linalg.norm(along)
+            edge = 1 - abs(-1 + 2 * j / (len(rows) - 1)) ** 2          # smaller toward the corners
+            ln = size * (0.45 + 0.55 * edge)
+            tip = root + tip_dir * ln * 0.8 + n * ln * 0.45
+            half = along * ln * 0.28
+            base = len(V)
+            # (Each face its own corners: back-to-back faces on shared ones
+            # are a duplicate the mesh check throws out.)
+            V.extend([root - half, root + half, tip, root - half, root + half, tip])
+            C.extend([TOOTH] * 6)
+            F.append((base, base + 1, base + 2))
+            F.append((base + 3, base + 5, base + 4))
+    teeth(0, 2, 15, m["gape"] * 0.75)            # the upper jaw's
+    teeth(2, 0, 13, m["gape"] * 0.6)             # the lower's
+    return np.array(V), F, C
+
+
 def resample(img, wpx, hpx):
     """Area-average an image down to (hpx, wpx) — integer factors only."""
     fy, fx = img.shape[0] // hpx, img.shape[1] // wpx
@@ -128,7 +227,7 @@ def build(src, preview=None):
                    else 0.0 for y in ys])
     halfw = np.abs(bv[:, 0]).max()
 
-    V, F, UV, A = [], [], [], []
+    V, F, UV, A, RGB = [], [], [], [], []
     atlas = np.ones((SIZE, SIZE, 3), dtype=np.float32)
     height = np.zeros((SIZE, SIZE), dtype=np.float32)
     for name, (part, (u0, v0, w, h)) in LAYOUT.items():
@@ -152,6 +251,7 @@ def build(src, preview=None):
         for i, p in enumerate(verts):
             V.append(tuple(p))
             A.append((tags[i] + min(0.99, flex[i])) / 5.0)
+            RGB.append((1.0, 1.0, 1.0))
         for poly, puv in zip(polys, uvs):
             F.append(tuple(base + i for i in poly))
             UV.append([(u0 + a * w, v0 + b * h) for a, b in puv])
@@ -170,6 +270,16 @@ def build(src, preview=None):
             grain = FT.vnoise(xx / 3.0, yy / 3.0, 41)
             height[y0:y0 + hpx, x0:x0 + wpx] = (lum - blur) * 2.5 + grain * 0.18
 
+    # The mouth, on the head's underside (tagged body, so it swims with it).
+    mv, mf, mc = mouth(geo["Body"][0], geo["Body"][1])
+    base = len(V)
+    for p, c in zip(mv, mc):
+        V.append(tuple(p)); A.append(BODY / 5.0); RGB.append(c)
+    for f in mf:
+        F.append(tuple(base + i for i in f))
+        UV.append([MOUTH_UV] * len(f))
+    print(f"  mouth: {len(mv)} verts, {len(mf)} faces")
+
     gy, gx = np.gradient(height)
     nx, ny, nz = -gx * 2.0, -gy * 2.0, np.ones_like(height)
     ln = np.sqrt(nx * nx + ny * ny + nz * nz)
@@ -183,7 +293,7 @@ def build(src, preview=None):
     me.from_pydata(V, [], F)
     layer = me.color_attributes.new(name="Col", type="FLOAT_COLOR", domain="POINT")
     for i, a in enumerate(A):
-        layer.data[i].color = (1.0, 1.0, 1.0, a)
+        layer.data[i].color = (*RGB[i], a)
     uvl = me.uv_layers.new(name="UVMap")
     for poly in me.polygons:
         for j, li in enumerate(poly.loop_indices):
@@ -267,7 +377,9 @@ def render(obj, out_dir):
     for name, target, off in (("side", ctr, (R, 0, 0.1 * R)),
                               ("top", ctr, (0.05 * R, 0, R)),
                               ("face", mathutils.Vector((ctr.x, mn.y + size.y * 0.1, ctr.z)),
-                               (R * 0.22, -R * 0.12, R * 0.04))):
+                               (R * 0.22, -R * 0.12, R * 0.04)),
+                              ("mouth", mathutils.Vector((ctr.x, mn.y + size.y * 0.07, mn.z + size.z * 0.3)),
+                               (R * 0.12, -R * 0.14, -R * 0.1))):
         tgt.location = target
         cam.location = target + mathutils.Vector(off)
         sc.render.filepath = os.path.join(out_dir, f"blacktip_{name}.png")

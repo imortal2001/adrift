@@ -138,7 +138,10 @@ NoAI tag.
   quarter or half);
 - tags each vertex with the fin it belongs to, for the swim shader;
 - adds a normal map, made from the colour textures' own detail and a fine
-  grain — the original has none.
+  grain — the original has none;
+- adds a mouth: the original paints only a thin arc on the belly, with no
+  opening or jaw, so a slightly open crescent mouth with a row of teeth on
+  each jaw is modelled where the arc is.
 
 The colours, markings and eyes are the author's, unchanged.
 
@@ -236,8 +239,11 @@ CC-BY-NC-4.0 (http://creativecommons.org/licenses/by-nc/4.0/).
 > ⚠️ **`stingray.glb` is non-commercial.** Like the player models, its
 > licence forbids commercial use. It is in the tree by choice, for a free,
 > personal prototype; **if the game is ever sold, this file has to be
-> replaced** — or deleted, and the stingray falls back to the one built in
-> code (`rayBody()` in `src/reeflife.js`), which is original work.
+> replaced** — or deleted, and the game has no manta. (Its author titled it
+> "Stingray", but it is a manta ray — the cephalic fins, the pointed wings,
+> its material named `SeaLifeMantaRayMIC` — and the game uses it as one. The
+> stingrays on the sand are built in code, `rayBody()` in `src/reeflife.js`,
+> which is original work.)
 
 **Changes made.** All six were put through `tools/build_sealife.py`, which:
 

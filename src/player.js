@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
+import { splash } from './splash.js';
 import { heightAt as landHeight, isLand, freshWaterAt, WADE } from './terrain.js';
 import { floorAt, clampInCave, collideArches, springAt } from './caves.js';
 
@@ -311,6 +312,9 @@ export class Player {
     }
     const sea = waveHeight(this.pos.x, this.pos.z, time);
     if (this.pos.y <= sea) {
+      // In you go: the harder you hit, the bigger the splash. (Stepping off
+      // a low deck is a slosh; a leap off the side, a proper one.)
+      splash(this.pos, THREE.MathUtils.clamp(0.45 + Math.max(0, -this.vy) * 0.12, 0.45, 1.6));
       this.pos.y = sea - EYE + SURFACE_EYE;
       this.vy = 0;
       this.vel.set(0, 0, 0);
@@ -336,9 +340,13 @@ export class Player {
     }
 
     // Find your feet as soon as the seabed comes up to meet you — or the
-    // shingle at the back of a sea cave.
+    // shingle at the back of a sea cave. (A hand's depth shallower than you
+    // lose them, walking out: they were the same depth, one against the
+    // still sea and one against the swell, and over a gently shelving beach
+    // every wave had you swimming, then wading, then swimming, a splash and a
+    // word each time, for metres.)
     const shore = this.floorHere();
-    if (shore > waveHeight(this.pos.x, this.pos.z, time) - 0.55) {
+    if (shore > waveHeight(this.pos.x, this.pos.z, time) - 0.55 && shore > WADE + 0.12) {
       this.pos.y = shore;
       this.vy = 0;
       this.vel.set(0, 0, 0);
@@ -373,6 +381,7 @@ export class Player {
 
     // Only collide with raft structures near the surface — you can swim under it.
     const nearDeck = this.pos.y + EYE > this.raft.group.position.y - 0.25;
+    const fromX = this.pos.x, fromZ = this.pos.z, wasUnder = this.raft.size && this.raft.solidAtWorld(fromX, fromZ);
     this.moveFlat(mx * speed * dt, mz * speed * dt, nearDeck);
 
     let vy = my * speed;
@@ -383,8 +392,18 @@ export class Player {
     // sand; over the basin the bed is below MAX_DEPTH and the depth cap is
     // what stops you, which is the intended feeling out there — no bottom.
     const bed = this.floorHere();
-    this.pos.y = THREE.MathUtils.clamp(this.pos.y + vy * dt,
-                                       Math.max(MAX_DEPTH, bed), floatY + 0.35);
+    // And the raft is a roof, from under it: floating up beneath the deck you
+    // came up with your head through the planks and breathed there, inside
+    // the hull. Under a square of it you stay a hand below its floats — swim
+    // out from under it to the air, or climb aboard (Space).
+    let top = floatY + 0.35;
+    if (this.raft.size && this.raft.solidAtWorld(this.pos.x, this.pos.z)) {
+      const under = this.raft.deckY(this.pos.x, this.pos.z) - 0.62 - EYE;
+      // (Swimming into its side at the surface, you meet the side: dive to go under.)
+      if (!wasUnder && this.pos.y > under + 0.05) { this.pos.x = fromX; this.pos.z = fromZ; }
+      else top = Math.min(top, under);
+    }
+    this.pos.y = THREE.MathUtils.clamp(this.pos.y + vy * dt, Math.max(MAX_DEPTH, bed), Math.max(top, Math.max(MAX_DEPTH, bed)));
 
     // The boulders and coral are geometry standing on that floor, not part of
     // it. Push out of anything solid, and stand on it if that is the shorter
@@ -393,7 +412,7 @@ export class Player {
     // just feel like the raft had grown a reef.
     if (this.terrain && this.pos.y < floatY - 0.3) {
       const stand = this.terrain.collideReef(this.pos, RADIUS, EYE);
-      if (stand > this.pos.y) this.pos.y = Math.min(stand, floatY + 0.35);
+      if (stand > this.pos.y) this.pos.y = Math.min(stand, top);
     }
     this.onBed = this.pos.y <= bed + 0.02;
 
@@ -427,6 +446,9 @@ export class Player {
 
     if (this.health <= 0) {
       this.deaths++;
+      // What it was, for the others to be told (main.js respawn): not a bite —
+      // the game knows those itself.
+      this.lastCause = this.breath <= 0 ? 'drowned' : this.thirst <= 0 ? 'thirst' : this.hunger <= 0 ? 'hunger' : null;
       this.health = 55;
       this.hunger = Math.max(this.hunger, 40);
       this.thirst = Math.max(this.thirst, 40);

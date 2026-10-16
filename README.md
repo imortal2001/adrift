@@ -8,9 +8,13 @@ ever own starts as something you pulled out of the water. This prototype covers 
 
 You can dive: press `F` at the deck edge, `Z` to swim down, and the swell, the
 light and the colour of the water all change as you go. **Under the raft is a
-coral reef** — sand at about 18m with coral heads standing 8m off it, brain
-coral and staghorn and barrel sponges and sea fans swaying in the surge, with
-sunlight thrown across the sand in caustics. Reef fish work the coral in
+coral reef** — sand at about 18m in ripples, with patch reefs of old limestone
+standing 8m off it, cracked and creviced, spurs and grooves along the outer
+shelf and bedrock ledges between; massive, brain and table corals with
+staghorn thickets, plate, finger and leather corals, sea fans, tube and barrel
+sponges grown over and round them, seagrass meadows, rubble and cobbles on the
+sand; sunlight thrown across it all in caustics and hanging in shafts down
+through the water. Reef fish work the coral in
 schools — yellow and blue tangs, chromis, wrasse, red snapper, porgies — and
 the predators work the reef fish: a barracuda hanging motionless over a coral
 head, a grouper by its hole, blacktip reef sharks on patrol. A flounder lies
@@ -80,6 +84,7 @@ code and models, runs on this machine only, and has its own
 | Arrow keys | also turn the view |
 | `Space` | jump — and climb aboard when you are in the water |
 | `V` | change the view: first person → third (behind you) → second (facing you) |
+| `P` | sound off / on (remembered in this browser) |
 | `E` | gather the debris you are looking at, take branches and fronds (a tree needs the axe in hand), drink from a collector — or a river, lake, pool or cave spring ashore — grab a crab, take back a thrown spear, chip flint out of a cave wall; at a campfire, cook the raw fish in hand, take fish that are done, feed it wood, light your torch in it, or strike a spark into it with the fire striker |
 | `1`–`5`, wheel | pick a hotbar slot |
 | Left-click | use whatever is in your hands |
@@ -113,7 +118,7 @@ instead of a key per tool:
 | Rod | **hold** to swing and let go to cast; click when the float goes under; then **hold to reel, let go to give line**. **Right-click** puts a fish on the hook as bait — the smallest you have (right-click again takes it back off) |
 | Torch | light it — anywhere, with a fire striker in your pack (without one, light it in a burning campfire with `E`). It burns four minutes. Put away, it smoulders for 45 seconds and flares up again if you take it out in that time; after that it needs lighting again, keeping what it had left. The water puts it straight out |
 | Fire striker | nothing in hand — it works from the pack: `E` at an unlit campfire strikes a spark into it (1 Palm fibre for tinder), at once, and a torch lights anywhere |
-| Axe | a stroke at the tree, log, stump or giant horsetail on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
+| Axe | a stroke at the tree, palm, tree fern, log, stump or giant horsetail on the crosshair; a few, and it is down (branches and fronds you take by hand, E) |
 | Material, or nothing | nothing |
 
 Build mode is no longer a toggle: it is simply *holding the hammer*. Take out
@@ -228,12 +233,15 @@ pause screen starts over.
 
 | File | Responsibility |
 |---|---|
-| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an ocean blue, not the near-black it was under the raft. |
-| `src/sky.js` | Sun, sky dome, stars and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
+| `src/ocean.js` | The wave field. One table of four directional waves, compiled into **both** a JS sampler and GLSL, so the raft rides the swell you actually see. Which side of the water you see is the sheet's own (it faces up), not the ripple's — a wave face tilted away from you, seen low across the sea, was drawn as the underside: black holes in the water — and the deep colour is an open-ocean cobalt, not the navy-to-black it was under the raft. The sea state follows the wind and the squalls (`seaStateAt`), with the wind's ripples on top. `setHulls()` keeps the swell from drawing through a raft's deck, froths the water round a raft's hull, and records where the rafts have been for wakes that stay where they were made and curve where a raft turned. The clouds are in the water too. |
+| `src/sky.js` | Sun, moon, sky dome, stars and Milky Way, twilight, and the time-of-day palette that drives the ocean colours and fog. 12 real minutes per day. |
+| `src/clouds.js` | Trade-wind cumulus: one deck of scattered clouds about a kilometre up, one GLSL function shared by the sky dome and the ocean's reflection. They drift with the wind the sail takes (`driftClouds`), cover changes from day to day, and they are lit from underneath in the sun's colour at dawn and dusk and faintly by the moon at night. In a squall they close into a grey overcast with darker rain cloud on it. |
+| `src/weather.js` | Squalls: fair trade-wind weather broken every quarter of an hour of play or so by a minute or two of rain. `weatherAt(time)` runs on the shared sea clock, so everyone on a raft is rained on at once. The sky goes grey and dim and the haze thickens (sky.js), the wind gusts on the sail (raft.js `windAt`), the sea goes grey with more whitecaps and is pocked by the drops (ocean.js) — and so are the rivers, lakes and pools (terrain.js) — and a collector fills in about a minute instead of on dew. `Weather` draws the rain as streaks round the camera — not under the roof you stand under — and plays it. |
+| `src/splash.js` | Whatever goes into the sea: you off the side, a spear, the fishing float, a paddle stroke, the raft's bow meeting a crest, a felled tree, the whale surfacing or its flukes going under. `splash(at, size)` from anywhere: a crown of drops (and from a big one, the jet that rises after), white water and rings drawn by the ocean shader on the swell itself, and a plop or a slap you hear. |
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
 | `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
-| `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold. |
+| `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold, and gesturing what you do (`GESTURES`: chop, swing, thrust, throw, paddle, eat, toss, reach, strike, drill, cast, jerk). |
 | `src/net.js` | Playing together: joining a room through the relay, sending where you are and what you do, and drawing the others — their characters, smoothed between updates, holding what they hold, with a name over their heads. |
 | `src/sharedworld.js` | Playing together in one world, the host's: the time of day, the flotsam, the fish schools, the whale and the dinosaurs, a catch or a gather gone for everyone, the others' spears in flight, a bite on a guest sent to them. |
 | `src/spawn.js` | Where a new castaway comes to: a beach, the open sea, a square of wreckage or a small raft — never inland — and what they are told. |
@@ -241,44 +249,46 @@ pause screen starts over.
 | `src/together.js` | Playing together on one raft, the host's: your own put by while you are away from it, each change sent as it happens, and the host's copy settling anything contested. |
 | `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
-| `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current — past each of you, playing together, and round an island up the current. A move of more than 10 m in a frame (a new start, a waking) scatters it afresh round you. A palm frond is a rib with leaflets off both sides, lying on the water. |
+| `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current — past each of you, playing together, and round an island up the current. A move of more than 10 m in a frame (a new start, a waking) scatters it afresh round you. Ashore it keeps to where you left the water — but a new castaway, or one waking back on the beach they came to, has it brought round the water off that beach (main.js): washed up on a beach, the nearest piece was a hundred metres off and more, round where the last castaway had been. A palm frond is a rib with leaflets off both sides, lying on the water. |
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
 | `src/whale.js` | One humpback, passing by: a few minutes' company, then gone a while; cruises, surfaces to blow, sounds flukes-up. Not catchable. |
-| `src/reeflife.js` | The animals that move, other than fish and dinosaurs: sea turtles, stingrays, octopus and crabs on the reef, tortoises on land and pond turtles in the lakes — each with its own way of moving and of reacting to you; crab and octopus as catches. |
-| `src/reefmodels.js` | Their glTF bodies, when the models are here: the octopus's arm chains curled in code, the stingray's clip, and the tortoise's and pond turtle's limbs found in the mesh and moved in the vertex shader. |
-| `src/reef.js` | What lives on the sea bed: coral, sponges, anemones, seagrass, kelp, urchins, starfish, giant clams and rock, plus the surge that bends the soft ones. |
+| `src/fliers.js` | What is in the air: pterosaurs soaring over the sea and the coast, a flock of terns over the reef, small birds flitting through the trees ashore. One instanced mesh per kind, the wings beaten in the vertex shader (`wingedBody`, `wingMaterial`). |
+| `src/insects.js` | The small life ashore: dragonflies over fresh water, butterflies over open sunny ground, fireflies at night; cicadas and crickets heard. |
+| `src/reeflife.js` | The animals that move, other than fish and dinosaurs: sea turtles, stingrays, a manta, octopus and crabs on the reef, tortoises on land and pond turtles in the lakes — each with its own way of moving and of reacting to you; crab and octopus as catches. |
+| `src/reefmodels.js` | Their glTF bodies, when the models are here: the octopus's arm chains curled in code, the manta's clip, and the tortoise's and pond turtle's limbs found in the mesh and moved in the vertex shader. |
+| `src/reef.js` | What lives on the sea bed — massive, brain, table, staghorn, plate, finger and leather corals, sea fans, tube and barrel sponges, anemones, seagrass, macroalgae, kelp, urchins, starfish, giant clams — and its stone: boulders, outcrops, limestone slabs, cobbles and coral rubble; the roles each plays in a colony; the surge that bends the soft ones. |
 | `src/meshkit.js` | Welds a pile of coloured primitives into one geometry. Used by the reef. |
 | `src/terrain.js` | The continent: one height function (coast, hills, plains, escarpments, the range, rivers, and the falls and lakes on them), streamed as LOD chunks around the viewer, with biome colouring, the scatter of plants and rocks, the far land and canopy, and the rivers' water. |
-| `src/sound.js` | Sound, made on the spot with the Web Audio API — no recordings: the axe (swish, bite, the last stroke), a tree creaking, falling and crashing down; each placed in the world, heard from the camera. |
+| `src/sound.js` | Sound, made on the spot with the Web Audio API — no recordings: the axe (swish, bite, the last stroke), a tree creaking, falling and crashing down, splashes, and the rain (a hiss on the sea, a patter on a roof over you); each placed in the world, heard from the camera. |
 | `src/caves.js` | Caves, sea caves, sea arches and rock shelves: where they are (surveyed from the land), their meshes, the dark inside them, and the floors and walls you walk on and within there; flint to chip, and the springs. |
-| `src/waterfall.js` | The lakes' still water, cut to their shores, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
+| `src/waterfall.js` | The lakes' still water, cut to their shores and knowing its depth over the bed, and the falls: curtains of streaked water over the lip, foam on the pool, rising spray. |
 | `src/flora.js` | Everything that grows on land, and the rocks and deadfall: sixteen species built from trunks, branches and painted foliage cards, the leaf atlas and bark they are drawn with, wind, and where each grows. |
-| `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks. |
+| `src/detail.js` | World-space ground detail — grain, blotches, cracks, and the relief they make — shared by the terrain and the rocks; the terrain says per vertex where its flat ground is rock. |
 | `src/dinopose.js` | How the dinosaurs move on top of their clips, put right from the palaeontology: gaits (no running T. rex or stegosaur), mouths shut, heads down to graze and feed, level tails, the sauropod's neck. |
-| `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation. |
+| `src/wildlife.js` | The ecosystem — five species, predator/prey targeting, kills and repopulation; their calls and footfalls (`VOICE`, sound.js). |
 | `src/models.js` | Optional glTF bodies for the wildlife, with the procedural ones as fallback. |
 | `tools/build_fish.py` | Builds all fifteen sea-life bodies in Blender — each species' own face, textured skin (via `tools/fish_textures.py`), fins with rays, gills, eyes, every vertex tagged with its part for the swim shader — and exports them as one `.glb`. |
-| `gallery/` | The asset gallery: a separate app and server that shows every asset in a 3D viewer. See its README. |
+| `gallery/` | The asset gallery: a separate app and server that shows every asset in a 3D viewer. It is always silent, whatever the game's sound is set to. See its README. |
 | `tools/build_great_white.py` | Converts a third-party great white (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, fin tags from its bones, its teeth joined in, a dark eye, textures downsized. |
 | `tools/build_whale.py` | Converts a third-party humpback whale (CC BY 4.0, see CREDITS.md) for the game: centred and scaled to 12.5 m, flipper and fluke tags from its shape, dark eyes, its normal map flipped to glTF's convention. |
 | `tools/build_coconut.py` | Converts a third-party photoscanned coconut (CC BY 4.0, see CREDITS.md) for the game: a smooth 3,072-triangle shell fitted to the 199,500-triangle scan, pores up, ~17 cm, with the scan's colour and relief baked onto it at 1024² (23 MB down to 270 KB). Held in hand, and afloat as flotsam at 2.4 times the size. |
 | `tools/build_player.py` | Converts the Ready Player Me woman and man (CC BY-NC-SA 4.0, see CREDITS.md) into the player's body: pose made the rest pose, facing the game's forward in metres, bone names cleaned, dressed for the Stone Age by repainting (the man's atlas by the bones that move each part), textures shrunk. |
 | `tools/build_sealife.py` | Converts the six third-party reef and pond animals (sea turtle, tortoise, pond turtle, crab, octopus, stingray — see CREDITS.md; the stingray is CC BY-NC) for the game: decimated to a few thousand triangles (the pond turtle's 25-piece photoscan joined and welded first), textures 1024² JPEG, plain lit materials, in the game's frame at their real sizes; the crab kept as 13 parts pivoting at their joints, the octopus and stingray keeping their rigs. |
-| `tools/build_shark.py` | Converts a third-party blacktip reef shark (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, one mesh and one texture atlas, fin tags for the swim shader, a normal map. |
+| `tools/build_shark.py` | Converts a third-party blacktip reef shark (CC BY 4.0, see CREDITS.md) for the game: rest pose, the game's frame, one mesh and one texture atlas, fin tags for the swim shader, a normal map, and the mouth and teeth the original lacks. |
 | `tools/simulate_fight.mjs` | Plays the rod's fight thousands of times per species with five kinds of player, for tuning `fight.js` by numbers rather than feel. |
 | `tools/build_tools.py` | Puts the four third-party tool models (hammer, spear, rod, axe) in the frame the hand holds them by, colours the spear, and shrinks their textures (`--only NAME` for one). |
 | `tools/make_starters.py` | Generates a correctly set up starter `.blend` per species. |
 | `tools/convert_glb.py` | Round-trips a third-party `.glb` through Blender to fix deprecated materials. |
 | `tools/export_models.py` | Blender-side exporter: settings, manifest upkeep and pre-flight checks. |
-| `src/underwater.js` | Light, colour and marine snow falling off with depth. |
-| `src/hook.js` | The throwable hook — ballistic flight, attach, reel in. |
-| `src/player.js` | Deck / air / swim states, and hunger, thirst and breath. |
-| `src/items.js` | All game data: items, recipes, buildables, debris yields, and what each item does in hand. |
+| `src/underwater.js` | Light, colour and marine snow falling off with depth; the red taken out of the light on the sea bed; caustics; sun shafts. |
+| `src/hook.js` | The throwable hook — ballistic flight, attach, reel in. Thrown up a beach or short into the shallows it comes down on the ground and is pulled back over it, and what it hooks there is dragged up the sand (debris.js), not under it. |
+| `src/player.js` | Deck / air / swim states, and hunger, thirst and breath. The raft is a roof from under it: floating up beneath the deck you stay a hand below its floats (you came up with your head through the planks, and breathed there), so you swim out from under it to the air, or climb aboard; and swimming into its side at the surface you meet the side — dive to go under. |
+| `src/items.js` | All game data: items, recipes, buildables, debris yields, and what each item does in hand. A recipe you cannot make says what is short and what you have of it, as the build bar does ("Need 2 Plank (you have 1) and 1 Rope (you have 0)") — not just "not enough materials"; the pack says the bow drill and the striker work from it rather than that they are "not in a slot"; and a save's pack keeps only whole, positive counts. |
 | `src/hotbar.js` | The five slots: registration, selection, and auto-assignment. |
 | `src/viewmodel.js` | What is in your hand: drawn as a second pass over the frame, with bob, sway, swap and a click animation per action. |
 | `src/spear.js` | Thrown spears: flight, sticking into ground, sea bed and deck, floating in water, and pulling them back out. |
-| `src/fishing.js` | The rod: the swing meter and cast, the float, nibbles and the bite, drawing the fight, and what bites where. |
+| `src/fishing.js` | The rod: the swing meter and cast, the float, nibbles and the bite, drawing the fight, and what bites where. A hooked fish is never deeper than the water: off a beach it sounded as deep as on the reef, through the sand. The float landing, a nibble, the bite, a run and a leap are splashes (splash.js) that ride the swell; it was one flat ring mesh, which sank into the face of a wave. |
 | `src/fight.js` | The fight once a fish is hooked — tension, line and stamina, and how each species fights. Pure maths, no imports, so it can be simulated on its own. |
 | `src/hud.js`, `src/input.js` | DOM HUD (including the dev admin panel); held-vs-tapped keys, mouse look with and without pointer lock. |
 | `src/textures.js` | Every texture is painted into a canvas at load time — no image assets. |
@@ -331,6 +341,12 @@ nothing lines up in rows:
   banked into a flood plain across hollows. The first reaches the sea about
   200 m up the coast from the landing beach. The water is a ribbon at the
   surveyed level, flowing, reflecting the sky; you wade it, about a metre deep.
+  The ribbon is nine vertices across, and every vertex of it and of a lake's
+  surface knows how deep the water is over the bed there (`aDepth`): clear in
+  the shallows, the bed showing through tinted, darkening to green-brown as it
+  deepens, and gone at the very edge, so it meets the bank in a soft line.
+  (Two vertices across, one flat colour at 86%, it was a slab of grey-blue
+  cut off in a sawtooth wherever the bank's triangles came up through it.)
   At the mouth it slopes down over the last few metres of beach and slides
   under the sea, rather than ending in a square slab on top of the waves; and
   a lake's water stops at its shore where the river leaves it over a cascade,
@@ -351,7 +367,16 @@ nothing lines up in rows:
   or three over it into the next, the steps one to two channel widths apart
   (step-pool and cascade reaches, Montgomery & Buffington 1997). The pools are
   sunk into the valley floor, so the banks you walk along keep the smooth
-  fall of the valley.
+  fall of the valley. Each cross-section of the channel is cut square across
+  the stream, at the level of the river where it is square across from: the
+  rivers wander up to 50° off the line out from the middle of the land, and
+  cut by distance from the middle instead, a bank beside a stepped reach took
+  the level of a pool or two further down — a metre and more under the water
+  next to it, which stood over the ground there in a slab — and every pool
+  ended slantwise across the stream in a sawtooth. (Not at a fall, whose
+  cliff runs round the land.) At the mouth the water goes down to the sea by
+  each point's own distance from the coast, as the banks do, so where the
+  coast crosses the mouth slantwise neither edge stands over the beach.
 - **Waterfalls and lakes** (`placeWater` in `terrain.js`, drawn by
   `src/waterfall.js`) — where each river comes off the range fastest, it goes
   over a lip and drops, sheer, up to 22 m: a notch cut through the rock across
@@ -362,7 +387,8 @@ nothing lines up in rows:
   water tearing loose and tumbling down in front. The pool churns — two
   layers of foam turning against each other, a trail of it carried off
   downstream — droplets are flung up out of the impact, and spray boils off
-  it all and drifts away. Above each fall the river is
+  it all and drifts away. Its white water holds its light in the shade of the
+  gorge by day, but dims at night and under a squall's cloud. Above each fall the river is
   flattened into a **lake held back by the rock of the lip**, spilling over it
   (the code calls it a tarn; a true tarn is a glacier's, and there were
   none), the stream coming down into it over a cascade of short steps, not
@@ -395,7 +421,9 @@ nothing lines up in rows:
     than the passage, where the seep that made the cave has sapped the cliff
     foot back — then a tunnel three metres wide that doglegs and winds
     twenty-odd metres back into the hill, to a chamber with a **spring pool** in
-    it to drink from (**E**). The floor is sand, with blocks fallen from the
+    it to drink from (**E**) — its water thinning out to nothing where the dish
+    of its bed comes up to meet it, not a flat disc with a hard edge lying on
+    the floor like a mat. The floor is sand, with blocks fallen from the
     roof heaped against the walls: a cave in sandstone widens by its roof
     coming down, and grows no stalactites — those are limestone's. Round the
     dogleg it is black: the daylight — sun, moon and sky — falls away with how
@@ -403,7 +431,10 @@ nothing lines up in rows:
     gentler than the inverse square — `TORCH_LIGHT` and `TORCH_DECAY` in
     `main.js` — so the wall beside you is plain and the tunnel ahead dim for a
     dozen metres, rather than the ground at your feet burnt white and the
-    trees three steps off black, as it was at night in the forest.) Low on the
+    trees three steps off black, as it was at night in the forest. And when
+    it is dark and your torch is not lit, what it says is what you have: a
+    torch smouldering in the pack, to take out again; one to light; or none,
+    and how to make one.) Low on the
     walls, deep in, is **flint** (**E** chips it out; it comes back in a
     while) — and one face of it a few metres in from the mouth, still in the
     daylight, so that someone who came without a torch can make a fire
@@ -413,21 +444,28 @@ nothing lines up in rows:
     the arch of the mouth, and at the back is a shingle beach to climb out
     on, flint in the walls. The sea inside is as dark as the rock — and it
     puts a torch out.
-  - **Sea arches** (4), off the headlands: one foot in the cliff, one out in
+  - **Sea arches** (5), off the headlands: one foot in the cliff, one out in
     the sea, the way under them along the shore. That is how a sea arch
     comes to be — the waves working into a headland from both sides cut a
     cave through it, and what is left over the cave is the arch (its seaward
     foot, when it falls, a stack) — so they stand only where the coast juts
     out and the cliff behind is as high as they are. Swim or sail under; their
     legs are solid to you and to the raft.
-  - **Rock shelves** (11), ledges out from the lips of the cliffs, to walk
+  - **Rock shelves** (18), ledges out from the lips of the cliffs, to walk
     out onto or under.
 
   Each is its own mesh; the heightfield is left as it is. A cave is a tube of
   rock set into the hill with the ground above it untouched; where it comes
   out through the cliff face, the terrain's shader throws that bit of the
   ground away (`CAVE_CUT`, the nearest mouths) so the mouth opens, and the
-  tube's outer skin is what shows round the cut. The mouth is set in from
+  tube's outer skin is what shows round the cut. What is cut is the tube's
+  own arch over its floor, 0.4 m clear of its walls and roof — inside the
+  rock round it, so nothing is cut that the rock does not cover — square at
+  the lip. (It was a round capsule: wider than the rock at the shoulders of
+  the arch, so the hillside beside a mouth was holed through to the sky,
+  ten square metres of it at a sea cave; and round at the end, so it began a
+  metre in, and a sloping face came up inside the mouth in a wedge of
+  grass.) The mouth is set in from
   the foot to where the rock stands over the way in within a few metres —
   started at the foot of a 50° slope, the tube stood out of it for five
   metres, a dome of rock on the grass. Inside, its floor and walls
@@ -474,7 +512,32 @@ scalloped and apart, a Gleichenia's a fine comb down every fork — for a floor
 carpeted in fronds painted as solid masses of overlapping leaves read as one
 sheet, banded in crescents. (The Gleichenia frond is painted stretched up its
 cell: drawn round, it filled only the lower half, and every leaf of a
-thicket was half empty.) Bark is
+thicket was half empty.) The cut-outs keep their coverage with distance:
+a card's alpha is averaged down the mip chain, and a frond of fine leaflets
+averages to less than the cut-off — past twenty metres a tree fern's whole
+crown went, leaving a bare trunk with a coil on top — so the further down the
+chain a fragment samples, the more its alpha is scaled back up (in
+`addWind()`). And foliage is green in shade, not grey: a crown's normals point
+out of it rather than along each leaf, so seen from below or edge-on the
+Fresnel term went to full and every leaf took a white glaze — painted red, a
+lit crown still came out grey, and under the moon the trees read grey-white.
+The sheen on foliage is cut to an eighth, and the sky's light on it is tinted
+toward the leaf's own colour and darkened the further it faces from the sun
+(or the moon): inside a crown the leaves shade one another, and the light
+that reaches the back of it has come through leaves. The tree fern's
+fiddleheads are a hand across, on a stalk out
+of the crown, furred brown; the coil was half a metre wide, a ring on a post.
+A fern thicket is fronds from the ground up: an older tier half way, drooping,
+and a russet mat of dead fronds under it all (it was a table of green on
+stalks it never drew, daylight under it). And what lies on or spreads over
+the ground leans with it (`conform` on a species: fallen branches all the way,
+the ferns, thickets and low cover part way) — set level on a slope, fallen
+branches hung a metre off it at their downhill ends; a fallen log is set
+down onto the lowest of the ground along it, not by its middle. A standing
+trunk reaches the ground on its low side as well: set by its middle, a big
+redwood or araucaria on a steep slope stood with its downhill edge, roots
+and all, up to a third of a metre in the air — so each is let down until
+its roots meet the lowest of the ground round its base. Bark is
 painted too, one kind per kind of trunk, each a relief for the light and the
 normal map: the redwood's deep fibrous furrows, the araucaria's grey flaking
 plates ringed by old branch scars, the palm's leaf-scar rings, the tree
@@ -488,7 +551,7 @@ animals are:
 | Canopy | **giant redwoods**, old and young together: the old ~55 m, a flared buttressed base then an almost untapered column clear for half its height, a few massive limbs sweeping down and turning up at their ends with the foliage clumped out there, a trunk or two re-grown up through the crown, and a rounded or dead broken top; the young a narrow cone ~30 m. **Araucarias**: old, an umbrella of candelabra arms on a tall bare trunk ringed with the stubs of shed branches, the foliage in tufts at the arm ends; young, a strict tiered cone of dead-level whorls. **Dawn redwoods** (Metasequoia, Cenomanian onward) on the river banks and levees: a narrow cone of ascending branches over a fluted, buttressed base, the foliage soft, feathery and paler |
 | Understorey | **tree ferns** (their bases flared with roots, a skirt of dead fronds), **cycads** (stiff upturned leaves round a cone, the trunk armoured in old leaf bases), **shrubs**, clumps of **horsetail** and taller stands of **giant horsetail** by the rivers; and the first flowering plants — **fan palms** behind the beaches and along the rivers, **magnolias** in flower at the forest edge (the tyrannosaurs and parasaurs are late Cretaceous, when both were already about) |
 | Ground | **ferns** thick on the forest floor; **low ferns and spike-moss** in the open, **fern thickets** waist-high on the plains, **cattails** at the water |
-| Deadfall | **fallen logs** (mossy, snapped at one end, ferns growing out of them), **stumps** with their roots, **fallen branches** |
+| Deadfall | **fallen logs** (mossy, torn off at one end, ferns growing out of them), **stumps** with their roots, **fallen branches** |
 | Rock | **boulders**, **crags** heaped on the slopes and escarpments, and **spires** — sea stacks off the cliff coasts, and buttes out in front of the escarpments |
 
 Vines also hang down the steep faces — cliffs and escarpment risers — draped
@@ -531,6 +594,22 @@ So the forest is dense where it is wet and sheltered, thins onto the beach,
 stunts into cloud forest on the tops, gives way to fern on the plains and to
 rock on the cliffs.
 
+A **fallen log** is torn at one end, as a trunk breaks: the bark ragged
+round it, a line of red-brown inner bark just inside, and the wood a
+splintered mass standing out of it — a surface of its own (rings of points,
+each well up or well down from its neighbours, so the steep facets between
+are the splinters' sides along the grain), pale and faceted, short and
+crushed on one side and pulled out long on the other, where a dozen and more
+flat slivers tore free. It is drawn in bare wood (`wood` in `floraMaterials()`:
+near white, a fine grain, flat-shaded), a third material every species
+carries and only what has a break draws — with the bark's texture the wood
+came out dark and furrowed. (The first end was seven needle-sharp cones set
+evenly round an open tube: a crown of thorns round a hole, and from that end
+you saw straight through the hollow log.) The branch stubs are short and
+broken off. And it is solid: a row of short posts down its length, each as
+high as the log is there (`body` on its geometry), so you walk round it
+rather than into it.
+
 **How many.** The scatter is set against measured stands. Old-growth coast
 redwood on alluvial flats carries 45–74 canopy trees per hectare of 118–183
 stems (Dagley & Berrill); closed forest here has ~50 giants and ~40 younger
@@ -572,7 +651,13 @@ there. **Crags** crown the steep slopes, the escarpment rims and the high
 drier crests; **sea stacks** stand close off the cliffed headlands, never a
 sandy shore; and the lone pillars that stood on the plains are **buttes** in
 front of the escarpments now, since hoodoos need a dry, frosty badland, not a
-wet forested plain.
+wet forested plain. No loose boulder sits on a face much over 50° — nothing
+stays there; it is bare rock and crags. Every rock is bedded into the ground
+all round, not set level by its middle: a boulder lies on the slope and a
+crag's beds dip with it (most of the way; a spire stands straight), and then
+it goes down until the whole of its underside is in the ground — set by its
+middle, crags on the mountainsides hung twenty metres out over the slope
+below, and the sea stacks a couple of metres over the bed.
 
 Detail falls off with distance: ground cover and ferns within ~100 m (fading out
 rather than stopping), full trees within ~100 m and a cheap build of each out
@@ -606,9 +691,17 @@ ground where the ground is (on a slope uphill, it stops short), bounces, and
 throws up leaves and dust where it lands — the ground shakes if you are
 close — and the wood is yours as it hits. It lies a few seconds, then sinks
 out of sight. It is cut, not pulled up whole: what comes down is the tree
-above the cut, knee high or so (higher on a big trunk), its end a face of
+above the cut, waist high or so (higher on a big trunk), its end a face of
 wood, and the **stump** stays where it stood — its own flared, fluted foot,
 bark and all — until the tree grows back; you can climb up and stand on it.
+Its top is as an axe leaves one (`stumpCut()`, `notchFace()` in
+`terrain.js`): the notch, the wedge chopped out of the side it fell to, its
+floor sloping away down that side; the flat of the back cut behind it; and
+between them the hinge, the strip of wood that held to the last and tore,
+its pale splinters standing and leaning the way the tree went. The stump's
+bark is clipped to the notch's plane as well as the cut's. Which way it fell
+is kept (`fellDirs`), so the notch faces where the trunk lies; a stump from a
+save is notched some way or other.
 The face is the trunk's own cross-section at the cut, buttresses and flutes
 and all: the heartwood (a redwood's cherry red, an araucaria's pale
 yellow-brown, a dawn redwood's red-brown), a narrow band of paler sapwood,
@@ -617,6 +710,16 @@ checks out from the pith. A horsetail stand leaves a stubble of hollow stems,
 and its canes go over each from its own: the clump leans by a shear about
 the cut, not turned as one body about a hinge — which lifted the canes behind
 the hinge half a metre off their stubble as they fell.
+Palms, magnolias and tree ferns fall too (two or three strokes), leaving
+their stumps — a palm's ringed and pale with no growth rings, a tree fern's a
+dark mat of roots, a magnolia cut low at its base, below where its stems part
+(cut at the waist, the face spanned the gap between two of them) — and give
+wood as well as fronds (`felledYield`). They were taken whole with one stroke
+and gone in a blink. By hand you can still strip their fronds (`hand`).
+Whatever is taken without falling — a shrub, a cycad, a fern, a log or stump
+chopped up — slumps and sinks into the ground over half a second in a burst
+of leaves or chips (`collapse()`), rather than vanishing between one frame and
+the next.
 A log or a stump is chopped up where it lies, in a burst of chips. Leave one
 half-chopped a minute and you start again.
 
@@ -635,8 +738,58 @@ press a key.
 
 The sea bed comes out of the same `heightAt(x, z)` as the land — there is one
 surface, and the waterline is just where it crosses zero. Out from the beach it
-shelves to a sand floor at about 18m, ridged noise piles coral heads up to 8m
-off that, and past the shelf edge it drops into a basin at 42m.
+shelves to a sand floor at about 18m, patch reefs stand up to 8m off that, and
+past the shelf edge it drops into a basin at 42m.
+
+The beach goes on down under the water as it came down to it: a sand
+shoreface of about 4° for the first twenty metres — knee deep ten metres
+out, waist deep fifteen, the swell dying away over it and the water
+turquoise — steepening to the shelf by about 65 m out (a shoreface is
+concave, gentlest at the shore: Dean 1991). It is shaped by how far out from
+the shore a point *really* is: `coastDistance` is the radial measure, and
+where the coast runs slantwise to the line out from the middle it reads from
+0.8 to twice the true distance, so shaped by that the beaches shelved at 3° in
+one bay and 30° in the next — at the landing beach, two metres deep four metres
+out, and navy a few strides off the sand. Nothing on the shelf has moved: by
+the raft the measure is the radial one again. The reef heads and the
+limestone slabs start past the shallows, where they cannot come up out of
+the sea, and nothing that grows on the bed is so tall there that it stands
+up out of the water (kelp seven metres tall in five of water did). The sand
+under the last of the water is the colour of wet sand only in the last hand's
+depth — by knee deep it is aqua — and up the beach the sand is wet only where
+the wash reaches, not in a dry hollow further up. Walking out, you lose your
+feet past 0.55 m and swim; swimming in, you find them again a hand's depth
+shallower (player.js) — at the same depth, one against the still sea and one
+against the swell, every wave over that gentle shelf had you swimming, then
+wading, then swimming, a splash and a word each time, for metres.
+
+It is built from what a reef is made of rather than from noise alone (real
+reef zonation — [IHO benthic habitat classes](https://iho.int/mtg_docs/com_wg/HGMIO/HGMIO_Website/Benthic%20Habitat%20Objects%20and%20Attributes.pdf),
+[spur and groove at JCU](https://www.jcu.edu.au/news/releases/2020/february/how-the-reef-got-its-groove-back)):
+
+- **Patch reefs (bommies).** Ridged noise says where they stand, with saddles
+  between; each is shaped as one is — flanks that come up steeply off the sand
+  and a broad top — with knobs a few metres across where old colonies grew
+  together, and crevices cut down through it. (The old heads were the ridge
+  noise raised as it was: smooth sand dunes, sand to the crown.)
+- **Spur and groove** along the outer shelf, where the swell breaks on it:
+  fingers of reef a few metres wide running straight out to sea, with sand
+  channels between as wide again — a whole number of them round the continent,
+  so the pattern closes on itself.
+- **Bedrock ledges** breaking through the sand between colonies: old reef
+  limestone cracked into slabs (cellular noise), each at its own height, some
+  gone to leave sand pockets, the cracks silted.
+- **Sand** in ripples — crests along the shore, five metres apart (any closer
+  and the coarser rings of ground alias them into moiré), wandering and broken.
+
+`seabedAt()` reports what it built — how much of the spot is hard bottom, how
+much crack, and a slow tone — and `landAt()` passes it on (`rock`, `crack`,
+`tone`), so the ground colour paints rock as rock: limestone under a skin of
+olive turf algae, pink-lilac coralline crust and the pale bone of dead coral in
+patches a few metres across, mottled and darker than the sand, darker still in
+its cracks. The terrain tells the ground-detail shader per vertex (`aRock`)
+where its flat ground is rock, so a bommie's top cracks and pits like a cliff
+face instead of reading as sand.
 
 **The waves die on the shore.** The sea knows how deep it is: `setSeabed()`
 hands the ocean the same `heightAt`, and a 900 m depth texture that follows
@@ -664,35 +817,71 @@ You have about 18 seconds and you descend at 2.4 m/s, so coral tops at ~10m are
 a comfortable visit, the sand at ~18m spends most of a breath, and the basin is
 deliberately below `MAX_DEPTH` — deep water is meant to stay out of reach.
 
-`reefMask(x, z, out)` says where coral grows, and everything downstream reads
-it: the terrain raises coral heads where the mask is high, the props grow on
-the colonies while the seagrass takes the sand between them, and the reef fish
-school over ground the mask likes. Species are picked by **weighted lottery**
-among everything that could live at that spot rather than first-match-wins,
-which is the difference between a reef and one coral repeated 800 times.
-Each prop is set down onto the lowest of the bed under its rim rather than the
-height at its middle — the reef floor is lumpy, and a brain coral set on a
-knoll's crown overhung the drop all round, floating by as much as two and a
-half metres (a third of them by more than 0.3 m). One that would go more than
-half under that way grows somewhere else; a starfish flat on the sand stays
-put.
+`reefMask(x, z, out)` says where the colonies are, and everything downstream
+reads it: the terrain raises patch reefs where the mask is high, the props
+grow on them, and the reef fish school over ground the mask likes.
+
+**What grows there** (`REEF` in `reef.js`) is laid out the way a reef grows,
+not sprinkled ([growth forms](https://newheavenreefconservation.org/learning-resources/explore-topics/coral-growth-forms)).
+Each species has a part in a colony:
+
+- **anchors** — massive *Porites* and brain coral, table coral, a staghorn
+  thicket, an outcrop or a slab of rock — are put down first, where the
+  colony is;
+- **satellites** crowd round each anchor, thinning out away from it;
+- **perched** things — small corals, sponges, fans, urchins, a clam — settle
+  up on top of the rocks (`carries`), set down by a ray onto the rock's own
+  lumpy surface and leaning with it there: a rock on a reef is never bare;
+- then the rest of the **hard ground** is grown over: a reef's framework is
+  covered, not dotted, so small colonies are packed in wherever there is room
+  — sampled more densely the steeper it is, since a reef face has a lot of
+  surface and little plan (sampled over the plan, the faces were bare);
+- and the **open ground** between is left to seagrass in meadows (`patch`),
+  coral rubble and cobbles on the sand round the colonies, starfish, and the
+  odd colony on a bedrock ledge.
+
+Corals need something hard to settle on and seagrass needs sand, so each
+species also has the range of hard bottom (`hard`) it takes, as well as its
+depths, slopes and reef-mask window. Within a role the species are picked by
+**weighted lottery** among everything that could live at that spot rather
+than first-match-wins, which is the difference between a reef and one coral
+repeated 800 times. Pieces keep out of one another (they may touch, as
+colonies do, but none is grown through another — measured in three
+dimensions, since up a reef face one grows over another), and on a slope a
+colony leans out of the face (`lean`: most of the way for what crusts and
+branches over the rock, a little for a fan, a sponge or a table, which grow
+up into the water whatever they stand on). Each is then set down onto the
+lowest of the bed under its rim, measured from that leaning base — the reef
+floor is lumpy, and a brain coral set on a knoll's crown overhung the drop
+all round, floating — and one that would go more than half under that way
+grows somewhere else. All of this reads the ground off the grid the chunk was
+built from, so pieces sit on the very triangles drawn there (a coarser ring's
+ground is tens of centimetres off the height function in places) and a dozen
+calls to the ground function per piece do not cost a long frame.
 
 The solid pieces are smooth-shaded and their surfaces worked (`worked()` in
-`reef.js`): a brain coral's dome carries the meandering ridges of the real
-thing, raised off it with the valleys between darker; a rock is weathered
-stone, lumped and pitted, with moss over whatever faces up to the light; a
-barrel sponge is ribbed up its sides; the staghorn's branches have rounded
-knuckles and tips. They were flat-shaded raw polyhedra — a rock two
-twelve-faced dodecahedra — and every face showed as a facet, low-poly
-props on a smooth, textured sea bed among textured fish. Past the chunk you
-are in, 32 m and more off where the detail is lost in the haze, the reef is
-built from a lighter set of the same shapes (about 0.8 million triangles in
-view on the reef, against 1.4 million all fine).
+`reef.js`): a brain coral is one dome on the reef (three darker balls tucked
+under a bigger one read as a mushroom on stones), carrying the meandering
+ridges of the real thing, raised off it with the valleys between darker; a massive coral is a
+pile of fused hummocks, yellow-brown on top and grey with turf round its base;
+a table coral is a lobed plate on one stalk, its top a carpet of tiny upright
+branchlets and its growing edge pale blue; a plate coral is a rosette of thin
+leaves, each cupped up to a pale rim; a rock is weathered stone, lumped and
+pitted, with the reef's turf and coralline crust over whatever faces up; a
+barrel sponge is ribbed up its sides; staghorn is a thicket of forking stems,
+brown with the algae in them and pale only at the growing tips (paler all
+over, it read as bleached bone); a sea fan branches and branches
+again in one bowed plane, a lace face on and almost nothing edge on. Every
+piece is darker toward where it meets the bed, as the light down there is
+shut out by everything round it — without that each looked set down on the
+sand rather than grown out of it. Past the chunk you are in, 32 m and more off
+where the detail is lost in the haze, the reef is built from a lighter set of
+the same shapes.
 
 Besides the corals there is golden **kelp**, standing four and five metres tall
-in the shallower water and swaying in the surge; **sea urchins** and **giant
-clams**, gaping to show their blue-green mantles, on the colonies; and
-**starfish** out on the sand.
+in the shallower water and swaying in the surge, its blades tapered and
+drooping; **sea urchins** and **giant clams**, gaping to show their blue-green
+mantles, on the colonies; and **starfish** out on the sand.
 
 Two things do most of the work for how it *reads*. Water clarity is a depth
 curve in `underwater.js`, opened up so you can see 25–30m on the shelf; the
@@ -704,6 +893,51 @@ column behind it all is the fog's own colour, put out in the same colour space
 as the fogged sea bed, so the far reef fades into it with no line at the edge
 of the view (drawn linear, it showed as a navy band twice as dark).
 
+Over that, the light itself. It reaches the bed through the water, and the
+water takes the red out of it first, then the green ([FishBase's per-metre
+figures](https://fishbase.se/manual/FishBaseFishAtDepthViewer.htm), softened:
+the game's red is half gone by about 15 m, not 3) — so the reef top at 8 m is
+warmer than the sand at 18 m beside it, as on a dive. And the swell focuses
+the sun into **shafts** that plunge down through the water: a few dozen long
+soft quads hung from the surface along the sun's direction after it bends into
+the water (Snell: steeper than in the air), each turned about its own axis to
+face you, brightest just under the surface and dying away with depth, each
+swaying and flickering on its own; they wrap round you like the marine snow,
+so a few dozen read as a sea of them, and they go with the sun, the cloud and
+the night.
+
+**Looking up** you see the surface as a diver does: Snell's window, the whole
+sky squeezed into a cone 97° across overhead, the horizon crowding in at its
+rim in a bright ring and the sun near its middle glittering in the ripples,
+the rim wobbled by them; outside it the surface is a mirror of the water
+below, the water's own colour a little lighter. (It was the sky's deep blue
+straight up and the deep sea's navy round it: from the reef, the surface was
+a dark lid.) The marine snow is soft round flecks, not points — drawn as
+points they were hard squares, a finger's width across close to your face.
+Flotsam casts a shadow only over the shallows: through fifteen metres of
+water a plank's shade is scattered to nothing, and drawn crisp the flotsam's
+shadows lay on the sea bed under you like black cut-outs. And the water
+column behind it all darkens only looking steeply down: darkened from just
+below the horizon, it was darker than the fogged sea bed in front of it (the
+fog's colour exactly), and out over the open basin, where no near ground is
+built, the far sea bed beyond stood out of it as a pale flat panel.
+
+**What it costs.** A reef chunk is now about 800 pieces where it was 250, and
+about 1.6–1.9 million triangles are in view on the reef against 1.4–1.5
+before (5–7 ms of GPU at 1224×1786 against 4–6). Two things keep it there:
+each chunk's reef is drawn in quarters, and only the quarters within 52 m of
+you are drawn at all — the water has closed in well before that, and a chunk
+and the ring round it reach out to 96; and the reef is grown a few
+milliseconds a frame (`growReef()` yields, `REEF_BUDGET`), nearest chunk
+first, after the ground — grown in one go it was 20–40 ms, and with the
+ground, a hitch every time you crossed into a new chunk. A chunk rebuilt finer
+as you swim into it is built hidden, and the old one — ground and reef
+together — stays drawn until the new one's reef has grown; then the one swaps
+for the other. So the coral round you never blinks out, and never sits on the
+wrong ground: the old reef kept on the new, finer ground hung half a metre off
+it, or sank into it, for as long as the new reef took to grow. Swimming across the reef, no step of
+the terrain takes longer than about 6 ms.
+
 The props are geometry standing **on** the sea bed, not part of it, so nothing
 that reads `heightAt` knows they exist — which is how the first cut had a third
 of the reef fish swimming through boulders. `Terrain.clearanceAt(x, z)` answers
@@ -712,12 +946,22 @@ whatever is standing on it*. It is backed by a 1.5m obstacle field stamped as
 the props are scattered — each by its shape, a mound highest at its middle
 and down to the bed at its rim, a barrel sponge a column (stamped at full
 height over every cell it touched, the fish beside a coral head hovered at its
-crown); and not the kelp, fans, anemones and seagrass, which bend in the surge
-and a fish swims in among (stamped too, a kelp stand's canopy was a floor
-they hovered on, nine metres off the sand) — rebuilt whole whenever the reef chunk set changes
+crown), the tube sponges columns too; and not the kelp, fans, anemones and
+seagrass, which bend in the surge and a fish swims in among (stamped too, a
+kelp stand's canopy was a floor they hovered on, nine metres off the sand),
+nor what stands lower than a fish swims over the bed anyway — most of the
+reef by count, rubble and cobbles and small colonies, and most of what the
+field cost to build — rebuilt whole whenever the reef chunk set changes
 (props near a chunk edge stamp cells on both sides, and unpicking one chunk's
 contribution from a shared maximum costs more than the rebuild). One lookup per
 fish per frame, about 0.05ms for the lot.
+
+That field is for what swims over the reef, not what walks on it: padded out
+and as tall as the tallest thing in a metre and a half, it had a crab beside
+a coral head walking in mid-water, a metre over the sand, and an octopus
+hovering over a gap. The crabs, octopuses and rays walk on
+`Terrain.walkHeight(x, z)`: the sea bed, or the top of a solid piece they
+are actually on, a mound out to its solid rim.
 
 The swimmer gets the sharper version of the same problem. `heightAt` is the
 sea bed, so clamping to it stops you sinking through the sand — but the props
@@ -733,7 +977,8 @@ and nothing is bucketed twice. About 0.0001ms a frame.
 
 Soft props are not solid. A sea fan, an anemone and a clump of seagrass bend in
 the surge, so they bend around you too; it is the same `soft` column in the
-`REEF` table that drives the sway shader.
+`REEF` table that drives the sway shader. Nor is what lies flat to the bottom
+(`solid: false`) — rubble, cobbles, an urchin, a starfish.
 
 The two radii come from one measurement pulling opposite ways: the fish field
 pads it (nothing should end up inside a rock) and player collision shrinks it
@@ -841,7 +1086,12 @@ textured model of the real species ("Blacktip Reef Shark" by Lais.Marques,
 CC BY 4.0 — see CREDITS.md) — slim, the short rounded snout, the author's
 black tips, pale flank band and slit-pupilled eyes — converted by
 `tools/build_shark.py` into one mesh with one texture atlas, given a normal
-map, and swum by the same shader as everything else. The procedural blacktip
+map and a mouth, and swum by the same shader as everything else. The
+original only paints a thin arc on the belly where the mouth is, with no
+opening or jaw: side-on, or from more than an arm's length, the shark had no
+mouth at all. The build models one there: the crescent under the snout,
+a little open as a cruising shark's is, dark inside, with narrow teeth along
+each jaw standing just proud so the edge reads from the side. The procedural blacktip
 in `reef_fish.glb` is its fallback. The great white is the same kind of
 import ("Shark" by AndrejKrebs, CC BY 4.0), kept in its own slate-and-white
 colours and teeth, converted by `tools/build_great_white.py`. So is the
@@ -1253,6 +1503,17 @@ You see each other as you are: where you stand or swim, which way you face,
 walking, running, jumping, treading water, woman or man, what is in your
 hand, and each thrust, throw, strike and swing — the same body and motion
 you see of yourself in third person (`src/body.js`), with a name over it.
+Everything you do with your hands shows: stooping to take flotsam aboard,
+pick a frond or a crab, feed a fire or hang a fish on it or take one off;
+flint struck on iron (a spark into a fire, a torch lit, flint knocked out of
+a cave wall); bent over a bow drill, sawing, for as long as you saw it; a
+rod cast and the hook set; a drink. (The others saw you stand still while
+wood came aboard, or put a hand to your mouth to strike a spark.) A torch is
+held up, the flame on top — the man held it out level like a spear — and a
+paddle stroke is made from the edge of the deck, over the side: from the
+middle of a big one it went down through the planks. And when one of you
+dies the others are told what it was — "Ben drowns", "is brought down by a
+tyrannosaur", "collapses of thirst" — not only that you blacked out.
 
 How: a small relay (`server/` — a Cloudflare Worker, one Durable Object per
 room) keeps the players of a room connected and passes their messages on;
@@ -1446,7 +1707,12 @@ the fire striker.
 
 **Cooking.** At a lit fire, `E` cooks the raw fish in hand — or, with none
 in hand, one from the pack: it is hung by the
-tail from a spit over the flames, three at a time, and browns as it cooks.
+tail from a spit over the flames, three at a time, and browns as it cooks —
+toward a golden roast, whatever its colour (its colour multiplied by roast, a
+blue chromis came off a darker blue). The spit's bar is a metre up, over a
+cooking fire's flames of three-quarters of a metre: the flames were a metre and
+a third and the bar at 0.78 m, and the fish hung in the middle of the fire,
+out of sight. A fish cooks on any raft's lit fire, not only the one you are on.
 After fourteen seconds it is done — `E` takes it off as a **cooked** fish of
 the same species ("Cooked red snapper"), into the fish slot. Cooked fish fills
 you up half again as much as raw (36 against 22) and, unlike raw, costs no
@@ -1482,16 +1748,29 @@ same focus the fish do — and on the beaches when you are ashore:
 - **Stingrays** (4) lie on the open sand between the reefs (never up on a rock), mottled the colour
   of it; now and then one lifts off and flies low on rippling wings — a wave
   running down each wing, front to back, growing toward the tips. Come within
-  3.5 m and it is off at a rush.
+  3.5 m and it is off at a rush. Each is a whipray built in code (`rayBody()`):
+  a rounded diamond of a disc, thick over the body and thin out to the wings,
+  sand-coloured and softly mottled on top and pale beneath, its eyes raised
+  with the spiracles behind them, the pelvic fins at the back, and a whip of a
+  tail twice the disc long with its spine, which trails in a slow wave.
+- **A manta ray** (1) cruises in open water off the reef, over sand 9 m down
+  and more, a few metres under the surface: 3.5 m across, on slow, deep
+  wingbeats, banking round in long turns and turning back from the
+  shallows. It does not run from you — mantas come to look at divers — but
+  swim right at it and it turns aside, unhurried. (Its model came titled
+  "Stingray" and was the stingrays, lying on the sand; a manta never does.)
 - **Octopus** (3) creep over the coral, eight arms reaching and curling, their
-  colour sliding through the reef's to match what they are on. Come within
+  colour sliding through the reef's to match what they are on — and once one
+  has jetted off and settled, the grey-green of the rock. Come within
   2.8 m and one blanches, jets off backwards and leaves a cloud of ink — then
   hides, still, where it lands, which is when you can get close. Drift in
   slowly and it trusts its camouflage to about half that, inside a thrust's
   reach. The spear takes one — thrown, or thrust.
 - **Crabs** (7 on the reef, 8 on the beaches) scuttle sideways in short
   bursts. On the reef one runs a few metres from you; on a beach it runs for
-  the sea and is gone. Get close and **E** grabs it.
+  the sea and is gone. Get close and **E** grabs it. The reef's are blue
+  crabs, red, orange or maroon; the beach's are pale, sand-coloured ghost
+  crabs.
 
 And away from the sea:
 
@@ -1513,33 +1792,85 @@ in the fish slot, bait a hook, cook on the spit and are eaten, raw or cooked.
 Each player's sea has its own: they are not shared playing together, as a
 school's fish are not.
 
-**Models.** The sea turtle, stingray, octopus, crab, tortoise and pond turtle are
+**Models.** The sea turtle, manta ray, octopus, crab, tortoise and pond turtle are
 third-party models (`assets/models/`, credited in `CREDITS.md`; **the
-stingray is CC BY-NC** — non-commercial — and must be replaced before the
-game is sold), converted by `tools/build_sealife.py` and moved in code by
-`src/reefmodels.js`:
+manta — `stingray.glb`, as its author titled it — is CC BY-NC** —
+non-commercial — and must be replaced before the game is sold, or left out:
+the game then simply has no manta), converted by `tools/build_sealife.py` and
+moved in code by `src/reefmodels.js`:
 
 - the **sea turtle** is one mesh; its flippers are found in it the way the
   tortoise's legs are (below) and beaten in the vertex shader — the front
   pair together, down and back, the downstroke the quicker, the hind pair
   only steering;
-- the **stingray** runs its own swim clip, as slowly or quickly as it is
-  going, nearly still on the sand;
+- the **manta** runs its own swim clip, at a manta's slow beat;
 - the **octopus**'s rig has eight arm chains, which are curled and swept in
   code — reaching and coiling as it creeps, trailing straight behind it as
   it jets — and its texture is tinted through the camouflage colours;
 - the **crab** comes as a shell, two claws and ten legs, each with its
   origin at its joint: every part is one instanced mesh for all the crabs,
-  turned about its joint, the legs walking in a tetrapod gait;
+  turned about its joint, the legs walking in a tetrapod gait. It is painted
+  a blue crab; a crab of another colour keeps the painting's light and shade
+  and takes the new colour (an instance colour over 1 asks for it) — as a
+  tint over the blue, a sand-coloured beach crab came out blue and a red one
+  a muddy purple. The reef's crabs are made before the model has loaded, so
+  their colours are picked again when it comes;
 - the **tortoise** and **pond turtle** are one mesh each. Their legs, head
   and tail are found in the mesh — a height map from above says where the
   shell is; what reaches out past it, or hangs below its rim, is limb — and
   moved in the vertex shader, blended smoothly between limbs so the mesh
-  never tears: walking, paddling, grazing, drawing in.
+  never tears: walking, paddling, grazing, drawing in. A head held high
+  stands as tall as the shell over its front edge, so the height map took
+  its top for shell; but a shell is a dome, low toward its rim, and what
+  stands well above that dome in the head's way is head. Drawing in, each
+  part is shrunk, its shape kept, back toward where it leaves the shell and
+  low under the rim — the head as one piece, the legs whatever of them is
+  out past the rim — and the shell is let down onto the ground. (Pushed
+  toward the middle and flattened, the legs were jagged flaps sticking out
+  of the shell and the head a dark slab standing up from it.)
+
+In the gallery the sea turtle swims clear of the sand: it is centred on its
+own middle, as it swims in the game, and stood on the floor its flat
+flippers, level with its middle, were under the sand.
 
 Without the files, the sea's animals are the code-built ones they replace
 (a few meshes each, their wings and arms re-shaped on the CPU every frame; the
 crabs three instanced meshes), and there are no tortoises or pond turtles.
+
+### In the air, and in the grass
+
+There was nothing over the sea or in the grass: no wings at all. Now
+(`src/fliers.js`, `src/insects.js`, all built in code):
+
+- **Pterosaurs** (4), Pteranodon-like, six metres across the wings, soar
+  over the sea and the coast in slow circles 25-60 m up, the circles
+  drifting. They seldom flap — they were soarers, like an albatross (Witton
+  2013) — only a bout of slow, deep beats to climb. Every minute or so one
+  comes down to skim the sea, beak dipped in for a fish, and climbs away.
+- **Terns** (a flock of 10), a metre across, work the water over the reef:
+  quick wingbeats, the flock wandering and turning back from the land; now
+  and then one folds its wings and plunges in after a fish with a splash, and
+  beats its way back up. Heard as harsh, two-note calls.
+- **Small birds** (7) ashore under the canopy, unseen in the leaves until
+  one flies: short bounding flights from tree to tree, a burst of beats and
+  the wings shut, as a finch flies. Heard more than seen: birdsong by day.
+- **Dragonflies** over fresh water near you by day: hovering, darting a few
+  metres and stopping dead, two pairs of glass wings each with its dark spot.
+- **Butterflies** over open, sunny ground by day — orange, yellow, blue,
+  white, red — on the jinking, bobbing flight of big wings beating slowly.
+- **Fireflies** at night ashore, in the grass and at the forest edge: points
+  of yellow-green light with a glow round them, each blinking on its own beat.
+- **And heard:** cicadas buzzing by day in the trees, crickets chirping by
+  night, ashore — and faintly from the shore out at sea, fainter the further
+  out; hushed in a squall's rain.
+
+Each kind of flier is one instanced mesh: a body, head and tail, and wings
+whose every vertex knows how far out along the wing it is, so the vertex
+shader beats them (each instance its own phase and stroke, the outer wing a
+little further, as a wing flexes at the wrist) and folds them for a dive.
+Undersides are lit a little of their own: a membrane lets the light through
+and a bird's belly catches it off the sea, so a wing overhead is not a black
+cut-out. All are in the gallery, under *Living animals: Air* and *Insects*.
 
 ### The whale
 
@@ -1554,9 +1885,14 @@ it picks goals where the bed is at least 15 m down with deep water all the
 way there, looks 40 m ahead as it swims, and swings off anything shallower
 than 12.5 m; it is never lifted out of the water, whatever is under it. It
 cruises at 9 m, and every minute or so comes up and blows
-three to five times, a dozen seconds apart — a bushy spout about 4 m tall —
-then arches over and sounds, the flukes coming up clear of the water as it
-goes down. It is scenery, not a catch: nothing on a raft lands forty tonnes.
+three to five times, a dozen seconds apart, then arches over and sounds, the
+flukes coming up clear of the water as it goes down. A blow is a misty column
+shot up four or five metres that widens at the top into a bushy cloud, hangs
+there a few seconds settling only slowly, drifts off downwind and thins
+away; and it is heard, a deep breathy roar and the short in-breath after it,
+a long way over the water (`sound.blow`). (It was a two-metre puff, gone in
+three seconds, falling back like spray, and silent.) Breaking the surface it
+throws a wash off its back, and its flukes going under slip in with a splash. It is scenery, not a catch: nothing on a raft lands forty tonnes.
 Its body is `whale_humpback.glb` (see *The faces* above), and it uses the same
 swim shader as the fish, bending up and down: the flukes beat, and the long
 flippers lift and droop slowly.
@@ -1739,6 +2075,28 @@ and the birdlike resting crouch (the rigs' leg bones do not sit at the joints,
 so they cannot be folded by IK). Speeds for the hunters stay below the
 literature's — a raptor could do ~10 m/s — so that you can still get away.
 
+**And heard.** They were silent: a forty-tonne sauropod walked past without
+a sound. No one has heard a dinosaur, but the bones say the big ones were
+low — closed-mouth booms and rumbles, as a crocodile's or an emu's, more felt
+than heard (Riede et al. 2016), not the screams of the films — and a
+parasaur's hollow crest is a resonating tube, a horn (Weishampel 1981). So
+(`src/sound.js`, `dinoCall`, made on the spot like every other sound):
+
+| | Heard as |
+|---|---|
+| Sauropod | a long, low rumble sliding down, with a slow throb in it, heard half a kilometre off |
+| Parasaur | the crest's call: a reedy horn through a long tube's resonances; in alarm, three short higher honks |
+| Stegosaur | a huff through the nose and a grunt; two grunts in alarm |
+| Tyrannosaur | a very low closed-mouth boom; going after something, longer, with a growl in it |
+| Raptor | a sharp, bird-like bark or two; on the hunt, a long hiss and a run of clicking barks |
+
+Each calls now and then going about, on its own clock (a minute or two
+apart: a herd of fourteen at one call a half-minute each was a honk every
+two seconds); a herd animal that takes fright calls in alarm, a hunter that
+goes after something calls as it does. And within 60 m the big ones'
+footfalls are heard — a thud you feel, the heavier the deeper — each as a
+foot is planted on the ground (`plantFeet`'s step), not on a timer.
+
 Three ideas do most of the work:
 
 **One wave definition, two consumers.** `WAVES` in `ocean.js` is compiled into
@@ -1746,21 +2104,108 @@ the vertex shader *and* sampled on the CPU by `waveHeight()`. Nothing can drift
 out of sync, so a barrel bobbing 40m away is genuinely on the surface it
 appears to be on.
 
-**The raft never yaws.** It heaves and tilts, but its horizontal frame matches
-world space, so "which cell am I standing on" stays a rounding operation while
-height still comes from the real transform. Player position is cheap and never
-jitters.
+**A sea that answers the weather.** The four waves are not fixed. The two long
+ones are swell from far off: the wind hardly changes them, but they are a third
+bigger out over deep open water than on the shelf round the island (the bed map
+now reaches 40 m down, so the sea can tell them apart). The two short ones are
+the wind's own sea. `seaStateAt(time)` reads the sea state, 0 to 1.2, from the
+wind and a squall's gloom on the shared sea clock. A still day lowers the short
+waves to two thirds; a squall raises them to about half as much again. Each
+wave's share goes to the CPU's sum and the shader alike, so the raft still
+rides exactly the sea you see, and everyone's sea is the same. Measured from
+trough to crest, the open sea runs about 1.7 m in a calm, 2 m in an average
+wind and 2.5 m in a squall; on the shelf near the island, about 1.5 m. Over
+that the shader lays the wind's ripples: six short waves, from a metre and a
+half down to a hand, running downwind at their own speeds. They come in gusty
+patches (cat's paws) that drift downwind, and in a squall they are everywhere.
+Rain beats them down; distance hands them to a wider, dimmer sun glitter;
+whitecaps come with the wind too.
+
+**The raft lies on the water it covers.** Every frame each cell's centre and
+four corners are sampled with `waveHeight()` and a plane is fitted through them
+by least squares: its height is the heave, its slope the tilt. A big raft rides
+the long swell and averages the short chop, as a real one does, and no corner
+sinks under a crest while the middle sits high. The chop that is left — a few
+centimetres past the deck at worst — is hidden by `Ocean.setHulls()`, which
+hands the shader each raft's inverse transform and a 64×64 map of its cells, so
+water that would rise through the planking is simply not drawn there. Turning
+is the only yaw, so "which cell am I standing on" stays a rounding operation in
+the raft's own frame.
 
 **Grid, not physics.** Cells, four edges, one roof slot and one object slot each.
 Walls and railings canonicalise to a shared boundary, so a wall between two
 cells exists once. Salvaging a foundation flood-fills to refuse any cut that
 would split the raft in two.
 
+**One frame.** What holds the roofs up and the walls together is the raft's
+own frame (`rebuildFrame`), built afresh whenever a piece goes on or comes off:
+a post at each corner of the grid that a wall ends at or a roof stands on —
+one, however many pieces meet there, full height in a wall's corner, and
+solid to walk into when it stands free under a roof. Each roof brought its
+own four posts, so a cabin of four squares stood on sixteen, in pairs along
+its walls and a clump of four in the middle, and each wall stopped short of
+the corner, so where two met the corner was a notch. (The build preview of a
+roof, alone, still shows its own four.) Next to each other, every other roof
+is a few millimetres higher, so where their overhangs overlap two faces do
+not share a plane and flicker.
+
+**Where the sea meets the raft.** `setHulls()` also gives the shader each
+raft's extent and its way through the water in its own frame. Within a couple
+of metres of the hull, the water finds its distance to the nearest square of
+deck and froths: a band a hand or two wide, wider where the swell rides up the
+logs and when the raft is moving.
+
+**A wake that stays where it was made.** For the two nearest rafts the ocean
+records where each has been: a point every 0.8 s of sea time, 25 s of them,
+plus where it is now (`Ocean._trail`). The shader finds each bit of water's
+distance from that path, how long ago the raft passed, and how fast it was
+going then. So the wake stays in the water where it was laid, and a turn leaves
+a curve behind instead of swinging the whole wake round with the raft. It is
+made the way real wakes are, in the three layers of the ship-wake literature
+([Rabaud & Moisy](https://arxiv.org/pdf/1304.2653)):
+
+- a turbulent strip about the hull's width, which widens more and more slowly
+  (as √age) and lasts. Its white foam is a pattern fixed in the water that
+  breaks into patches as it ages, over a pale turquoise band of bubbles still
+  under the surface, which outlasts the white.
+- the Kelvin arms: thin lines spreading from each stretch of the path at a
+  third of the speed the raft passed it, the 19.5° wedge. They are drawn only
+  abreast of a stretch; drawn round its ends too, every point of the path put
+  a ring of circles in the water.
+- a slick: flatter water where the churning smoothed the chop, the last thing
+  to go.
+
+All of it fades over 15–25 s once the raft stops. A jump the raft could not
+have sailed (a respawn, a correction from the host) starts a new wake.
+
 **Lit from the deck.** What is under a roof is planking in the sun, so the raft's
 pieces are lit from below by it as well (`DECK_BOUNCE` in `sky.js`, about a
 quarter of the sun and sky on the deck): a face looking down gets all of it,
 a wall half. The sky's own light from below is the sea's and the land's — and
 was a deep teal next to nothing, so the underside of a roof came out black.
+
+**Sun, moon and stars.** The sky is a dome (`sky.js`) coloured from keyframes
+round the clock. Twilight is tropical, short: civil twilight is about
+twenty-five minutes there and the sky fully dark an hour and ten after
+sunset — it was three hours, a pink horizon at nine at night and the cliffs
+lit mauve by it. Near sunrise and sunset the glow along the horizon is on the
+sun's side; the opposite horizon goes blue-grey with the pink band of the Belt
+of Venus over it (the horizon was one colour all round, as orange behind you
+as in front). The sun is a disc a degree across — twice true, so it still
+reads (it was five degrees, a beach ball on the horizon) — limb-darkened, in
+the colour the air leaves it, with a tight aureole and a broad glow. At night:
+stars as round points of different brightness and colour, twinkling most low
+down (they were the cells of a flat grid read off the sky: little squares,
+stretched toward the horizon); a faint Milky Way mottled with dust; and a full
+moon opposite the sun, a disc with its seas on it and a haze of light round
+it. The moonlight comes from where the moon is — the same light as the sun's,
+handed over just after sunset, so trees, the raft and you throw moon shadows
+(a light of its own, it threw none: a moonlit forest stood on the sand with
+nothing under it), and only a little bluer than sunlight (deep blue, it took
+the green out of the leaves and they read grey-white). The sea's highlights
+follow it once the sun is down — a path of moonlight on the water instead of
+a sea glinting at a sun under the horizon. A moonlit night sky is a deep
+blue, not black.
 
 ## Tuning
 

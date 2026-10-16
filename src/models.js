@@ -451,7 +451,7 @@ function reach(hip, knee, foot, target) {
  * After the clip (driveGait) and any posing on top of it: the feet that are
  * down held where they came down. `groundAt(x, z)` is the ground's height.
  */
-export function plantFeet(rig, dt, groundAt) {
+export function plantFeet(rig, dt, groundAt, onStep = null) {
   if (dt <= 0) return;
   const g = rig.gait;
   if (!g) return;
@@ -493,6 +493,7 @@ export function plantFeet(rig, dt, groundAt) {
       if (!lock || lock.lifting) {
         lock = { x: _C.x, z: _C.z, dy: _C.y - groundAt(_C.x, _C.z), w: 0 };
         locks.set(foot, lock);
+        onStep?.(_C);                                        // a foot down: heard, for a big one
       }
       lock.w = Math.min(1, lock.w + dt / 0.06);
     } else if (lock) {

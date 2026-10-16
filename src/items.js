@@ -248,6 +248,13 @@ export class Inventory {
     }
   }
 
+  /** What is short for `cost`, and what you have of it: "Need 2 Plank (you have 1) and 1 Rope (you have 0)". */
+  shortText(cost) {
+    const short = Object.entries(cost).filter(([k, n]) => this.count(k) < n)
+      .map(([k, n]) => `${n} ${ITEMS[k].name} (you have ${this.count(k)})`);
+    return short.length ? `Need ${short.join(' and ')}` : '';
+  }
+
   /** "2 Plank, 1 Rope" — with the missing parts marked up for the UI. */
   costText(cost) {
     return Object.keys(cost).map(id => {
@@ -260,7 +267,12 @@ export class Inventory {
   toJSON() { return Object.fromEntries(this.slots); }
   static fromJSON(o) {
     const inv = new Inventory();
-    for (const k in o) if (ITEMS[k]) inv.slots.set(k, o[k]);
+    // (Only whole, positive counts: one that was not a number would stick in
+    // the pack for good, a slot that is neither there nor gone.)
+    for (const k in o) {
+      const n = Math.floor(Number(o[k]));
+      if (ITEMS[k] && n > 0) inv.slots.set(k, n);
+    }
     // Saves from before fish were told apart carry one count of "fish". They
     // were real catches, only never written down, so they come back as the
     // hand-sized fish a spear or a bare hook takes, in about the proportions

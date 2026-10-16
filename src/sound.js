@@ -19,6 +19,17 @@ import * as THREE from 'three';
 
 const VOLUME = 1.0;
 
+// Muted or not (P in the game): remembered in this browser, apart from the save
+// (`remember` false: for this page only, as the gallery mutes itself).
+const MUTE_KEY = 'adrift.muted';
+let muted = (() => { try { return localStorage.getItem(MUTE_KEY) === '1'; } catch { return false; } })();
+export const isMuted = () => muted;
+export function setMuted(on, remember = true) {
+  muted = !!on;
+  if (remember) try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0'); } catch { /* (private window: for this visit only) */ }
+  if (master) master.gain.setTargetAtTime(muted ? 0 : VOLUME, ctx.currentTime, 0.05);
+}
+
 let ctx = null, master = null, noise = null;
 
 /** Start the audio, from inside a user gesture. Safe to call again. */
@@ -28,7 +39,7 @@ export function unlock() {
     if (!AC) return;
     ctx = new AC();
     master = ctx.createGain();
-    master.gain.value = VOLUME;
+    master.gain.value = muted ? 0 : VOLUME;
     // A crash close by and a chop at once never clip: a gentle limiter last.
     const limit = ctx.createDynamicsCompressor();
     limit.threshold.value = -10; limit.knee.value = 8; limit.ratio.value = 6;
@@ -197,4 +208,222 @@ export function crash(at, size = 1) {
     hiss(out, at2, { freq: vary(2600, 0.35), q: 1.3, env: [[0.002, (0.25 + Math.random() * 0.35) * k], [0.05 + Math.random() * 0.05, 0.0001]] });
   }
   hiss(out, t + 0.05, { type: 'highpass', freq: 3000, q: 0.4, env: [[0.1, 0.3 * k], [1.4, 0.0001]] });
+}
+
+/**
+ * Something going into the sea at `at`, of about `size` metres: a small one
+ * is a plop — the bubble it pulls under ringing as it closes; a big one a
+ * slap on the water and the rush of the spray coming back down.
+ */
+export function splash(at, size = 1) {
+  if (!ready()) return;
+  const out = place(at, 2 + 3 * size, 120), t = ctx.currentTime, k = Math.min(1.3, 0.35 + 0.6 * size);
+  if (size < 0.7) tone(out, t, { f0: vary(1100 / (0.5 + size)), f1: vary(500), glide: 0.06, env: [[0.004, 0.22 * k], [0.09, 0.0001]] });
+  hiss(out, t, { type: 'lowpass', freq: vary(2600), to: 450, q: 0.8, env: [[0.008, 0.7 * k], [0.08 + 0.12 * size, 0.25 * k], [0.25 + 0.5 * size, 0.0001]] });
+  if (size >= 0.7) {
+    // The slap, low; then the spray falling back, a beat later.
+    tone(out, t, { f0: vary(140), f1: 60, glide: 0.15, env: [[0.005, 0.5 * k], [0.25, 0.0001]] });
+    hiss(out, t + 0.25 + 0.1 * size, { type: 'highpass', freq: 2200, q: 0.5, env: [[0.06, 0.18 * k], [0.4 + 0.4 * size, 0.0001]] });
+  }
+}
+
+// Rain: one loop of noise, always running once begun, its level eased to the
+// weather's. On the open sea a soft broad hiss; under a roof, the patter on
+// the thatch over you, lower and nearer.
+let rainSrc = null, rainGain = null, rainTone = null;
+export function rain(level, roofed = false) {
+  if (!ready()) return;
+  if (!rainSrc) {
+    if (level < 0.01) return;
+    rainSrc = ctx.createBufferSource();
+    rainSrc.buffer = noise; rainSrc.loop = true;
+    rainTone = ctx.createBiquadFilter();
+    rainTone.type = 'bandpass'; rainTone.Q.value = 0.4; rainTone.frequency.value = 3500;
+    rainGain = ctx.createGain(); rainGain.gain.value = 0;
+    rainSrc.connect(rainTone).connect(rainGain).connect(master);
+    rainSrc.start();
+  }
+  const t = ctx.currentTime;
+  rainTone.frequency.setTargetAtTime(roofed ? 1300 : 3500, t, 0.3);
+  rainGain.gain.setTargetAtTime(Math.min(1, level) * (roofed ? 0.55 : 0.4), t, 0.5);
+}
+
+/**
+ * A whale blowing, at `at`: the explosive exhale — a deep, breathy roar,
+ * falling as it goes — and the short in-breath after it. Heard a long way
+ * over the water.
+ */
+export function blow(at) {
+  if (!ready()) return;
+  const out = place(at, 30, 600), t = ctx.currentTime;
+  hiss(out, t, { type: 'bandpass', freq: vary(900), to: 320, q: 0.6, env: [[0.04, 1.0], [0.5, 0.55], [1.6, 0.0001]] });
+  hiss(out, t, { type: 'lowpass', freq: 260, q: 0.7, env: [[0.05, 0.8], [1.2, 0.0001]] });
+  hiss(out, t + 1.7, { type: 'bandpass', freq: vary(600), to: 900, q: 0.8, env: [[0.3, 0.35], [0.8, 0.0001]] });
+}
+
+// ── the dinosaurs ────────────────────────────────────────────────────────────
+// No one has heard one, but the bones say a good deal: the big ones were low
+// — closed-mouth booms and rumbles like a crocodile's or an emu's, more felt
+// than heard, not the screams of the films — and a parasaur's hollow crest
+// is a resonating tube, a horn (Weishampel 1981; Riede et al. 2016).
+
+/** A low tone sliding down, with a slow throb in it: a rumble, a boom. */
+function rumble(out, t0, f0, f1, dur, level, throb = 5.5) {
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = f0 * 3; lp.Q.value = 0.8;
+  const g = ctx.createGain();
+  shape(g.gain, t0, [[dur * 0.25, level], [dur * 0.7, level * 0.6], [dur, 0.0001]]);
+  const lfo = ctx.createOscillator(), depth = ctx.createGain();
+  lfo.frequency.value = vary(throb, 0.2);
+  depth.gain.value = level * 0.3;
+  lfo.connect(depth).connect(g.gain);
+  o.connect(lp).connect(g).connect(out);
+  o.start(t0); o.stop(t0 + dur + 0.1);
+  lfo.start(t0); lfo.stop(t0 + dur + 0.1);
+}
+
+/** A horn: a reedy tone through the resonances of a long tube, and its octave below. */
+function horn(out, t0, f0, dur, level = 0.8) {
+  const o = ctx.createOscillator();
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(f0 * 1.04, t0);
+  o.frequency.linearRampToValueAtTime(f0, t0 + 0.15);
+  o.frequency.exponentialRampToValueAtTime(f0 * 0.9, t0 + dur);
+  const g = ctx.createGain();
+  shape(g.gain, t0, [[0.12, level], [dur * 0.75, level * 0.8], [dur, 0.0001]]);
+  for (const [mul, q, k] of [[4.5, 5, 1], [9, 6, 0.5], [1.5, 2, 0.6]]) {
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass'; f.frequency.value = f0 * mul; f.Q.value = q;
+    const kg = ctx.createGain(); kg.gain.value = k;
+    o.connect(f).connect(kg).connect(g);
+  }
+  g.connect(out);
+  o.start(t0); o.stop(t0 + dur + 0.1);
+  tone(out, t0, { f0: f0 / 2, f1: f0 * 0.45, glide: dur, env: [[0.2, level * 0.5], [dur, 0.0001]] });
+}
+
+/** A big animal's foot coming down at `at`: a thud you feel, more the heavier (`weight` 0..1). */
+export function footfall(at, weight = 1) {
+  if (!ready()) return;
+  const out = place(at, 6 + 14 * weight, 160 + 200 * weight), t = ctx.currentTime, k = 0.3 + 0.7 * weight;
+  tone(out, t, { f0: vary(48 - 14 * weight, 0.1), f1: 26, glide: 0.18, env: [[0.008, 0.9 * k], [0.32, 0.0001]] });
+  hiss(out, t, { type: 'lowpass', freq: 240 - 80 * weight, q: 0.7, env: [[0.006, 0.6 * k], [0.18, 0.0001]] });
+  // (And the litter of the forest floor under it.)
+  hiss(out, t + 0.01, { freq: vary(1800), q: 0.8, env: [[0.01, 0.12 * k], [0.12, 0.0001]] });
+}
+
+/**
+ * A dinosaur's call, from `at` (its head): `mood` 'call' going about, 'alarm'
+ * as it takes fright, 'hunt' as it goes after something.
+ */
+export function dinoCall(kind, at, mood = 'call') {
+  if (!ready()) return;
+  const t = ctx.currentTime;
+  if (kind === 'sauropod') {
+    // A long, low rumble, sliding down: more felt than heard, and heard far.
+    const out = place(at, 40, 900), d = mood === 'alarm' ? 1.4 : vary(2.6, 0.2);
+    rumble(out, t, vary(42, 0.1), 30, d, 1.0, 3.5);
+    hiss(out, t, { type: 'lowpass', freq: 180, q: 0.8, env: [[0.4, 0.25], [d, 0.0001]] });
+  } else if (kind === 'parasaur') {
+    // The crest's call, a horn; in alarm, short and higher, three times.
+    const out = place(at, 30, 900);
+    if (mood === 'alarm') for (let i = 0; i < 3; i++) horn(out, t + i * 0.55, vary(118, 0.05), 0.45);
+    else horn(out, t, vary(80, 0.06), vary(1.9, 0.2));
+  } else if (kind === 'stegosaur') {
+    // A huff through the nose, and a grunt; in alarm, two grunts.
+    const out = place(at, 10, 260);
+    hiss(out, t, { freq: vary(900), q: 1.2, env: [[0.04, 0.35], [0.3, 0.0001]] });
+    for (let i = 0; i < (mood === 'alarm' ? 2 : 1); i++) {
+      tone(out, t + 0.25 + i * 0.4, { type: 'sawtooth', f0: vary(78), f1: 58, glide: 0.3, env: [[0.03, 0.45], [0.35, 0.0001]] });
+      hiss(out, t + 0.25 + i * 0.4, { type: 'lowpass', freq: 320, q: 0.7, env: [[0.03, 0.4], [0.3, 0.0001]] });
+    }
+  } else if (kind === 'tyrannosaur') {
+    // A closed-mouth boom, very low; going after something, a growl in it.
+    const out = place(at, 45, 900), d = mood === 'hunt' ? 3.2 : vary(2.4, 0.15);
+    rumble(out, t, vary(34, 0.08), 23, d, 1.2, 7);
+    if (mood === 'hunt') hiss(out, t + 0.3, { freq: 220, q: 2, env: [[0.5, 0.4], [d, 0.0001]] });
+  } else if (kind === 'raptor') {
+    // Bird-like: a sharp bark or two going about; a long hiss and a run of
+    // clicking barks on the hunt.
+    const out = place(at, 6, 220);
+    const barks = mood === 'hunt' ? 3 : 1 + (Math.random() < 0.5 ? 1 : 0);
+    if (mood === 'hunt') hiss(out, t, { type: 'highpass', freq: 3200, q: 0.6, env: [[0.05, 0.35], [0.7, 0.0001]] });
+    for (let i = 0; i < barks; i++) {
+      const b = t + (mood === 'hunt' ? 0.5 : 0) + i * vary(0.16, 0.2);
+      tone(out, b, { type: 'square', f0: vary(720), f1: 430, glide: 0.08, env: [[0.006, 0.18], [0.11, 0.0001]] });
+      hiss(out, b, { freq: vary(1500), q: 2, env: [[0.005, 0.2], [0.09, 0.0001]] });
+    }
+  }
+}
+
+// ── birds and insects ────────────────────────────────────────────────────────
+/** A tern's call from `at`: a harsh, grating two-note "kee-arr", falling. */
+export function tern(at) {
+  if (!ready()) return;
+  const out = place(at, 8, 220), t = ctx.currentTime;
+  for (const [d, f0, f1, len] of [[0, 3300, 2900, 0.12], [0.13, 2700, 1900, 0.28]]) {
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(vary(f0, 0.05), t + d); o.frequency.exponentialRampToValueAtTime(f1, t + d + len);
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2600; f.Q.value = 1.5;
+    const g = ctx.createGain(); shape(g.gain, t + d, [[0.015, 0.22], [len * 0.7, 0.16], [len, 0.0001]]);
+    o.connect(f).connect(g).connect(out); o.start(t + d); o.stop(t + d + len + 0.05);
+  }
+}
+
+/** A small bird singing in the canopy at `at`: a run of quick, bright notes, rising or falling, sometimes a trill. */
+export function birdsong(at) {
+  if (!ready()) return;
+  const out = place(at, 6, 120), t = ctx.currentTime;
+  const n = 3 + (Math.random() * 6 | 0), base = vary(3200, 0.25), dir = Math.random() < 0.5 ? 1 : -1;
+  const trill = Math.random() < 0.35;
+  for (let i = 0; i < n; i++) {
+    const s = t + i * (trill ? 0.045 : vary(0.13, 0.25)), f0 = base * (1 + dir * i * 0.06), len = trill ? 0.035 : vary(0.08, 0.3);
+    tone(out, s, { f0, f1: f0 * vary(trill ? 1.05 : 1.25, 0.1), glide: len, env: [[0.006, 0.12], [len, 0.0001]] });
+  }
+}
+
+// Insects: two loops, eased to the levels given each frame. By day cicadas —
+// a band of noise high up, pulsing in the buzz of their tymbals and swelling
+// slowly; by night crickets — a pure tone, chirped.
+let bugs = null;
+export function insects(cicada, cricket) {
+  if (!ready()) return;
+  if (!bugs) {
+    if (cicada < 0.01 && cricket < 0.01) return;
+    bugs = {};
+    // Cicadas.
+    const src = ctx.createBufferSource(); src.buffer = noise; src.loop = true;
+    const band = ctx.createBiquadFilter(); band.type = 'bandpass'; band.frequency.value = 5600; band.Q.value = 6;
+    const pulse = ctx.createGain(); pulse.gain.value = 0.5;
+    const buzz = ctx.createOscillator(); buzz.frequency.value = 95; const bz = ctx.createGain(); bz.gain.value = 0.5;
+    buzz.connect(bz).connect(pulse.gain);
+    // (Each wobble on a gain of its own, about a level: on the output's gain
+    // it would swamp the level set below.)
+    const swellG = ctx.createGain(); swellG.gain.value = 0.65;
+    const swell = ctx.createOscillator(); swell.frequency.value = 0.09; const sw = ctx.createGain(); sw.gain.value = 0.35;
+    swell.connect(sw).connect(swellG.gain);
+    bugs.cicada = ctx.createGain(); bugs.cicada.gain.value = 0;
+    src.connect(band).connect(pulse).connect(swellG).connect(bugs.cicada).connect(master);
+    src.start(); buzz.start(); swell.start();
+    // Crickets: a tone at 4.6 kHz, gated into chirps of a few pulses.
+    const tone4 = ctx.createOscillator(); tone4.frequency.value = 4600;
+    const gate = ctx.createGain(); gate.gain.value = 0.5;      // 0..1 with the pulses' ±0.5
+    const pulses = ctx.createOscillator(); pulses.type = 'square'; pulses.frequency.value = 28;
+    const pg = ctx.createGain(); pg.gain.value = 0.5;
+    const chirps = ctx.createOscillator(); chirps.type = 'square'; chirps.frequency.value = 1.6;
+    const cg = ctx.createGain(); cg.gain.value = 0.5;
+    const both = ctx.createGain(); both.gain.value = 0.5;
+    pulses.connect(pg).connect(gate.gain);
+    chirps.connect(cg).connect(both.gain);
+    bugs.cricket = ctx.createGain(); bugs.cricket.gain.value = 0;
+    tone4.connect(gate).connect(both).connect(bugs.cricket).connect(master);
+    tone4.start(); pulses.start(); chirps.start();
+  }
+  const t = ctx.currentTime;
+  bugs.cicada.gain.setTargetAtTime(Math.min(1, cicada) * 0.05, t, 1.5);
+  bugs.cricket.gain.setTargetAtTime(Math.min(1, cricket) * 0.035, t, 1.5);
 }

@@ -328,6 +328,48 @@ const GESTURES = {
     const back = ease(u / 0.35), fwd = ease((u - 0.35) / 0.3);
     return { armR: u < 0.35 ? 0.2 - 0.8 * back : -0.6 + 2.0 * fwd, elbowR: 0.3 };
   } },
+  // Seen from outside, what had no gesture of its own looked like nothing at
+  // all — the others stood still while wood came aboard, a fire was fed or a
+  // fish came off it — or like eating: a spark struck, a torch lit, flint
+  // chipped and a crab grabbed were all a hand to the mouth.
+  //
+  // Reaching for something in front of you, low — flotsam at the deck's edge,
+  // a frond, the fire, the spit: bent at the waist, the hand out and down,
+  // the head following it.
+  reach: { time: 0.6, pose: u => {
+    const k = Math.sin(Math.PI * Math.min(1, u / 0.85));
+    // (Bent well over: only the upper spine bends, and at half this a reach
+    // was a nod, not a stoop.)
+    return { chest: 1.0 * k, armR: 0.3 + 0.75 * k, elbowR: 0.55 - 0.4 * k, foreInR: 0.1, openR: 0.1,
+             armL: 0.15 + 0.3 * k, elbowL: 0.3, neck: -0.3 * k };
+  } },
+  // Flint struck on iron: the left hand holds the flint out low, the right
+  // brings the striker down across it, twice.
+  strike: { time: 0.55, pose: u => {
+    const blow = Math.abs(Math.sin(u * Math.PI * 2));
+    return { chest: 0.2, armL: 0.75, elbowL: 1.25, foreInR: 0.2,
+             armR: 1.05 - 0.4 * blow, elbowR: 1.0 + 0.3 * blow, neck: -0.3 };
+  } },
+  // The bow drill: bent over it, the left hand pressing the spindle's cap
+  // down, the right sawing the bow back and forth. (Sent again and again
+  // while it is sawn: main.js sawDrill.)
+  drill: { time: 0.7, pose: u => {
+    const saw = Math.sin(u * Math.PI * 2);
+    return { chest: 0.85, armL: 0.7, elbowL: 0.35, openR: 0.2,
+             armR: 0.7 + 0.4 * saw, elbowR: 0.8 - 0.5 * saw, neck: -0.35 };
+  } },
+  // A cast: the rod taken back over the shoulder, then brought through and
+  // stopped high in front, the line going out.
+  cast: { time: 0.6, pose: u => {
+    const back = ease(u / 0.4), through = ease((u - 0.4) / 0.25), settle = ease((u - 0.65) / 0.35);
+    const arm = u < 0.4 ? 0.3 + 2.0 * back : u < 0.65 ? 2.3 - 1.0 * through : 1.3 - 0.9 * settle;
+    return { armR: arm, elbowR: 0.6 - 0.3 * (u < 0.65 ? through : 1 - settle), chest: u < 0.4 ? -0.1 * back : 0.15 * through * (1 - settle) };
+  } },
+  // Setting the hook on a bite: a sharp lift of the rod.
+  jerk: { time: 0.35, pose: u => {
+    const k = Math.sin(Math.PI * u);
+    return { armR: 0.3 + 1.1 * k, elbowR: 1.0 - 0.4 * k, chest: -0.12 * k };
+  } },
 };
 
 // ── swimming ─────────────────────────────────────────────────────────────────
@@ -480,7 +522,10 @@ export class PlayerBody {
     this.heldId = id;
     this.held = obj || null;
     // A tool is gripped through the fist; anything else rests in the palm.
-    this.heldTool = !!ITEMS[id]?.tool && id !== 'bowdrill';
+    // (A torch too, lit or not: resting in the palm it lay along the hand, and
+    // the man — whose rig rests palms down — held it out level like a spear,
+    // the flame at the far end, rather than up.)
+    this.heldTool = (!!ITEMS[id]?.tool || id === 'torch' || id === 'torch_lit') && id !== 'bowdrill';
     if (!this.held) return;
     this.held.updateMatrixWorld(true);
     this.heldRadius = new THREE.Box3().setFromObject(this.held).getBoundingSphere(new THREE.Sphere()).radius;

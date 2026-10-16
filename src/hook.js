@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { waveHeight } from './ocean.js';
 import { textures } from './textures.js';
+import { heightAt } from './terrain.js';
 
 const SEGMENTS = 12;
 // Tuned so a throw aimed straight at debris 20m out actually reaches it: a
@@ -84,13 +85,19 @@ export class Hook {
       // first one, and gets one last generous grab as it goes under.
       const sinking = this.pos.y < waveHeight(this.pos.x, this.pos.z, time) - 0.45;
       const spent = this.pos.distanceTo(handPos) > MAX_RANGE;
-      if (!hit && (sinking || spent)) hit = debris.nearestTo(this.pos, CATCH_RADIUS * 1.4);
+      // Or it comes down on the ground — thrown from the beach, up it, or
+      // short into the shallows: there it stops, and is pulled back over it.
+      // (It flew on into the sand, a metre down, before it turned back.)
+      const ground = heightAt(this.pos.x, this.pos.z);
+      const landed = this.pos.y <= ground;
+      if (landed) this.pos.y = ground;
+      if (!hit && (sinking || spent || landed)) hit = debris.nearestTo(this.pos, CATCH_RADIUS * 1.4);
       if (hit) {
         hit.held = true;
         hit.hookedAt = [hit.x, hit.z];     // where it was caught: where the others' copies of it still are
         this.target = hit;
         this.state = 'attached';
-      } else if (sinking || spent) {
+      } else if (sinking || spent || landed) {
         this.state = 'returning';
       }
     } else if (this.state === 'attached') {
@@ -108,6 +115,7 @@ export class Hook {
       }
     } else if (this.state === 'returning') {
       this.pos.lerp(handPos, Math.min(1, dt * 7));
+      this.pos.y = Math.max(this.pos.y, heightAt(this.pos.x, this.pos.z) + 0.05);   // over the sand, not through it
       if (this.pos.distanceTo(handPos) < 0.7) { this.reset(); return; }
     }
 

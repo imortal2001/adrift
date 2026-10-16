@@ -13,6 +13,21 @@ import { heightAt, isLand, coastDistance, freshWaterAt, landAt, slopeAt, moistur
 import { caveAt } from './caves.js';
 import { ModelLibrary, playState, driveGait, plantFeet } from './models.js';
 import { MOTION, prepareDino, poseDino } from './dinopose.js';
+import * as sound from './sound.js';
+
+// What each is heard as (sound.js dinoCall): how often it calls going about
+// (s), how far off a call is worth making, whether it calls in alarm or on
+// the hunt, and how heavy its footfall is (0: not heard). (They were silent:
+// a forty-tonne sauropod walked by without a sound.)
+// (Each of a herd calls on its own clock, so the gaps are long: fourteen
+// parasaurs at one call a half-minute each was a honk every two seconds.)
+const VOICE = {
+  sauropod:    { every: [60, 150], far: 500, alarm: true,  hunt: false, thud: 1.0 },
+  stegosaur:   { every: [50, 120], far: 220, alarm: true,  hunt: false, thud: 0.45 },
+  parasaur:    { every: [45, 120], far: 500, alarm: true,  hunt: false, thud: 0.4 },
+  raptor:      { every: [30, 70],  far: 200, alarm: false, hunt: true,  thud: 0 },
+  tyrannosaur: { every: [60, 150], far: 600, alarm: false, hunt: true,  thud: 0.8 },
+};
 
 const TAU = Math.PI * 2;
 const DRAW_RANGE = 240;
@@ -887,7 +902,7 @@ export class Wildlife {
   update(dt, time, player, playerOnLand) {
     this.clock = (this.clock || 0) + dt;
     if (this.follow) {
-      for (const a of this.all) this.shadow(a, dt, time, player);
+      for (const a of this.all) { this.shadow(a, dt, time, player); if (!a.dead) this.voice(a, dt, player); }
       return;
     }
     this.spaceOut(dt);
@@ -919,7 +934,43 @@ export class Wildlife {
       this.think(a, dt, player, playerOnLand);
       this.move(a, dt);
       this.draw(a, dt, time, player);
+      this.voice(a, dt, player);
     }
+  }
+
+  /** Its calls: now and then going about, and as it takes fright or goes after something. */
+  voice(a, dt, player) {
+    const v = VOICE[a.key];
+    if (!v) return;
+    const d = Math.hypot(a.pos.x - player.pos.x, a.pos.z - player.pos.z);
+    if (a.voiceState !== a.state) {
+      const was = a.voiceState;
+      a.voiceState = a.state;
+      const mood = a.state === 'flee' && v.alarm ? 'alarm' : a.state === 'hunt' && v.hunt ? 'hunt' : null;
+      if (was !== undefined && mood && d < v.far) {
+        sound.dinoCall(a.key, this.headAt(a), mood);
+        a.callIn = 6 + Math.random() * 6;
+        return;
+      }
+    }
+    a.callIn ??= Math.random() * v.every[1];
+    if ((a.callIn -= dt) > 0) return;
+    a.callIn = v.every[0] + Math.random() * (v.every[1] - v.every[0]);
+    if (d < v.far) sound.dinoCall(a.key, this.headAt(a), a.state === 'hunt' && v.hunt ? 'hunt' : 'call');
+  }
+
+  /** About where its head is, to call from. */
+  headAt(a) {
+    const L = a.len || 3, f = L * 0.45;
+    return (this._head ||= new THREE.Vector3()).set(a.pos.x + Math.sin(a.heading) * f, a.y + (a.tall || 2) * 0.8, a.pos.z + Math.cos(a.heading) * f);
+  }
+
+  /** A foot down, heard: not more often than a step allows (a lock let go and taken again is not a step). */
+  thud(a, at, weight) {
+    const now = this.clock || 0;
+    if (now - (a.lastThud ?? -1) < 0.18) return;
+    a.lastThud = now;
+    sound.footfall(at, weight * Math.min(1.2, a.grow ?? 1));
   }
 
   /**
@@ -1390,7 +1441,8 @@ export class Wildlife {
       // What the clips get wrong about the animal, put right (dinopose.js).
       poseDino(a, dt, time);
       // And the feet that are down, held on the ground — near enough to see.
-      if (dist < 70) plantFeet(rig, dt, heightAt);
+      const thud = VOICE[a.key]?.thud;
+      if (dist < 70) plantFeet(rig, dt, heightAt, thud && dist < 60 ? at => this.thud(a, at, thud) : null);
       else rig.locks?.clear();
       return;
     }
