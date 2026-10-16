@@ -241,7 +241,7 @@ pause screen starts over.
 | `src/raft.js` | The 2m cell grid, buoyancy, wall collision, shelter test, and every buildable's geometry — and where the raft is: paddled, blown by the wind in a sail, slowed by the water, run aground on the shallows, carrying whoever stands on it. |
 | `src/fire.js` | How a campfire looks: rounded stones, a teepee of sticks over coals that char from the heart outward as the fuel goes and glow while it burns, a shader-drawn flame that billows and licks, and sparks. |
 | `src/camera.js` | The three views: first person at the eye, third behind you over the shoulder, second in front looking back; pulled in short of walls, roof and ground. |
-| `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold. |
+| `src/body.js` | The player's body, seen outside first person: a rigged character (or a code-built stand-in) walked, run, swum and jumped by joint angles made in code, holding what you hold, and gesturing what you do (`GESTURES`: chop, swing, thrust, throw, paddle, eat, toss, reach, strike, drill, cast, jerk). |
 | `src/net.js` | Playing together: joining a room through the relay, sending where you are and what you do, and drawing the others — their characters, smoothed between updates, holding what they hold, with a name over their heads. |
 | `src/sharedworld.js` | Playing together in one world, the host's: the time of day, the flotsam, the fish schools, the whale and the dinosaurs, a catch or a gather gone for everyone, the others' spears in flight, a bite on a guest sent to them. |
 | `src/spawn.js` | Where a new castaway comes to: a beach, the open sea, a square of wreckage or a small raft — never inland — and what they are told. |
@@ -249,7 +249,7 @@ pause screen starts over.
 | `src/together.js` | Playing together on one raft, the host's: your own put by while you are away from it, each change sent as it happens, and the host's copy settling anything contested. |
 | `server/` | The multiplayer relay: a Cloudflare Worker with one Durable Object per room, and `dev-relay.mjs`, the same on this machine. See `server/README.md`. |
 | `src/build.js` | Build mode: grid snapping, the translucent ghost, placement and salvage. |
-| `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current — past each of you, playing together, and round an island up the current. A move of more than 10 m in a frame (a new start, a waking) scatters it afresh round you. A palm frond is a rib with leaflets off both sides, lying on the water. |
+| `src/debris.js` | A recycled pool of 60 pieces of flotsam drifting down one current — past each of you, playing together, and round an island up the current. A move of more than 10 m in a frame (a new start, a waking) scatters it afresh round you. Ashore it keeps to where you left the water — but a new castaway, or one waking back on the beach they came to, has it brought round the water off that beach (main.js): washed up on a beach, the nearest piece was a hundred metres off and more, round where the last castaway had been. A palm frond is a rib with leaflets off both sides, lying on the water. |
 | `src/fish.js` | The fish, in schools — glTF bodies, one instanced draw per species. Fourteen species, ~220 fish, 14 draw calls. Where each lives (reef, sand, mid-water, under the raft, past the drop-off), how it steers, and how it reacts to you. |
 | `src/swim.js` | How a fish moves its body: the swim shader (per-part motion, scales, sheen) and the per-fish stroke driver, with every species' swimming style. Shared by the schools, the whale, and speared and hooked fish. |
 | `src/whale.js` | One humpback, passing by: a few minutes' company, then gone a while; cruises, surfaces to blow, sounds flukes-up. Not catchable. |
@@ -1503,6 +1503,15 @@ You see each other as you are: where you stand or swim, which way you face,
 walking, running, jumping, treading water, woman or man, what is in your
 hand, and each thrust, throw, strike and swing — the same body and motion
 you see of yourself in third person (`src/body.js`), with a name over it.
+Everything you do with your hands shows: stooping to take flotsam aboard,
+pick a frond or a crab, feed a fire or hang a fish on it or take one off;
+flint struck on iron (a spark into a fire, a torch lit, flint knocked out of
+a cave wall); bent over a bow drill, sawing, for as long as you saw it; a
+rod cast and the hook set; a drink. (The others saw you stand still while
+wood came aboard, or put a hand to your mouth to strike a spark.) A torch is
+held up, the flame on top — the man held it out level like a spear — and a
+paddle stroke is made from the edge of the deck, over the side: from the
+middle of a big one it went down through the planks.
 
 How: a small relay (`server/` — a Cloudflare Worker, one Durable Object per
 room) keeps the players of a room connected and passes their messages on;

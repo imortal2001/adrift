@@ -738,6 +738,7 @@ class Game {
    * your own, it is yours to take.
    */
   gather(it) {
+    this.showGesture('reach');
     if (this.net.connected && !this.net.isHost && this.together.world.nearHost) {
       // Where it floats in the host's sea: a hooked piece has come your way only here.
       const i = this.debris.items.indexOf(it), [x, z] = it.hookedAt || [it.x, it.z];
@@ -760,6 +761,18 @@ class Game {
     this.hud.log(`${label}: ${parts.join(', ')}`, 'good');
     this.hud.refreshInventory(this.inv);
     this.hud.refreshCraft(this.inv);
+  }
+
+  /**
+   * What your body does, seen from outside — your own in third person, and
+   * the others' copies of you — for what has no first-person use of its own
+   * (body.js GESTURES): reaching for something, striking a spark, sawing a
+   * bow drill, a cast. Without one the others saw you stand still while wood
+   * came aboard or a fire was fed, or put a hand to your mouth to strike flint.
+   */
+  showGesture(g) {
+    this.body.gesture(g);
+    this.net.event({ k: 'g', g });
   }
 
   /** A use of what is in hand, seen: the arm in first person, the body outside it. */
@@ -1042,6 +1055,8 @@ class Game {
       if (this.drill?.rec !== act.drill) this.drill = { rec: act.drill, p: 0 };
       this.drill.p += dt / FIRE.light;
       this.viewmodel.drilling = this.hotbar.held === 'bowdrill';
+      // Sawn, seen: a stroke of the bow at a time, for as long as it is sawn.
+      if ((this.drill.sawn = (this.drill.sawn ?? 0.7) + dt) >= 0.7) { this.drill.sawn = 0; this.showGesture('drill'); }
       if (this.drill.p >= 1) this.lightFire(act.drill);
     } else {
       this.viewmodel.drilling = false;
@@ -1059,7 +1074,7 @@ class Game {
     if (!this.inv.remove('leaf', 1)) return;
     o.lit = true;
     this.together.touched(o);
-    this.useAnim('eat');
+    this.showGesture('strike');
     this.hud.log('Flint on iron: a shower of sparks, and the palm fibre catches. The fire is lit.', 'good');
     this.hud.refreshInventory(this.inv);
   }
@@ -1083,7 +1098,7 @@ class Game {
     this.torch.lit = true;
     this.torch.embers = 0;
     this.torchLitOnce = true;
-    this.useAnim('eat');
+    this.showGesture(how === 'with the striker' ? 'strike' : 'reach');
     this.hud.log(how === 'with the striker' ? 'Sparks from the striker, and the palm fibre flares: your torch is lit.'
                                             : 'You hold the torch in the flames until it catches.', 'good');
   }
@@ -1306,7 +1321,7 @@ class Game {
   /** Chip a flint face off a cave wall. */
   chipFlint(f) {
     const n = this.caves.chip(f);
-    this.useAnim('eat');
+    this.showGesture('strike');                    // knocking it out of the wall
     // A guest's is gone at once; the flint itself comes when the host says
     // nobody had it first (two of you at one face used to get a lot each).
     if (this.asksHost()) { this.net.event({ k: 'claimflint', key: f.key, n }, this.net.host); return; }
@@ -1368,6 +1383,7 @@ class Game {
 
   feedFire(o) {
     if (!this.inv.remove('wood', 1)) return;
+    this.showGesture('reach');
     const was = o.fuel;
     o.fuel = Math.min(FIRE.max, o.fuel + FIRE.perWood);
     this.together.fed(o);
@@ -1379,6 +1395,7 @@ class Game {
   cook(o, id) {
     const sp = this.fish.species(fishOf(id));
     if (!sp || !this.inv.remove(id, 1)) return;
+    this.showGesture('reach');
     this.hotbar.refillFish(this.inv);
     this.hang(o, id);
     this.layoutSpit(o);
@@ -1473,6 +1490,7 @@ class Game {
    * them over (or says someone was quicker).
    */
   takeCooked(o) {
+    this.showGesture('reach');
     if (this.net.connected && !this.net.isHost) {
       this.net.event({ k: 'claimfish', ri: this.raft.id, cx: o.cx, cz: o.cz }, this.net.host);
       return;
@@ -1487,6 +1505,7 @@ class Game {
    * and drinks when the host says there was some.
    */
   drinkCollector(c) {
+    this.showGesture('eat');                       // (a drink: hand to mouth)
     if (this.net.connected && !this.net.isHost) {
       this.net.event({ k: 'claimdrink', ri: this.raft.id, cx: c.cx, cz: c.cz }, this.net.host);
       return;
@@ -1616,6 +1635,13 @@ class Game {
     // where the flotsam will gather and a first foundation can go.
     const at = st.kind === 'shore' ? st.sea : st;
     this.raft.setPose([at.x, at.z, heading]);
+    // The flotsam, fish and whale come past here now — not where the last
+    // castaway left the water: ashore they keep to that, and one washed up on
+    // a beach found the nearest flotsam a hundred metres off and more, round
+    // somewhere the last one had been.
+    this.focus ||= new THREE.Vector3();
+    this.focus.set(at.x, 0, at.z);
+    this.debris.focus = this.fish.focus = this.whale.focus = this.reef.focus = this.focus;
     if (st.kind === 'raft') this.raft.startingRaft();
     else if (st.kind === 'debris') this.raft.place('foundation', { cx: 0, cz: 0, force: true });
     // Come to on a raft, it is where you come back to, wherever it goes.
@@ -1751,6 +1777,11 @@ class Game {
       return;
     }
     this.player.standAt(st.x, st.z, st.yaw);
+    // Back on the beach you came to: the flotsam comes past offshore of it
+    // again, not out where you went under.
+    if (st.sea && this.focus) {
+      this.focus.set(st.sea.x, 0, st.sea.z);
+    }
     this.deathSay(this.registered ? 'You black out. Your statue is gone — you wake where you first came to.'
                                  : 'You black out, and wake where you first came to. A statue would bring you back nearer.', 'bad');
   }
@@ -2071,13 +2102,12 @@ class Game {
       this.hud.log('Paddle from the deck of the raft.', 'bad');
       return;
     }
-    this.paddleIn = 0.85;
     const p = this.player;
     const dir = new THREE.Vector3(-Math.sin(p.yaw), 0, -Math.cos(p.yaw)).multiplyScalar(sign);
-    this.raft.paddle(p.pos, dir, 1);
-    this.together.world.paddled(p.pos, dir);
-    this.useAnim('paddle');
-    // The blade goes in over the nearer side, as the stroke comes down.
+    // The blade goes in over the nearer side, as the stroke comes down — so
+    // there must be a side near enough to reach the water over. (From the
+    // middle of a big deck the stroke went down through the planks, to the
+    // others watching, and to you in third person.)
     const side = new THREE.Vector3(-dir.z, 0, dir.x);
     let best = null;
     for (const k of [1, -1]) {
@@ -2085,6 +2115,15 @@ class Game {
       while (d < 10 && this.raft.solidAtWorld(p.pos.x + side.x * k * d, p.pos.z + side.z * k * d)) d += 0.2;
       if (!best || d < best.d) best = { d, k };
     }
+    if (best.d > 1.3) {
+      this.paddleIn = 1.2;
+      this.hud.log('Stand at the edge of the deck to paddle — the blade goes in over the side.', 'bad');
+      return;
+    }
+    this.paddleIn = 0.85;
+    this.raft.paddle(p.pos, dir, 1);
+    this.together.world.paddled(p.pos, dir);
+    this.useAnim('paddle');
     if (best && best.d < 10) {
       const at = p.pos.clone().addScaledVector(side, best.k * (best.d + 0.35)).addScaledVector(dir, 0.3 * sign);
       splash(at, 0.3, { delay: 0.22 });
@@ -2400,7 +2439,7 @@ class Game {
       return { prompt: '<b>E</b> grab the crab', act: () => {
         this.reef.take(crab);
         this.addCatch('crab');
-        this.useAnim('eat');
+        this.showGesture('reach');
         this.hud.log('You grab the crab from behind, clear of its claws.', 'good');
         this.hud.refreshInventory(this.inv);
       } };
@@ -2487,7 +2526,7 @@ class Game {
       }
       const what = plant.sp.label.toLowerCase();
       const verb = plant.sp.name === 'deadfall' ? `gather the ${what}` : plant.sp.yield?.leaf ? `strip the fronds from the ${what}` : `take the ${what}`;
-      return { prompt: `<b>E</b> ${verb}`, act: () => this.takePlant(plant) };
+      return { prompt: `<b>E</b> ${verb}`, act: () => { this.showGesture('reach'); this.takePlant(plant); } };
     }
 
     const beast = this.wildlife.pick(eye, dir);
@@ -2929,6 +2968,13 @@ class Game {
 
     // After the viewmodel, so the line hangs from where the rod tip is now.
     this.fishing.update(dt, this.time, this.player, held === 'rod' && this.inv.has('rod'));
+    // The cast and the strike, seen from outside (the rod's own arm is the first person's).
+    const fishNow = this.fishing.state;
+    if (fishNow !== this.fishWas) {
+      if (fishNow === 'casting') this.showGesture('cast');
+      else if (fishNow === 'fighting' && this.fishWas === 'bite') this.showGesture('jerk');
+      this.fishWas = fishNow;
+    }
     for (const e of this.fishing.events.splice(0)) {
       if (e.catch) {
         this.net.event({ k: 'landed', key: e.catch });     // "Ben lands a grouper", for the others
